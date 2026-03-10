@@ -11,6 +11,12 @@ The secret to Cherimoya's success is a new Cheri Block, which adapts the ConvNeX
 
 <img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/cheri-block.png">
 
+--
+
+### Installation
+
+`pip install cherimoya`
+
 ---
 
 ## Key Features
