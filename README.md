@@ -18,7 +18,23 @@ The secret to Cherimoya's success is a new Cheri Block, which adapts the ConvNeX
 
 ### Installation
 
-`pip install cherimoya`
+```bash
+pip install cherimoya
+```
+
+Or, using [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv pip install cherimoya
+```
+
+To install from source:
+
+```bash
+git clone https://github.com/jmschrei/cherimoya.git
+cd cherimoya
+pip install -e .    # or: uv pip install -e .
+```
 
 ### Key Features
 

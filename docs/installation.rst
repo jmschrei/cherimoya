@@ -33,6 +33,24 @@ Install from Source
    cd cherimoya
    pip install -e .
 
+Install with uv
+---------------
+
+`uv <https://docs.astral.sh/uv/>`_ is a fast Python package manager that can be used
+as a drop-in replacement for pip.
+
+.. code-block:: bash
+
+   uv pip install cherimoya
+
+Install from source with uv:
+
+.. code-block:: bash
+
+   git clone https://github.com/jmschrei/cherimoya.git
+   cd cherimoya
+   uv pip install -e .
+
 Dependencies
 ------------
 
