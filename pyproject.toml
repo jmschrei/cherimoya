@@ -31,6 +31,7 @@ dependencies = [
     "bam2bw>=0.4.1",
     "bpnet-lite>=1.0.0",
     "triton>=3.5.1",
+    "joblib>=1.0.0",
 ]
 
 [project.urls]
@@ -45,6 +46,8 @@ docs = [
     "sphinx-copybutton>=0.5",
 ]
 
+[project.scripts]
+cherimoya = "cherimoya_cli.__main__:main"
+
 [tool.setuptools]
-packages = ["cherimoya"]
-script-files = ["cli/cherimoya"]
+packages = ["cherimoya", "cherimoya_cli", "cherimoya_cli.commands"]
