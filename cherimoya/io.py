@@ -199,7 +199,7 @@ class PeakNegativeSampler(torch.utils.data.Dataset):
 
 
 def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
-	chroms=None, in_window=2114, out_window=1000, max_jitter=128,
+	chroms=None, in_window=2114, out_window=1000, max_jitter=50,
 	negative_ratio=0.1, reverse_complement=True, shuffle=True, min_counts=None,
 	max_counts=None, summits=False, exclusion_lists=None, random_state=None,
 	pin_memory=True, num_workers=1, batch_size=32, verbose=False):
@@ -254,7 +254,7 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 
 	max_jitter: int, optional
 		The maximum amount of jitter to add, in either direction, to the
-		midpoints that are passed in. Default is 128.
+		midpoints that are passed in. Default is 50.
 
 	negative_ratio: float, optional
 		The ratio of negatives compared to peaks in each batch. A value of 1 means

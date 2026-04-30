@@ -1,0 +1,55 @@
+/* Cherimoya docs — custom styles */
+
+/* Soften the overall feel */
+body {
+    font-feature-settings: "kern", "liga";
+}
+
+/* Slightly rounder code blocks */
+.highlight pre {
+    border-radius: 8px;
+}
+
+code.literal {
+    border-radius: 4px;
+    font-size: 0.88em;
+}
+
+/* Soften admonition corners */
+.admonition {
+    border-radius: 8px;
+}
+
+/* Sidebar logo breathing room */
+.sidebar-brand {
+    padding: 1.2rem 0;
+}
+
+/* Make the logo feel centered and cozy */
+.sidebar-logo {
+    max-width: 140px;
+    margin: 0 auto;
+    display: block;
+}
+
+/* Gentle transition on links */
+a {
+    transition: color 0.15s ease;
+}
+
+/* Slightly smaller h1 for a more minimal feel */
+.content h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.content h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.content h3 {
+    font-size: 1.2rem;
+    font-weight: 600;
+}

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cherimoya"
-version = "0.0.1"
+version = "0.1.0"
 description = "A light-weight deep learning architecture that uses modern optimization tricks to achieve strong predictive performance."
 readme = "README.md"
 license = "MIT"
