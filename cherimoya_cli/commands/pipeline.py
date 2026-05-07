@@ -297,7 +297,7 @@ def run(args):
 	_check_set(seqlet_parameters, "output_filename", pname+".seqlets.bed")
 	_check_set(seqlet_parameters, "chroms", attribute_parameters['chroms'])
 
-	name = '{}.bpnet.seqlets.json'.format(parameters['name'])
+	name = '{}.seqlets.json'.format(parameters['name'])
 	with open(name, 'w') as outfile:
 		outfile.write(json.dumps(seqlet_parameters, sort_keys=True, indent=4))
 

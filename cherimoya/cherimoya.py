@@ -491,3 +491,4 @@ class Cherimoya(torch.nn.Module):
 
 		ema.apply_shadow(self)
 		self.save("{}.final.torch".format(self.name))
+		return best_corr
