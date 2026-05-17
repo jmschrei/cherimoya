@@ -1,6 +1,9 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 
+# Local benchmark scripts
+bench_kernels.py
+
 
 # Distribution / packaging
 .Python

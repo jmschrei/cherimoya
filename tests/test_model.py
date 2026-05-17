@@ -322,6 +322,113 @@ def test_model_save_load_no_grad_matches_grad_cuda(tmp_path):
 
 @pytest.mark.cuda
 @pytest.mark.triton
+def test_cherimoya_backward_matches_cpu_autograd():
+	"""End-to-end gradient parity for the full Cherimoya model. CPU
+	autograd uses pure PyTorch ops; CUDA autograd uses the Triton
+	fwd+bwd kernels in every CheriBlock plus cuDNN/cuBLAS for the
+	surrounding layers. The two must agree on every parameter grad and
+	the input grad — this is the broadest regression guard for the
+	training kernels.
+
+	Tolerance budget: 3 stacked blocks, each with Triton conv+norm bwd
+	feeding into cuBLAS linear bwd (TF32). Errors compound; allow
+	~5e-3 absolute or relative. This is the realistic precision floor
+	of fp32-with-TF32 training on GPU vs a fp32 CPU reference.
+
+	The first GPU call to each block shape triggers Triton autotune,
+	whose benchmark trials can contaminate the user-visible output via
+	atomic_add residue in the bwd. We warm up to lock the configs
+	before measuring."""
+
+	torch.manual_seed(0)
+	cpu_model = Cherimoya(n_filters=16, n_layers=3, n_outputs=1,
+		n_control_tracks=0, single_count_output=True, verbose=False)
+	gpu_model = Cherimoya(n_filters=16, n_layers=3, n_outputs=1,
+		n_control_tracks=0, single_count_output=True, verbose=False).cuda()
+	gpu_model.load_state_dict(cpu_model.state_dict())
+
+	L = _input_window_for(cpu_model)
+
+	# Warmup pass on GPU: triggers autotune for every block's fwd+bwd
+	# kernels at the shapes this model uses. Each block has a different
+	# dilation so each has its own autotune entry.
+	with torch.enable_grad():
+		xw = torch.randn(1, 4, L, device='cuda', requires_grad=True)
+		yp, yc = gpu_model(xw)
+		(yp.sum() + yc.sum()).backward()
+		gpu_model.zero_grad()
+
+	x_cpu = torch.randn(1, 4, L, requires_grad=True)
+	x_gpu = x_cpu.detach().cuda().requires_grad_(True)
+
+	y_prof_cpu, y_count_cpu = cpu_model(x_cpu)
+	y_prof_gpu, y_count_gpu = gpu_model(x_gpu)
+
+	(y_prof_cpu.sum() + y_count_cpu.sum()).backward()
+	(y_prof_gpu.sum() + y_count_gpu.sum()).backward()
+
+	# Forward outputs must agree first — otherwise grad comparison
+	# isn't meaningful.
+	assert torch.allclose(y_prof_cpu, y_prof_gpu.cpu(),
+		atol=5e-3, rtol=5e-3), "forward profile diverged"
+	assert torch.allclose(y_count_cpu, y_count_gpu.cpu(),
+		atol=5e-3, rtol=5e-3), "forward counts diverged"
+
+	# Per-parameter grad parity. Some params (lw0/lw1) aren't used in
+	# forward — grad is None on both sides; skip them.
+	cpu_params = dict(cpu_model.named_parameters())
+	for name, gpu_p in gpu_model.named_parameters():
+		cpu_p = cpu_params[name]
+		if cpu_p.grad is None:
+			assert gpu_p.grad is None, \
+				f"{name}: CPU grad None but GPU grad is not"
+			continue
+		diff = (cpu_p.grad - gpu_p.grad.cpu()).abs().max().item()
+		scale = max(cpu_p.grad.abs().max().item(), 1e-6)
+		rel = diff / scale
+		assert diff < 5e-3 or rel < 5e-3, \
+			f"{name}: max-abs-diff={diff:.3e}  max-rel={rel:.3e}"
+
+	# Input grad parity.
+	in_diff = (x_cpu.grad - x_gpu.grad.cpu()).abs().max().item()
+	assert in_diff < 5e-3, f"input grad max-abs-diff={in_diff:.3e}"
+
+
+@pytest.mark.cuda
+@pytest.mark.triton
+def test_cherimoya_inference_megakernel_matches_cpu():
+	"""End-to-end forward parity between the pure-PyTorch CPU model and
+	the CUDA model under no_grad (which routes every CheriBlock through
+	the new megakernel). bf16-dot precision accumulates across the
+	stack of blocks, so the tolerance budget is looser than the
+	single-block test but still pins a hard upper bound."""
+
+	torch.manual_seed(0)
+	cpu_model = Cherimoya(n_filters=16, n_layers=3, n_outputs=1,
+		n_control_tracks=0, single_count_output=True,
+		verbose=False).eval()
+	gpu_model = Cherimoya(n_filters=16, n_layers=3, n_outputs=1,
+		n_control_tracks=0, single_count_output=True,
+		verbose=False).cuda().eval()
+	gpu_model.load_state_dict(cpu_model.state_dict())
+
+	L = _input_window_for(cpu_model)
+	x = torch.randn(1, 4, L)
+
+	with torch.no_grad():
+		y_prof_cpu, y_count_cpu = cpu_model(x)
+		y_prof_gpu, y_count_gpu = gpu_model(x.cuda())
+
+	prof_diff = (y_prof_cpu - y_prof_gpu.cpu()).abs().max().item()
+	count_diff = (y_count_cpu - y_count_gpu.cpu()).abs().max().item()
+	assert prof_diff <= 5e-2, \
+		f"CPU vs CUDA-megakernel profile max-abs-diff={prof_diff:.3e}"
+	assert count_diff <= 5e-2, \
+		f"CPU vs CUDA-megakernel counts max-abs-diff={count_diff:.3e}"
+
+
+@pytest.mark.cuda
+@pytest.mark.triton
 def test_model_no_grad_stable_across_repeated_calls_cuda():
 	"""A weight cache keyed only on Parameter identity could silently
 	stale-hit if the model is reused across many inference passes

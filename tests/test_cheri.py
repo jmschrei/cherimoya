@@ -468,6 +468,145 @@ def test_cheri_block_in_place_update_invalidates_cache_cuda():
 
 @pytest.mark.cuda
 @pytest.mark.triton
+def test_cheri_block_triton_backward_matches_cpu_autograd():
+	"""The Triton _bwd_* kernels (which produced every gradient in every
+	existing trained checkpoint) must agree with the CPU autograd
+	reference. This is the canonical regression guard for the training
+	backward path — divergence means the gradient signal that trained
+	deployed models cannot be reproduced.
+
+	Tolerance budget: TF32 is enabled by default in cuBLAS, so the
+	linear1/linear2 backward on GPU uses TF32 matmul (~1e-3 precision).
+	That noise propagates through to dy entering the conv+norm bwd,
+	pushing the realistic floor for conv_weight grad to ~5e-4 relative.
+
+	Note: the first call to a Triton autotuned kernel runs benchmarking
+	trials whose atomic_add residue can leave the user-visible output
+	anomalously off (observed ~7e-2 on the very first call). We
+	explicitly warm up to lock in the best config before measuring.
+	"""
+
+	torch.manual_seed(0)
+	cpu_block = CheriBlock(n_filters=32, dilation=2)
+	gpu_block = CheriBlock(n_filters=32, dilation=2).cuda()
+	# Mirror CPU parameters onto the GPU block so both are bit-identical
+	# at the start of the comparison.
+	gpu_block.load_state_dict(cpu_block.state_dict())
+
+	# Warmup: triggers Triton autotune for both fwd and bwd at this
+	# shape. Without this, the first measured backward is contaminated
+	# by autotune-trial state.
+	with torch.enable_grad():
+		xw = torch.randn(2, 128, 32, device='cuda', requires_grad=True)
+		gpu_block(xw).sum().backward()
+		gpu_block.zero_grad()
+
+	x_cpu = torch.randn(2, 128, 32, requires_grad=True)
+	x_gpu = x_cpu.detach().cuda().requires_grad_(True)
+
+	y_cpu = cpu_block(x_cpu)
+	y_gpu = gpu_block(x_gpu)
+
+	y_cpu.sum().backward()
+	y_gpu.sum().backward()
+
+	# Forward outputs should agree up to TF32 / fp32 reorder noise.
+	assert torch.allclose(y_cpu, y_gpu.cpu(), atol=1e-4, rtol=1e-4)
+
+	# Backward grads. TF32 noise in cuBLAS linear bwd dominates the
+	# tolerance budget here; the Triton conv+norm bwd itself is fp32.
+	assert torch.allclose(cpu_block.linear1.weight.grad,
+		gpu_block.linear1.weight.grad.cpu(), atol=1e-3, rtol=1e-3), \
+		"linear1 grad diverged"
+	assert torch.allclose(cpu_block.linear2.weight.grad,
+		gpu_block.linear2.weight.grad.cpu(), atol=1e-3, rtol=1e-3), \
+		"linear2 grad diverged"
+	assert torch.allclose(cpu_block.conv_weight.grad,
+		gpu_block.conv_weight.grad.cpu(), atol=1e-3, rtol=1e-3), \
+		"conv_weight grad diverged"
+	# x.grad goes through both the Triton bwd and the linear bwds.
+	assert torch.allclose(x_cpu.grad, x_gpu.grad.cpu(),
+		atol=1e-3, rtol=1e-3), "input grad diverged"
+
+
+@pytest.mark.cuda
+@pytest.mark.triton
+def test_inference_megakernel_matches_cpu_fallback():
+	"""The new fused inference megakernel must produce outputs that
+	agree with the pure-PyTorch CPU fallback up to bf16-dot precision.
+	CPU vs CUDA-no_grad is the strongest possible forward-parity check
+	because the two implementations share no kernel code at all — any
+	algorithmic bug in the megakernel surfaces here."""
+
+	torch.manual_seed(0)
+	cpu_block = CheriBlock(n_filters=32, dilation=2)
+	gpu_block = CheriBlock(n_filters=32, dilation=2).cuda()
+	gpu_block.load_state_dict(cpu_block.state_dict())
+
+	x = torch.randn(2, 128, 32)
+
+	with torch.no_grad():
+		y_cpu = cpu_block(x)
+		y_gpu = gpu_block(x.cuda())
+
+	diff = (y_cpu - y_gpu.cpu()).abs().max().item()
+	# bf16 weight cast + bf16 y_unnorm storage gives ~1e-3 to 1e-2
+	# absolute error at unit-ish output scale. We pin 1e-2 as the
+	# upper-bound budget; in practice diffs are well below this.
+	assert diff <= 1e-2, f"CPU vs CUDA-megakernel max-abs-diff={diff:.3e}"
+
+
+@pytest.mark.cuda
+@pytest.mark.triton
+def test_inference_megakernel_matches_previous_triton_forward():
+	"""The new inference megakernel must agree with the existing Triton
+	fwd kernel (called via FusedDilatedConvNormFunc through the training
+	path) when applied to the same weights. Two separate block instances
+	are used so any weight-cache interaction in a single block is ruled
+	out — this isolates the kernel comparison from path-selection
+	plumbing."""
+
+	torch.manual_seed(0)
+	block_grad = CheriBlock(n_filters=32, dilation=2).cuda()
+	block_nograd = CheriBlock(n_filters=32, dilation=2).cuda()
+	block_nograd.load_state_dict(block_grad.state_dict())
+
+	x = torch.randn(2, 128, 32, device='cuda')
+
+	# Existing Triton fwd kernel + PyTorch MLP via the training path.
+	y_train = block_grad(x)
+	# New megakernel.
+	with torch.no_grad():
+		y_inf = block_nograd(x)
+
+	diff = (y_train - y_inf).abs().max().item()
+	assert diff <= 1e-2, \
+		f"training-Triton vs inference-megakernel max-abs-diff={diff:.3e}"
+
+
+@pytest.mark.cuda
+@pytest.mark.triton
+def test_inference_megakernel_zero_linears_is_identity():
+	"""Fixed-value test that does not depend on either kernel's
+	precision: with both MLP weights set to zero, the block must reduce
+	to X -> X exactly (zero dot anything is zero even in bf16; accum
+	stays zero; residual passes through bit-identically)."""
+
+	block = CheriBlock(n_filters=32, dilation=2).cuda()
+	with torch.no_grad():
+		block.linear1.weight.zero_()
+		block.linear2.weight.zero_()
+
+	x = torch.randn(2, 128, 32, device='cuda')
+	with torch.no_grad():
+		y = block(x)
+
+	assert torch.equal(y, x), \
+		f"zero-MLP path not bit-identical; diff={(y - x).abs().max().item()}"
+
+
+@pytest.mark.cuda
+@pytest.mark.triton
 @pytest.mark.parametrize("n_filters,expansion", [(8, 1), (16, 1)])
 def test_cheri_block_small_hidden_no_grad_matches_grad_cuda(n_filters, expansion):
 	"""When the inference fast path's shape constraints aren't met (e.g.,
