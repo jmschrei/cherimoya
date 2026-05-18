@@ -9,6 +9,15 @@
 > [!IMPORTANT]
 > Cherimoya is under active development and may introduce breaking changes between versions. Pin the version you train with if you need to reload checkpoints later.
 
+> [!WARNING]
+> **Hitting a `torch.compile` or CUDA-graphs error at inference time?** Cherimoya's forward is wrapped in `torch.compile(mode='max-autotune')` by default, and some usage patterns (notably loading several model instances in one process) can trip the CUDA-graph runtime with errors like `accessing tensor output of CUDAGraphs that has been overwritten`. Load with `compile=False` to bypass it — forward outputs are numerically equivalent:
+>
+> ```python
+> model = Cherimoya.load("checkpoint.torch", device="cuda", compile=False)
+> ```
+>
+> See the [troubleshooting page](https://cherimoya.readthedocs.io/en/latest/troubleshooting.html#torch-compile-cuda-graphs-errors-at-inference-time) for the full explanation. The same advice applies to any other `torch.compile` or CUDA-graph error you don't immediately recognize: **the safest fix is to load the model with `compile=False`** — you give up the compile speedup but keep the Triton inference kernel and full numerical parity.
+
 Cherimoya is a compact deep learning model for predicting genomic profile data — transcription factor binding, chromatin accessibility, transcription initiation — directly from DNA sequence. It pairs a lightweight ConvNeXt-style backbone with custom Triton GPU kernels for both training and inference, and ships with an end-to-end CLI that takes BAM files through peak calling, training, attribution, and motif discovery in a single command. The default 9-layer model is **~340K parameters** and runs a full forward in **well under a millisecond per batch on an H200**, while delivering strong predictive performance across the assays we've benchmarked.
 
 <img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/cheri-model.png">

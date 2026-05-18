@@ -36,6 +36,19 @@ motif discovery in a single command.
    versions. Pin the version you train with if you need to reload
    checkpoints later.
 
+.. warning::
+
+   **Hitting a** ``torch.compile`` **or CUDA-graphs error at inference
+   time?** Cherimoya's forward is wrapped in
+   ``torch.compile(mode='max-autotune')`` by default, and some usage
+   patterns (notably loading several model instances in one process)
+   can trip the CUDA-graph runtime. Load with ``compile=False`` to
+   bypass it — forward outputs are numerically equivalent. See
+   :ref:`torch_compile_cudagraph_errors` for the full explanation and
+   examples. The same advice applies to any other ``torch.compile`` or
+   CUDA-graph error you don't immediately recognize: the safest fix is
+   ``Cherimoya.load(..., compile=False)``.
+
 
 Where to start
 --------------

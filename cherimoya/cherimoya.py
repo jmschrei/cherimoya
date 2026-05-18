@@ -142,7 +142,8 @@ class Cherimoya(torch.nn.Module):
 
 	def __init__(self, n_filters=96, n_layers=9, n_outputs=1,
 		n_control_tracks=0, expansion=2, residual_scale=0.15, name=None,
-		trimming=None, single_count_output=True, verbose=True):
+		trimming=None, single_count_output=True, verbose=True,
+		compile=True):
 		super(Cherimoya, self).__init__()
 		self.n_filters = n_filters
 		self.n_layers = n_layers
@@ -189,6 +190,18 @@ class Cherimoya(torch.nn.Module):
 			"Validation Count Pearson", "Validation Count MSE", "Saved?"],
 			verbose=verbose)
 
+		# Compile is opt-out via the `compile` kwarg. It's a runtime knob,
+		# not architecture, so it intentionally does NOT go through
+		# `_init_kwargs` and therefore is not persisted in checkpoints.
+		# `forward` (defined below) is a thin trampoline that calls
+		# `self._forward_fn`, so the choice picked here also governs
+		# subclasses that do `super().forward(...)`.
+		self._compile = bool(compile)
+		self._forward_fn = (
+			torch.compile(self._forward_impl, mode='max-autotune')
+			if self._compile else self._forward_impl
+		)
+
 	def _init_kwargs(self):
 		"""Return the kwargs needed to reconstruct this model."""
 		return {
@@ -225,7 +238,7 @@ class Cherimoya(torch.nn.Module):
 		torch.save(payload, path)
 
 	@classmethod
-	def load(cls, path, device='cpu'):
+	def load(cls, path, device='cpu', compile=True):
 		"""Load a model previously saved with :meth:`save`.
 
 		Parameters
@@ -236,6 +249,13 @@ class Cherimoya(torch.nn.Module):
 		device: str or torch.device, optional
 			Device to map the parameters onto. Default is ``'cpu'``.
 
+		compile: bool, optional
+			Whether the loaded model should wrap its forward in
+			``torch.compile(mode='max-autotune')``. Default is ``True``
+			(matches pre-2026-05 behavior). Pass ``False`` to get an eager
+			forward — useful for scripts that hit the cudagraph
+			cache-overwrite error or that need to debug / trace the model.
+
 		Returns
 		-------
 		model: Cherimoya
@@ -243,12 +263,25 @@ class Cherimoya(torch.nn.Module):
 		"""
 
 		payload = torch.load(path, map_location=device, weights_only=True)
-		model = cls(**payload['config'])
+		# Old checkpoints (saved before the `compile` kwarg existed) won't have
+		# `compile` in their config, so the default applies. Newer checkpoints
+		# also won't, because `_init_kwargs` intentionally excludes it.
+		model = cls(**payload['config'], compile=compile)
 		model.load_state_dict(payload['state_dict'])
 		return model.to(device)
 
-	@torch.compile(mode='max-autotune')
 	def forward(self, X, X_ctl=None):
+		"""A forward pass of the model.
+
+		Dispatches to ``self._forward_fn`` (which is either the compiled or
+		eager forward, set in ``__init__`` according to the ``compile``
+		kwarg). Kept as a class-level method so that subclasses overriding
+		``forward`` can still call ``super().forward(...)``.
+		"""
+
+		return self._forward_fn(X, X_ctl)
+
+	def _forward_impl(self, X, X_ctl=None):
 		"""A forward pass of the model.
 
 		This method takes in a nucleotide sequence X, a corresponding

@@ -175,6 +175,70 @@ the remote path requires credentials, set them in your environment
 running ``cherimoya pipeline``.
 
 
+.. _torch_compile_cudagraph_errors:
+
+``torch.compile`` / CUDA graphs errors at inference time
+--------------------------------------------------------
+
+Symptom: an inference script raises one of
+
+* ``RuntimeError: Error: accessing tensor output of CUDAGraphs that
+  has been overwritten by a subsequent run.``
+* a less specific ``torch._dynamo`` / ``torch._inductor`` traceback
+  originating from inside ``Cherimoya.forward``.
+
+By default :class:`cherimoya.Cherimoya` wraps its forward pass in
+``torch.compile(mode='max-autotune')``, which captures a CUDA graph
+and reuses preallocated buffer slots across calls. A small tensor
+cache inside the inference kernels (used to hold the cast MLP
+weights) can end up referencing those graph buffers, and certain
+usage patterns then trip the CUDA-graph runtime's overwrite guard.
+The two patterns that surface this in practice are:
+
+* **Loading multiple Cherimoya instances in one process and calling
+  them in sequence** (e.g. running all five folds of a comprehensive
+  model on the same loci). The shared compiled forward sees a cache
+  miss on the second instance and tries to reuse a buffer the first
+  instance is still holding.
+* **Loading one instance, then re-loading or re-initializing weights
+  in-place**, then calling forward again. The same buffer-reuse path
+  triggers.
+
+**Fix: load without compile.** Both the class constructor and
+:meth:`Cherimoya.load` accept ``compile=False``, which skips
+``torch.compile`` and uses the eager forward path:
+
+.. code-block:: python
+
+   from cherimoya import Cherimoya
+
+   # When loading a trained checkpoint
+   model = Cherimoya.load("checkpoint.torch", device="cuda",
+                          compile=False)
+
+   # When constructing a fresh model
+   model = Cherimoya(n_filters=96, n_layers=9, compile=False)
+
+The eager path still goes through Cherimoya's Triton inference
+kernels — only the ``torch.compile`` wrapping is dropped — so forward
+outputs are numerically equivalent. The test suite verifies parity at
+``atol=rtol=1e-4`` between ``compile=True`` and ``compile=False``.
+
+The performance cost is the compile speedup: typically ~10-20% on
+the inference megakernel on recent GPUs, smaller on training. For
+multi-instance inference loops the speedup is moot anyway because
+the cache thrashes across instances.
+
+**More general guidance.** Other ``torch.compile`` or CUDA-graph
+issues can surface depending on your PyTorch version, GPU
+architecture, and how aggressively a calling script reuses model
+instances. **If you hit any** ``torch.compile`` **or CUDA-graph
+error you don't immediately recognize, the safest fix is to load
+the model with** ``compile=False``. You give up the compile speedup
+but keep the Triton inference kernel and full numerical parity, and
+you sidestep the entire class of compile/cudagraph foot-guns.
+
+
 ``Cherimoya.load`` rejects a checkpoint
 ---------------------------------------
 
