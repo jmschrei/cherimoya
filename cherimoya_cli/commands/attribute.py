@@ -38,8 +38,7 @@ def run(args):
 
     n_idxs = X.sum(dim=(1, 2)) == X.shape[-1]
     X = X[n_idxs]
-
-    idxs[~n_idxs] = False
+    idxs[idxs.clone()] = n_idxs
 
     model = ControlWrapper(model)
     if parameters["output"] == "counts":
