@@ -783,6 +783,43 @@ def fused_dilated_conv_norm(x, w, dilation):
 	return _cheri_conv_norm_cpu(x, w, dilation)
 
 
+class FusedDilatedConvNorm(torch.nn.Module):
+	"""nn.Module wrapper around the fused dilated conv + per-example norm.
+
+	This wrapper adds only Python-level module dispatch -- the underlying
+	kernel and its launches are unchanged, and the op stays fused. Owning
+	the operation as a module (rather than calling the autograd Function
+	inline) gives attribution methods that walk the module tree, such as
+	DeepLIFT, a concrete node to hook or substitute.
+
+	The depthwise convolution weight lives here rather than on the parent
+	``CheriBlock``. ``CheriBlock.__setstate__`` migrates checkpoints that
+	predate this move.
+
+	Parameters
+	----------
+	n_filters: int
+		The number of channels (the C dimension).
+
+	dilation: int
+		Spacing between the three taps.
+	"""
+
+	def __init__(self, n_filters, dilation):
+		super().__init__()
+		self.n_filters = n_filters
+		self.dilation = dilation
+
+		self.conv_weight = torch.nn.Parameter(torch.randn(3, n_filters))
+		torch.nn.init.trunc_normal_(self.conv_weight, std=0.02)
+
+	def forward(self, X):
+		assert X.ndim == 3, f"expected (N, L, C), got {tuple(X.shape)}"
+		assert X.shape[-1] == self.n_filters, (
+			f"channel dim {X.shape[-1]} != n_filters {self.n_filters}")
+		return fused_dilated_conv_norm(X, self.conv_weight, self.dilation)
+
+
 class CheriBlock(torch.nn.Module):
 	"""A single Cheri Block.
 
@@ -855,12 +892,11 @@ class CheriBlock(torch.nn.Module):
 
 		hidden = expansion * n_filters
 
-		self.conv_weight = torch.nn.Parameter(torch.randn(3, n_filters))
+		self.conv = FusedDilatedConvNorm(n_filters, dilation)
 		self.linear1 = torch.nn.Linear(n_filters, hidden, bias=False)
 		self.linear2 = torch.nn.Linear(hidden, n_filters, bias=False)
 		self.activation = torch.nn.GELU(approximate='tanh')
 
-		torch.nn.init.trunc_normal_(self.conv_weight, std=0.02)
 		torch.nn.init.trunc_normal_(self.linear1.weight, std=0.02)
 		torch.nn.init.trunc_normal_(self.linear2.weight, std=0.02)
 
@@ -888,6 +924,22 @@ class CheriBlock(torch.nn.Module):
 			if not m.training:
 				m.train(False)
 		self.register_load_state_dict_post_hook(_refresh)
+
+	def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+		"""Load parameters, migrating checkpoints that predate ``self.conv``.
+
+		Older CheriBlocks held the depthwise weight directly on the block
+		as ``conv_weight``; it now lives on the ``FusedDilatedConvNorm``
+		submodule as ``conv.conv_weight``.
+		"""
+
+		old_key = prefix + 'conv_weight'
+		new_key = prefix + 'conv.conv_weight'
+
+		if old_key in state_dict and new_key not in state_dict:
+			state_dict[new_key] = state_dict.pop(old_key)
+
+		super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 	def train(self, mode=True):
 		"""Set training mode and (un)populate the eval-time bf16 cache.
@@ -962,9 +1014,9 @@ class CheriBlock(torch.nn.Module):
 
 		if self._can_use_inference_path(X):
 			w1, w2 = self._cast_weights(X)
-			return _fwd_inf_forward(X, self.conv_weight, self.dilation,
+			return _fwd_inf_forward(X, self.conv.conv_weight, self.dilation,
 				w1, w2)
 
-		X_conv = fused_dilated_conv_norm(X, self.conv_weight, self.dilation)
+		X_conv = self.conv(X)
 		X_mlp = self.linear2(self.activation(self.linear1(X_conv)))
 		return X + X_mlp * self.residual_scale

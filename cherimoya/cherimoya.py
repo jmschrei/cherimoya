@@ -23,6 +23,14 @@ from bpnetlite.logging import Logger
 torch.set_float32_matmul_precision('high')
 
 
+class _Log(torch.nn.Module):
+    def __init__(self):
+        super(_Log, self).__init__()
+
+    def forward(self, X):
+        return torch.log(X)
+
+	
 class EMA:
 	"""Exponential moving average of a model's parameters.
 
@@ -187,6 +195,7 @@ class Cherimoya(torch.nn.Module):
 
 		self.lw0 = torch.nn.Parameter(torch.ones(self.n_groups))
 		self.lw1 = torch.nn.Parameter(torch.ones(self.n_groups))
+		self._log = _Log()
 
 		torch.nn.init.trunc_normal_(self.iconv.weight, std=0.02)
 		torch.nn.init.trunc_normal_(self.fconv.weight, std=0.02)
@@ -388,7 +397,7 @@ class Cherimoya(torch.nn.Module):
 		if X_ctl is not None:
 			X_ctl = torch.sum(X_ctl[:, :, start:end].float(), dim=(1, 2))
 			X_ctl = X_ctl.unsqueeze(-1)
-			X = torch.cat([X, torch.log(X_ctl+1)], dim=-1)
+			X = torch.cat([X, self._log(X_ctl+1)], dim=-1)
 
 		y_counts = self.linear(X)
 		return y_profile, y_counts
