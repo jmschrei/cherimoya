@@ -1,6 +1,24 @@
 Changelog
 =========
 
+v0.2.1
+------
+
+Bug fixes
+~~~~~~~~~
+
+* Fixed an ``IndexError`` in ``cherimoya attribute`` when ``extract_loci``
+  drops loci near a chromosome end. The ambiguous-base filter is now
+  projected back into peak space so the saved index array stays aligned
+  with ``X``.
+
+Tooling
+~~~~~~~
+
+* Pinned the ``uv`` resolver to a one-week ``exclude-newer`` window via
+  ``[tool.uv]`` in ``pyproject.toml`` and updated ``uv.lock`` for
+  reproducible dependency resolution.
+
 v0.2.0
 ------
 
