@@ -10,13 +10,13 @@
 > [!IMPORTANT]
 > Cherimoya is under active development and may introduce breaking changes between versions. Pin the version you train with if you need to reload checkpoints later.
 
-Cherimoya is a compact deep learning model for predicting genomic profile data — transcription factor binding, chromatin accessibility, transcription initiation — directly from DNA sequence. It pairs a lightweight ConvNeXt-style backbone with custom Triton GPU kernels for both training and inference, and ships with an end-to-end CLI that takes BAM files through peak calling, training, attribution, and motif discovery in a single command. The default 9-layer model is **~610K parameters** and runs a full forward in **under a millisecond per batch on an H200**, while delivering strong predictive performance across the assays we've benchmarked.
+Cherimoya is a compact deep learning model for predicting genomic modalities measured by high-throughput sequencing experiments, such as transcription factor binding, chromatin accessibility, transcription initiation, and many others, directly from DNA sequence. Cherimoya builds upon the ChromBPNet model through a backbone made up of new Cheri Block units, more sophisticated optimization, and custom GPU kernels to accelerate training and inference. In addition to the model, this repository provides an end-to-end CLI for training and using these models, including a pipeline command that takes BAM files through peak calling, training, attribution, and motif discovery in a single command. The default 9-layer model is **~610K parameters** and runs a full forward in **under a millisecond per batch on an H200**, while delivering state-of-the-art performance.
 
 <img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/cheri-model.png">
 
 ### Design highlights
 
-The backbone is built from **Cheri Blocks** — each a depthwise dilated convolution followed by per-example layer normalization and a channel-mixing MLP, fused into custom Triton kernels so spatial and channel information are aggregated cheaply and at separate stages of each block. Training uses a tuned three-way optimizer split — **Muon** for projection weights, **SGD** for the Kendall uncertainty weights, **AdamW** for everything else — with hyperparameters discovered via large-scale sweeps. The profile and counts losses are combined via **Kendall-Gal uncertainty weighting** with one learnable weight per output track, replacing the usual fixed loss weight with one the model balances on its own. An **exponential moving average** of the parameters is maintained during training and used at evaluation, smoothing both the validation curve and the final predictions. Several **stability-first** choices keep deep stacks well-behaved: a small fixed residual scale at initialization, no biases in the blocks, minimal weight decay on the Muon-routed projection weights, and a 2-epoch warmup before cosine decay. Both the architecture and the training recipe were arrived at via agent-driven exploration of the design space. See [the architecture docs](https://cherimoya.readthedocs.io/en/latest/architecture.html) for the full story.
+The backbone is built from **Cheri Blocks** — each a depthwise dilated convolution followed by per-example layer normalization and a channel-mixing MLP, allowing spatial and channel information to be aggregated cheaply and at separate stages of each block. Training uses a tuned three-way optimizer split: **Muon** for projection weights, **SGD** for the Kendall uncertainty weights, **AdamW** for everything else. The profile and counts losses are combined via **Kendall-Gal uncertainty weighting** with one learnable weight per output track, replacing the usual fixed loss weight with one the model balances on its own. An **exponential moving average** of the parameters is maintained during training and used at evaluation, smoothing both the validation curve and the final predictions. Several **stability-first** choices keep deep stacks well-behaved: a small fixed residual scale at initialization, no biases in the blocks, minimal weight decay on the Muon-routed projection weights, and a small warmup before cosine decay. Details of the architecture and the training recipe were arrived at via agent-driven autoresearch exploration of the design space. See [the architecture docs](https://cherimoya.readthedocs.io/en/latest/architecture.html) for more information.
 
 ### Installation
 
@@ -29,6 +29,12 @@ From source:
 ```bash
 git clone https://github.com/jmschrei/cherimoya.git
 cd cherimoya && pip install -e .
+```
+
+Or pull the prebuilt Docker image, published to the GitHub Container Registry on every push to `main`:
+
+```bash
+docker pull ghcr.io/jmschrei/cherimoya:latest      # or pin a version: ghcr.io/jmschrei/cherimoya:0.2.0
 ```
 
 GPU acceleration requires Triton and a CUDA-capable device; a pure-PyTorch CPU fallback is available for everything except the inference megakernel. See [the installation guide](https://cherimoya.readthedocs.io/en/latest/installation.html) for Triton compatibility notes.
@@ -60,7 +66,7 @@ Per-call latency (ms) on an NVIDIA H200 for a single Cheri Block at `N=512, L=10
 | bf16 | 0.707 | **0.347** |
 | fp16 | 0.706 | **0.347** |
 
-All paths agree on the fp32 model output to within ~1e-5 max-abs, so existing trained checkpoints produce numerically equivalent predictions through training-fwd and the megakernel paths. Training is unaffected by the eval cache — the megakernel only fires under no_grad. A pure-PyTorch CPU fallback is also available for development and one-off evaluation on a laptop; only training and high-throughput inference benefit from a GPU. See [the benchmarks page](https://cherimoya.readthedocs.io/en/latest/benchmarks.html) for small-batch breakdowns and full methodology.
+All paths agree on the fp32 model output to within ~1e-5 max-abs, so existing trained checkpoints produce numerically equivalent predictions through training-fwd and the megakernel paths. A pure-PyTorch CPU fallback is also available for development and one-off evaluation on a laptop. See [the benchmarks page](https://cherimoya.readthedocs.io/en/latest/benchmarks.html) for small-batch breakdowns and full methodology.
 
 ### End-to-end CLI pipeline
 
@@ -78,7 +84,7 @@ cherimoya pipeline-json \
     -m JASPAR_2024.meme -n my_experiment -o pipeline.json
 ```
 
-Note: `-i` is the ChIP signal (IP reads) and `-c` is the unenriched-DNA input control.
+Note: `-i` is the ChIP signal (IP reads) and `-c` is the unenriched-DNA input control (optional).
 
 For unstranded paired-end ATAC-seq with the standard +4/−4 fragment shift (full recipe [here](https://cherimoya.readthedocs.io/en/latest/recipes/atacseq.html)):
 
@@ -87,7 +93,7 @@ cherimoya pipeline-json \
     -s hg38.fa -p peaks.narrowPeak \
     -i fragments.bam -m JASPAR_2024.meme \
     -n atac_experiment -o pipeline.json \
-    -ps 4 -ns -4 -u -f -pe
+    -ps 4 -ns -4 -u -pe
 ```
 
 Any input path can be remote (S3, HTTPS, etc.); the pipeline streams reads through `bam2bw` directly.

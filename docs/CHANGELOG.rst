@@ -1,8 +1,20 @@
 Changelog
 =========
 
-Unreleased
-----------
+v0.2.0
+------
+
+Tooling
+~~~~~~~
+
+* Bundled a Claude Code agent skill under
+  ``cherimoya_cli/skills/cherimoya`` (a ``SKILL.md`` plus a
+  ``references/`` set) and shipped it as package data, so it installs
+  with the ``cherimoya`` package. Added a ``cherimoya install-skill``
+  subcommand that copies (or, with ``--symlink``, links) the bundled
+  skill into a Claude Code skills directory (``~/.claude/skills`` by
+  default), with ``--directory`` to pick another location and
+  ``--force`` to overwrite an existing install.
 
 Loss (**breaking** for stranded/multi-channel models)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

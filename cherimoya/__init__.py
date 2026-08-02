@@ -9,4 +9,6 @@ from .wrappers import ProfileWrapper
 from .wrappers import LogCountWrapper
 from .wrappers import ExpectedCountsWrapper
 
-__version__ = '0.1.1'
+from importlib.metadata import version
+
+__version__ = version("cherimoya")

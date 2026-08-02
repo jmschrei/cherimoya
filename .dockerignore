@@ -1,13 +1,23 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Virtual environments
+.venv
+venv/
+/opt/venv
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*.so
 
-# Local benchmark scripts
-bench_kernels.py
-
-# Docker CI
-build.sh
-build.log
-*.sif
+# Caches
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.ipynb_checkpoints
 
 # Distribution / packaging
 .Python
@@ -21,16 +31,18 @@ sdist/
 *.egg
 MANIFEST
 
-# Jupyter Notebooks
-.ipynb_checkpoints
-
-# Sphinx build output
+# Docs
 docs/_build/
+.readthedocs.yml
+
+# Local benchmark scripts
+bench_kernels.py
 
 # Cherimoya specific
 *.torch
 *.final.torch
 *.log
+build.log
 
 # Pipeline outputs and temporary parameter files
 *.pipeline.json
@@ -51,7 +63,12 @@ docs/_build/
 *_modisco_results.h5
 *_modisco/
 *_marginalize/
-/motif_seqlet_count.tsv
+motif_seqlet_count.tsv
+
+# Docker
+Dockerfile
+.dockerignore
+*.sif
 
 # OS generated files
 .DS_Store
