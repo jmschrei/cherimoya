@@ -6,11 +6,15 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/jmschrei/cherimoya/blob/main/LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-readthedocs-blue.svg)](https://cherimoya.readthedocs.io)
 
+[[CATv1]](https://huggingface.co/programmable-genomics/CATv1)
 
 > [!IMPORTANT]
 > Cherimoya is under active development and may introduce breaking changes between versions. Pin the version you train with if you need to reload checkpoints later.
 
 Cherimoya is a compact deep learning model for predicting genomic modalities measured by high-throughput sequencing experiments, such as transcription factor binding, chromatin accessibility, transcription initiation, and many others, directly from DNA sequence. Cherimoya builds upon the ChromBPNet model through a backbone made up of new Cheri Block units, more sophisticated optimization, and custom GPU kernels to accelerate training and inference. In addition to the model, this repository provides an end-to-end CLI for training and using these models, including a pipeline command that takes BAM files through peak calling, training, attribution, and motif discovery in a single command. The default 9-layer model is **~610K parameters** and runs a full forward in **under a millisecond per batch on an H200**, while delivering state-of-the-art performance.
+
+> [!NOTE]
+> Check out the [Cherimoya Accessibility aTlas (CATv1)](https://huggingface.co/programmable-genomics/CATv1), a collection of ~7,500 Cherimoya models trained on ~1,500 DNase- and ATAC-seq experiments from ENCODE!
 
 <img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/cheri-model.png">
 
