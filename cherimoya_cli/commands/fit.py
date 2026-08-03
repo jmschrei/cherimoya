@@ -264,8 +264,7 @@ def run(args):
     model_name = parameters["name"] or model.name
 
     evaluate_parameters = copy.deepcopy(parameters)
-    # evaluate_parameters["chroms"] = parameters["validation_chroms"]
-    evaluate_parameters["chroms"] = parameters["test_chroms"]
+    evaluate_parameters["chroms"] = parameters["validation_chroms"]
     evaluate_parameters["max_jitter"] = 0
     evaluate_parameters["reverse_complement"] = False
     evaluate_parameters["model"] = model_name + ".torch"
