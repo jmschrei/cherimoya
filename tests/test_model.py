@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from cherimoya import Cherimoya
+from cherimoya.cherimoya import _Log
 
 
 @pytest.fixture
@@ -713,3 +714,88 @@ def test_model_no_grad_stable_across_repeated_calls_cuda():
 	assert torch.equal(c1, c2)
 	assert torch.equal(p1, p3)
 	assert torch.equal(c1, c3)
+
+
+# --------- _Log module wrapper --------------------------------------------
+
+def test_log_module_matches_torch_log():
+	"""The wrapper must be a pure pass-through to `torch.log`."""
+
+	log = _Log()
+	x = torch.rand(4, 8) + 0.1  # strictly positive; log is undefined at <= 0
+
+	assert torch.equal(log(x), torch.log(x))
+
+
+def test_log_module_has_no_parameters():
+	"""A pure op wrapper must not introduce trainable state."""
+
+	assert list(_Log().parameters()) == []
+
+
+def test_model_registers_log_module():
+	"""DeepLIFT locates hook targets by walking `named_modules`, so the
+	log has to be a registered child of the model."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
+		n_control_tracks=2, verbose=False)
+
+	assert isinstance(model._log, _Log)
+	assert dict(model.named_modules())['_log'] is model._log
+
+
+def test_model_forward_uses_log_module_with_control_tracks():
+	"""A hook on `model._log` must fire during the forward when control
+	tracks are present — this is the path DeepLIFT needs to intercept."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
+		n_control_tracks=2, verbose=False).eval()
+	L = _input_window_for(model)
+	X = torch.randn(1, 4, L)
+	X_ctl = torch.rand(1, 2, L)
+
+	calls = []
+	model._log.register_forward_hook(
+		lambda mod, inp, out: calls.append(out))
+
+	model(X, X_ctl)
+
+	assert len(calls) == 1, f"_Log hook fired {len(calls)} times"
+	assert torch.isfinite(calls[0]).all()
+
+
+def test_model_log_module_unused_without_control_tracks():
+	"""With no control tracks there is nothing to log, so the module
+	must stay out of the graph rather than run on a dummy input."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
+		n_control_tracks=0, verbose=False).eval()
+	L = _input_window_for(model)
+
+	calls = []
+	model._log.register_forward_hook(
+		lambda mod, inp, out: calls.append(out))
+
+	model(torch.randn(1, 4, L))
+
+	assert calls == []
+
+
+def test_model_log_module_output_matches_inline_log():
+	"""End-to-end guard that routing through the module did not change
+	the counts head: recompute the expected log term directly."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
+		n_control_tracks=2, verbose=False).eval()
+	L = _input_window_for(model)
+	X = torch.randn(1, 4, L)
+	X_ctl = torch.rand(1, 2, L)
+
+	captured = []
+	model._log.register_forward_hook(
+		lambda mod, inp, out: captured.append((inp[0], out)))
+
+	model(X, X_ctl)
+
+	x_in, y_out = captured[0]
+	assert torch.equal(y_out, torch.log(x_in))

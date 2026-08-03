@@ -24,13 +24,20 @@ torch.set_float32_matmul_precision('high')
 
 
 class _Log(torch.nn.Module):
-    def __init__(self):
-        super(_Log, self).__init__()
+	"""A module wrapper around ``torch.log``.
 
-    def forward(self, X):
-        return torch.log(X)
+	Owning the log as a module (rather than calling ``torch.log`` inline)
+	gives attribution methods that walk the module tree, such as DeepLIFT,
+	a concrete node to register a non-linear op against.
+	"""
 
-	
+	def __init__(self):
+		super(_Log, self).__init__()
+
+	def forward(self, X):
+		return torch.log(X)
+
+
 class EMA:
 	"""Exponential moving average of a model's parameters.
 

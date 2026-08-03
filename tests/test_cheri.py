@@ -5,6 +5,7 @@ import torch
 
 from cherimoya.cheri import (
 	CheriBlock,
+	FusedDilatedConvNorm,
 	HAS_TRITON,
 	_cheri_conv_norm_cpu,
 	fused_dilated_conv_norm,
@@ -624,3 +625,233 @@ def test_cheri_block_small_hidden_no_grad_matches_grad_cuda(n_filters, expansion
 
 	diff = (y_grad - y_nograd).abs().max().item()
 	assert diff <= 1e-4, f"fallback path diverged: diff={diff}"
+
+
+# --------- FusedDilatedConvNorm module wrapper -----------------------------
+
+def test_fused_module_matches_raw_function():
+	"""The wrapper must add module dispatch and nothing else — the
+	output has to be bit-identical to calling the function directly."""
+
+	torch.manual_seed(0)
+	mod = FusedDilatedConvNorm(n_filters=8, dilation=2)
+	x = torch.randn(2, 64, 8)
+
+	y_mod = mod(x)
+	y_fn = fused_dilated_conv_norm(x, mod.conv_weight, mod.dilation)
+
+	assert torch.equal(y_mod, y_fn), \
+		f"wrapper diverged; diff={(y_mod - y_fn).abs().max().item()}"
+
+
+def test_fused_module_registers_conv_weight_as_parameter():
+	"""The depthwise weight must remain a trainable Parameter after
+	moving onto the submodule, with its original (3, C) shape."""
+
+	mod = FusedDilatedConvNorm(n_filters=16, dilation=1)
+
+	assert isinstance(mod.conv_weight, torch.nn.Parameter)
+	assert mod.conv_weight.shape == (3, 16)
+	assert mod.conv_weight.requires_grad
+	assert [n for n, _ in mod.named_parameters()] == ['conv_weight']
+
+
+def test_fused_module_rejects_wrong_rank_and_channels():
+	"""The asserts in `forward` should catch mis-shaped inputs rather
+	than letting them reach the kernel."""
+
+	mod = FusedDilatedConvNorm(n_filters=8, dilation=1)
+
+	with pytest.raises(AssertionError):
+		mod(torch.randn(64, 8))          # missing the batch dim
+
+	with pytest.raises(AssertionError):
+		mod(torch.randn(2, 64, 4))       # channel dim != n_filters
+
+
+def test_fused_module_is_differentiable():
+	"""Gradients must flow to both the input and the conv weight —
+	the wrapper must not detach anything."""
+
+	mod = FusedDilatedConvNorm(n_filters=8, dilation=2)
+	x = torch.randn(2, 32, 8, requires_grad=True)
+
+	mod(x).sum().backward()
+
+	assert x.grad is not None and torch.isfinite(x.grad).all()
+	assert mod.conv_weight.grad is not None
+	assert torch.isfinite(mod.conv_weight.grad).all()
+
+
+def test_cheri_block_exposes_fused_module_as_child():
+	"""DeepLIFT finds hook targets by walking `named_modules`. If the
+	fused op is not a registered child of the block, an attribution run
+	silently falls back to plain autograd for that op."""
+
+	block = CheriBlock(n_filters=16, dilation=2)
+
+	assert isinstance(block.conv, FusedDilatedConvNorm)
+
+	found = [m for m in block.modules()
+		if isinstance(m, FusedDilatedConvNorm)]
+	assert len(found) == 1, "expected exactly one fused node in the tree"
+
+	# It must be reachable under the documented name, since the state
+	# dict migration below keys off `conv.conv_weight`.
+	assert dict(block.named_modules())['conv'] is block.conv
+
+
+def test_cheri_block_conv_weight_registered_under_submodule():
+	"""The block's state dict must expose the weight at its new path."""
+
+	block = CheriBlock(n_filters=16, dilation=2)
+	keys = block.state_dict().keys()
+
+	assert 'conv.conv_weight' in keys
+	assert 'conv_weight' not in keys
+
+
+def test_cheri_block_forward_uses_the_fused_submodule():
+	"""A hook on `block.conv` must actually fire during the grad-enabled
+	forward. This is precisely what DeepLIFT relies on."""
+
+	block = CheriBlock(n_filters=16, dilation=2)
+	x = torch.randn(2, 64, 16)
+
+	calls = []
+	block.conv.register_forward_hook(
+		lambda mod, inp, out: calls.append(out.shape))
+
+	block(x)
+
+	assert len(calls) == 1, f"fused submodule hook fired {len(calls)} times"
+	assert calls[0] == x.shape
+
+
+# --------- Checkpoint migration (conv_weight -> conv.conv_weight) ---------
+
+def test_cheri_block_loads_legacy_checkpoint():
+	"""Checkpoints written before the wrapper existed hold the weight at
+	`conv_weight`. `_load_from_state_dict` must transparently migrate it
+	to `conv.conv_weight` so old models stay loadable."""
+
+	torch.manual_seed(0)
+	block = CheriBlock(n_filters=16, dilation=2)
+
+	# Build a legacy-format state dict by renaming the key back.
+	legacy = block.state_dict()
+	legacy['conv_weight'] = legacy.pop('conv.conv_weight')
+
+	torch.manual_seed(1)
+	fresh = CheriBlock(n_filters=16, dilation=2)
+	fresh.load_state_dict(legacy)
+
+	assert torch.equal(fresh.conv.conv_weight, block.conv.conv_weight)
+
+
+def test_legacy_checkpoint_load_reproduces_original_output():
+	"""End-to-end check on the migration: a block restored from a legacy
+	checkpoint must produce the same output as the block that wrote it."""
+
+	torch.manual_seed(0)
+	block = CheriBlock(n_filters=16, dilation=2)
+	x = torch.randn(2, 64, 16)
+	y_expected = block(x)
+
+	legacy = block.state_dict()
+	legacy['conv_weight'] = legacy.pop('conv.conv_weight')
+
+	torch.manual_seed(1)
+	restored = CheriBlock(n_filters=16, dilation=2)
+	# The renamed key would be "unexpected" without the migration hook.
+	restored.load_state_dict(legacy)
+
+	assert torch.allclose(restored(x), y_expected, atol=1e-6)
+
+
+def test_current_format_checkpoint_still_loads():
+	"""The migration must not disturb the normal path — a state dict
+	already using the new key loads unchanged."""
+
+	torch.manual_seed(0)
+	block_a = CheriBlock(n_filters=16, dilation=2)
+	torch.manual_seed(1)
+	block_b = CheriBlock(n_filters=16, dilation=2)
+
+	block_a.load_state_dict(block_b.state_dict())
+
+	assert torch.equal(block_a.conv.conv_weight, block_b.conv.conv_weight)
+
+
+def test_new_key_wins_when_both_keys_present():
+	"""If a state dict somehow carries both keys, the current one must
+	take precedence and the legacy one must not clobber it."""
+
+	torch.manual_seed(0)
+	block = CheriBlock(n_filters=16, dilation=2)
+
+	sd = block.state_dict()
+	sd['conv_weight'] = torch.zeros_like(sd['conv.conv_weight'])
+
+	fresh = CheriBlock(n_filters=16, dilation=2)
+	# The stray legacy key is unexpected; ignore it rather than error.
+	fresh.load_state_dict(sd, strict=False)
+
+	assert torch.equal(fresh.conv.conv_weight, block.conv.conv_weight)
+	assert not torch.allclose(fresh.conv.conv_weight,
+		torch.zeros_like(fresh.conv.conv_weight))
+
+
+def test_legacy_checkpoint_migrates_for_nested_blocks():
+	"""The hook keys off `prefix`, so it must work when the block is
+	nested inside a parent module rather than loaded standalone."""
+
+	torch.manual_seed(0)
+	parent = torch.nn.Sequential(
+		CheriBlock(n_filters=8, dilation=1),
+		CheriBlock(n_filters=8, dilation=2),
+	)
+
+	legacy = parent.state_dict()
+	for i in range(2):
+		legacy[f'{i}.conv_weight'] = legacy.pop(f'{i}.conv.conv_weight')
+
+	torch.manual_seed(1)
+	fresh = torch.nn.Sequential(
+		CheriBlock(n_filters=8, dilation=1),
+		CheriBlock(n_filters=8, dilation=2),
+	)
+	fresh.load_state_dict(legacy)
+
+	for i in range(2):
+		assert torch.equal(fresh[i].conv.conv_weight,
+			parent[i].conv.conv_weight), f"block {i} did not migrate"
+
+
+@pytest.mark.cuda
+@pytest.mark.triton
+def test_inference_path_reads_migrated_conv_weight_cuda():
+	"""The no_grad fused path reaches for `self.conv.conv_weight`
+	directly. Verify it picks up a weight installed via a legacy
+	checkpoint, so migration and the fast path agree."""
+
+	torch.manual_seed(0)
+	block = CheriBlock(n_filters=16, dilation=2).cuda()
+	x = torch.randn(2, 64, 16, device='cuda')
+
+	legacy = {k: v.clone() for k, v in block.state_dict().items()}
+	legacy['conv_weight'] = legacy.pop('conv.conv_weight')
+
+	torch.manual_seed(1)
+	restored = CheriBlock(n_filters=16, dilation=2).cuda()
+	restored.load_state_dict(legacy)
+	restored.eval()
+
+	with torch.no_grad():
+		y_restored = restored(x)
+	block.eval()
+	with torch.no_grad():
+		y_expected = block(x)
+
+	diff = (y_restored - y_expected).abs().max().item()
+	assert diff <= 1e-4, f"inference path saw a stale weight: diff={diff}"
