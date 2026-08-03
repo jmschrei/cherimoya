@@ -792,10 +792,6 @@ class FusedDilatedConvNorm(torch.nn.Module):
 	inline) gives attribution methods that walk the module tree, such as
 	DeepLIFT, a concrete node to hook or substitute.
 
-	The depthwise convolution weight lives here rather than on the parent
-	``CheriBlock``. ``CheriBlock.__setstate__`` migrates checkpoints that
-	predate this move.
-
 	Parameters
 	----------
 	n_filters: int

@@ -170,7 +170,7 @@ def test_cheri_block_residual_scale_controls_output(residual_scale):
 	else:
 		# Recompute MLP path explicitly.
 		from cherimoya.cheri import fused_dilated_conv_norm
-		x_conv = fused_dilated_conv_norm(x, block.conv_weight, block.dilation)
+		x_conv = fused_dilated_conv_norm(x, block.conv.conv_weight, block.dilation)
 		x_mlp = block.linear2(block.activation(block.linear1(x_conv)))
 		expected = x + x_mlp * residual_scale
 		assert torch.allclose(y, expected, atol=1e-6)
@@ -521,8 +521,8 @@ def test_cheri_block_triton_backward_matches_cpu_autograd():
 	assert torch.allclose(cpu_block.linear2.weight.grad,
 		gpu_block.linear2.weight.grad.cpu(), atol=1e-3, rtol=1e-3), \
 		"linear2 grad diverged"
-	assert torch.allclose(cpu_block.conv_weight.grad,
-		gpu_block.conv_weight.grad.cpu(), atol=1e-3, rtol=1e-3), \
+	assert torch.allclose(cpu_block.conv.conv_weight.grad,
+		gpu_block.conv.conv_weight.grad.cpu(), atol=1e-3, rtol=1e-3), \
 		"conv_weight grad diverged"
 	# x.grad goes through both the Triton bwd and the linear bwds.
 	assert torch.allclose(x_cpu.grad, x_gpu.grad.cpu(),
