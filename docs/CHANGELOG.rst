@@ -1,6 +1,40 @@
 Changelog
 =========
 
+Unreleased
+----------
+
+Attribution
+~~~~~~~~~~~
+
+* The fused dilated convolution + per-example norm inside
+  :class:`cherimoya.CheriBlock` now lives on a ``FusedDilatedConvNorm``
+  submodule (``block.conv``), and the control-track log inside
+  :class:`cherimoya.Cherimoya` on a ``_Log`` submodule, rather than being
+  called inline. Attribution methods that walk the module tree — DeepLIFT
+  and SHAP in particular — now have concrete nodes to hook, which is a
+  prerequisite for correct DeepLIFT support. The kernels, the conditions
+  under which each forward path dispatches, and the numerics are all
+  unchanged.
+
+Compatibility
+~~~~~~~~~~~~~
+
+* **Existing checkpoints are unaffected — bit-for-bit.** The depthwise
+  weight is still written to and read from ``state_dict`` under its
+  historical ``conv_weight`` key, in its original position, even though
+  the parameter now lives at ``block.conv.conv_weight``. Checkpoints
+  round-trip between this version and earlier ones in both directions,
+  and loading a pre-existing model reproduces identical forward output,
+  input gradients, and parameter gradients.
+* Block initialization draws from the RNG in the same order as before, so
+  a given seed still rebuilds an identical block.
+* ``CheriBlock.conv_weight`` remains available as a read-only property
+  aliasing ``block.conv.conv_weight``, and reads return the same object.
+  Assignment through it now raises instead of silently leaving the
+  submodule holding the old parameter — assign to
+  ``block.conv.conv_weight`` instead.
+
 v0.2.1
 ------
 
