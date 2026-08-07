@@ -3,6 +3,8 @@
 import pytest
 import torch
 
+from numpy.testing import assert_array_almost_equal
+
 from cherimoya.cheri import (
 	CheriBlock,
 	FusedDilatedConvNorm,
@@ -702,13 +704,14 @@ def test_cheri_block_exposes_fused_module_as_child():
 
 
 def test_cheri_block_conv_weight_registered_under_submodule():
-	"""The block's state dict must expose the weight at its new path."""
+	"""The live parameter must sit on the submodule, even though the
+	serialized form keeps the historical name."""
 
 	block = CheriBlock(n_filters=16, dilation=2)
-	keys = block.state_dict().keys()
+	names = [n for n, _ in block.named_parameters()]
 
-	assert 'conv.conv_weight' in keys
-	assert 'conv_weight' not in keys
+	assert 'conv.conv_weight' in names
+	assert 'conv_weight' not in names
 
 
 def test_cheri_block_forward_uses_the_fused_submodule():
@@ -728,19 +731,70 @@ def test_cheri_block_forward_uses_the_fused_submodule():
 	assert calls[0] == x.shape
 
 
-# --------- Checkpoint migration (conv_weight -> conv.conv_weight) ---------
+# --------- Checkpoint compatibility (conv_weight <-> conv.conv_weight) ----
+
+def _submodule_format(state_dict):
+	"""Re-key a saved state dict onto the live submodule path.
+
+	`state_dict` deliberately emits the historical `conv_weight`; this
+	produces what a naive `nn.Module` would have written instead, which
+	is the other format `_load_from_state_dict` has to accept."""
+
+	renamed = {}
+	for key, value in state_dict.items():
+		if key.endswith('conv_weight') and not key.endswith('.conv.conv_weight'):
+			key = key[:-len('conv_weight')] + 'conv.conv_weight'
+		renamed[key] = value
+
+	return renamed
+
+
+def test_cheri_block_state_dict_uses_legacy_key():
+	"""The on-disk format is frozen. A checkpoint written today must key
+	the depthwise weight exactly as every previously trained model does,
+	so older installs of the package can still read it."""
+
+	block = CheriBlock(n_filters=16, dilation=2)
+	keys = block.state_dict().keys()
+
+	assert 'conv_weight' in keys
+	assert 'conv.conv_weight' not in keys
+
+
+def test_cheri_block_state_dict_key_order_unchanged():
+	"""The renaming hook must leave the key in its original position, not
+	move it to the end of the dict."""
+
+	block = CheriBlock(n_filters=16, dilation=2)
+
+	assert list(block.state_dict().keys()) == [
+		'conv_weight', 'linear1.weight', 'linear2.weight']
+
+
+def test_cheri_block_state_dict_key_order_unchanged_when_nested():
+	"""Same guarantee once blocks are children of a parent module — the
+	hook rebuilds the shared destination dict, so it must not disturb
+	keys written by earlier siblings."""
+
+	parent = torch.nn.Sequential(
+		CheriBlock(n_filters=8, dilation=1),
+		CheriBlock(n_filters=8, dilation=2),
+	)
+
+	assert list(parent.state_dict().keys()) == [
+		'0.conv_weight', '0.linear1.weight', '0.linear2.weight',
+		'1.conv_weight', '1.linear1.weight', '1.linear2.weight']
+
 
 def test_cheri_block_loads_legacy_checkpoint():
 	"""Checkpoints written before the wrapper existed hold the weight at
-	`conv_weight`. `_load_from_state_dict` must transparently migrate it
-	to `conv.conv_weight` so old models stay loadable."""
+	`conv_weight`. `_load_from_state_dict` must route it onto the
+	submodule so old models stay loadable."""
 
 	torch.manual_seed(0)
 	block = CheriBlock(n_filters=16, dilation=2)
-
-	# Build a legacy-format state dict by renaming the key back.
 	legacy = block.state_dict()
-	legacy['conv_weight'] = legacy.pop('conv.conv_weight')
+	assert 'conv_weight' in legacy
 
 	torch.manual_seed(1)
 	fresh = CheriBlock(n_filters=16, dilation=2)
@@ -750,47 +804,47 @@ def test_cheri_block_loads_legacy_checkpoint():
 
 
 def test_legacy_checkpoint_load_reproduces_original_output():
-	"""End-to-end check on the migration: a block restored from a legacy
-	checkpoint must produce the same output as the block that wrote it."""
+	"""End-to-end check: a block restored from a legacy checkpoint must
+	produce the same output as the block that wrote it."""
 
 	torch.manual_seed(0)
 	block = CheriBlock(n_filters=16, dilation=2)
 	x = torch.randn(2, 64, 16)
 	y_expected = block(x)
 
-	legacy = block.state_dict()
-	legacy['conv_weight'] = legacy.pop('conv.conv_weight')
-
 	torch.manual_seed(1)
 	restored = CheriBlock(n_filters=16, dilation=2)
-	# The renamed key would be "unexpected" without the migration hook.
-	restored.load_state_dict(legacy)
+	restored.load_state_dict(block.state_dict())
 
 	assert torch.allclose(restored(x), y_expected, atol=1e-6)
 
 
-def test_current_format_checkpoint_still_loads():
-	"""The migration must not disturb the normal path — a state dict
-	already using the new key loads unchanged."""
+def test_submodule_format_checkpoint_also_loads():
+	"""A state dict keyed on the submodule path — what a bare
+	`named_parameters` walk or a hand-built dict produces — must load
+	too, so the block accepts both spellings."""
 
 	torch.manual_seed(0)
 	block_a = CheriBlock(n_filters=16, dilation=2)
 	torch.manual_seed(1)
 	block_b = CheriBlock(n_filters=16, dilation=2)
 
-	block_a.load_state_dict(block_b.state_dict())
+	new_format = _submodule_format(block_b.state_dict())
+	assert 'conv.conv_weight' in new_format
+
+	block_a.load_state_dict(new_format)
 
 	assert torch.equal(block_a.conv.conv_weight, block_b.conv.conv_weight)
 
 
 def test_new_key_wins_when_both_keys_present():
-	"""If a state dict somehow carries both keys, the current one must
-	take precedence and the legacy one must not clobber it."""
+	"""If a state dict somehow carries both spellings, the submodule key
+	must take precedence and the legacy one must not clobber it."""
 
 	torch.manual_seed(0)
 	block = CheriBlock(n_filters=16, dilation=2)
 
-	sd = block.state_dict()
+	sd = _submodule_format(block.state_dict())
 	sd['conv_weight'] = torch.zeros_like(sd['conv.conv_weight'])
 
 	fresh = CheriBlock(n_filters=16, dilation=2)
@@ -803,7 +857,7 @@ def test_new_key_wins_when_both_keys_present():
 
 
 def test_legacy_checkpoint_migrates_for_nested_blocks():
-	"""The hook keys off `prefix`, so it must work when the block is
+	"""The hooks key off `prefix`, so they must work when the block is
 	nested inside a parent module rather than loaded standalone."""
 
 	torch.manual_seed(0)
@@ -813,8 +867,7 @@ def test_legacy_checkpoint_migrates_for_nested_blocks():
 	)
 
 	legacy = parent.state_dict()
-	for i in range(2):
-		legacy[f'{i}.conv_weight'] = legacy.pop(f'{i}.conv.conv_weight')
+	assert {'0.conv_weight', '1.conv_weight'} <= set(legacy)
 
 	torch.manual_seed(1)
 	fresh = torch.nn.Sequential(
@@ -826,6 +879,39 @@ def test_legacy_checkpoint_migrates_for_nested_blocks():
 	for i in range(2):
 		assert torch.equal(fresh[i].conv.conv_weight,
 			parent[i].conv.conv_weight), f"block {i} did not migrate"
+
+	# ...and the submodule spelling round-trips through nesting as well.
+	torch.manual_seed(2)
+	fresh2 = torch.nn.Sequential(
+		CheriBlock(n_filters=8, dilation=1),
+		CheriBlock(n_filters=8, dilation=2),
+	)
+	fresh2.load_state_dict(_submodule_format(legacy))
+
+	for i in range(2):
+		assert torch.equal(fresh2[i].conv.conv_weight,
+			parent[i].conv.conv_weight), f"block {i} did not load"
+
+
+def test_cheri_block_state_dict_round_trips_through_save(tmp_path):
+	"""`torch.save`/`torch.load` of a block state dict must survive with
+	the legacy key intact, since that is how checkpoints reach disk."""
+
+	torch.manual_seed(0)
+	block = CheriBlock(n_filters=16, dilation=2)
+
+	path = tmp_path / "block.torch"
+	torch.save(block.state_dict(), path)
+	loaded = torch.load(path, weights_only=True)
+
+	assert list(loaded.keys()) == [
+		'conv_weight', 'linear1.weight', 'linear2.weight']
+
+	torch.manual_seed(1)
+	fresh = CheriBlock(n_filters=16, dilation=2)
+	fresh.load_state_dict(loaded)
+
+	assert torch.equal(fresh.conv.conv_weight, block.conv.conv_weight)
 
 
 @pytest.mark.cuda
@@ -840,7 +926,7 @@ def test_inference_path_reads_migrated_conv_weight_cuda():
 	x = torch.randn(2, 64, 16, device='cuda')
 
 	legacy = {k: v.clone() for k, v in block.state_dict().items()}
-	legacy['conv_weight'] = legacy.pop('conv.conv_weight')
+	assert 'conv_weight' in legacy
 
 	torch.manual_seed(1)
 	restored = CheriBlock(n_filters=16, dilation=2).cuda()
@@ -855,3 +941,58 @@ def test_inference_path_reads_migrated_conv_weight_cuda():
 
 	diff = (y_restored - y_expected).abs().max().item()
 	assert diff <= 1e-4, f"inference path saw a stale weight: diff={diff}"
+
+
+# --------- conv_weight alias and initialization order --------------------
+
+def test_cheri_block_conv_weight_alias_reads_submodule():
+	"""`block.conv_weight` was public API before the refactor. It must
+	still resolve, and to the same object rather than a copy."""
+
+	block = CheriBlock(n_filters=16, dilation=2)
+
+	assert block.conv_weight is block.conv.conv_weight
+	assert isinstance(block.conv_weight, torch.nn.Parameter)
+
+	# The alias must not add a second registered parameter.
+	assert [n for n, _ in block.named_parameters()] == [
+		'conv.conv_weight', 'linear1.weight', 'linear2.weight']
+
+
+def test_cheri_block_conv_weight_alias_is_read_only():
+	"""Assigning through the alias would leave the submodule holding the
+	old parameter, so it must fail loudly rather than silently diverge."""
+
+	block = CheriBlock(n_filters=16, dilation=2)
+	original = block.conv.conv_weight
+
+	with pytest.raises((AttributeError, KeyError)):
+		block.conv_weight = torch.nn.Parameter(torch.zeros(3, 16))
+
+	assert block.conv.conv_weight is original
+
+
+def test_cheri_block_init_matches_legacy_rng_order():
+	"""Initialization must draw from the RNG in the same order as it did
+	before `conv_weight` moved onto a submodule, so a given seed rebuilds
+	the same block. Values recorded from v0.2.1."""
+
+	torch.manual_seed(0)
+	block = CheriBlock(n_filters=8, dilation=1, expansion=2)
+
+	assert_array_almost_equal(block.conv_weight.detach().numpy(), [
+		[-0.031542,  0.007219, -0.027066, -0.004142, -0.004975, -0.024640,
+		  0.012513, -0.024463],
+		[-0.002585, -0.001092,  0.008167,  0.022527,  0.038701,  0.020154,
+		  0.020093, -0.008670],
+		[-0.024852,  0.025691,  0.004875,  0.010607, -0.000291, -0.044714,
+		  0.029321, -0.024381]], 4)
+
+	assert_array_almost_equal(block.linear1.weight.detach().numpy()[0], [
+		 0.012885,  0.078600, -0.002488,  0.005907,  0.007653, -0.010994,
+		-0.019881,  0.026919], 4)
+
+	assert_array_almost_equal(block.linear2.weight.detach().numpy()[0], [
+		 0.006855, -0.032090, -0.011746,  0.012008,  0.008756, -0.001929,
+		 0.006605, -0.003750, -0.028541,  0.011851, -0.023164,  0.000715,
+		 0.004320, -0.018322,  0.031197, -0.063074], 4)
