@@ -233,18 +233,12 @@ def test_grouped_model_fit_smoke(tmp_path):
 	training_data = torch.utils.data.DataLoader(sampler, batch_size=4,
 		num_workers=0)
 
-	# Optimizers — split params the same way fit.py does: 2D projection
-	# weights to Muon, Kendall lw0/lw1 to SGD, everything else (incl.
-	# conv_weight and the head) to AdamW.
-	muon_params, adam_params, lw_params = [], [], []
-	for name, p in model.named_parameters():
-		if name in ("lw0", "lw1"):
-			lw_params.append(p)
-		elif (p.ndim == 2 and "weight" in name and name != "linear.weight"
-				and "conv_weight" not in name):
-			muon_params.append(p)
-		else:
-			adam_params.append(p)
+	# Optimizers — route params using the same helper `cherimoya fit`
+	# uses, rather than restating the rule, so this smoke test exercises
+	# the real routing instead of a copy that could drift from it.
+	from cherimoya_cli.commands.fit import _split_parameters
+
+	muon_params, adam_params, lw_params = _split_parameters(model)
 	muon_opt = Muon(muon_params, lr=1e-3, weight_decay=0.0)
 	adam_opt = torch.optim.AdamW(adam_params, lr=1e-3, weight_decay=0.0)
 	lw_opt = torch.optim.SGD(lw_params, lr=1e-3, weight_decay=0.0,

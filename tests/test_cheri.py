@@ -742,7 +742,7 @@ def _submodule_format(state_dict):
 
 	renamed = {}
 	for key, value in state_dict.items():
-		if key.endswith('conv_weight') and not key.endswith('.conv.conv_weight'):
+		if key.endswith('conv_weight') and not key.endswith('conv.conv_weight'):
 			key = key[:-len('conv_weight')] + 'conv.conv_weight'
 		renamed[key] = value
 
@@ -980,7 +980,9 @@ def test_cheri_block_init_matches_legacy_rng_order():
 	torch.manual_seed(0)
 	block = CheriBlock(n_filters=8, dilation=1, expansion=2)
 
-	assert_array_almost_equal(block.conv_weight.detach().numpy(), [
+	# Read through the submodule, not the `conv_weight` alias, so this
+	# test fails only on an RNG-order change and not on the alias.
+	assert_array_almost_equal(block.conv.conv_weight.detach().numpy(), [
 		[-0.031542,  0.007219, -0.027066, -0.004142, -0.004975, -0.024640,
 		  0.012513, -0.024463],
 		[-0.002585, -0.001092,  0.008167,  0.022527,  0.038701,  0.020154,
