@@ -731,6 +731,36 @@ def test_cheri_block_forward_uses_the_fused_submodule():
 	assert calls[0] == x.shape
 
 
+@pytest.mark.cuda
+@pytest.mark.triton
+def test_fused_submodule_hook_skipped_by_inference_path_cuda():
+	"""Document the one place the submodule is bypassed.
+
+	The megakernel calls the fused op directly instead of going through
+	``self.conv``, so a hook on the submodule does not fire under
+	``no_grad`` on CUDA. Attribution is unaffected — DeepLIFT needs
+	gradients and so takes the training path, which is asserted here
+	alongside — but anyone hooking the block to capture activations at
+	inference would otherwise get silence and no explanation."""
+
+	block = CheriBlock(n_filters=16, dilation=2).cuda().eval()
+	x = torch.randn(2, 64, 16, device='cuda')
+
+	calls = []
+	block.conv.register_forward_hook(lambda mod, inp, out: calls.append(1))
+
+	with torch.no_grad():
+		assert block._can_use_inference_path(x), \
+			"megakernel did not dispatch; this test proves nothing"
+		block(x)
+
+	assert calls == [], "megakernel unexpectedly routed through self.conv"
+
+	# Gradients enabled -> training path -> the hook fires as documented.
+	block(x)
+	assert len(calls) == 1, f"training path hook fired {len(calls)} times"
+
+
 # --------- Checkpoint compatibility (conv_weight <-> conv.conv_weight) ----
 
 def _submodule_format(state_dict):

@@ -426,6 +426,56 @@ def test_save_payload_format(tmp_path, small_model_kwargs):
 	assert payload['config']['n_filters'] == small_model_kwargs['n_filters']
 
 
+def test_saved_checkpoint_uses_legacy_conv_weight_keys(tmp_path,
+	small_model_kwargs):
+	"""The on-disk key set is a compatibility surface shared with every
+	previously trained checkpoint and with installed versions of the
+	package, so it is frozen even though the parameter has moved onto
+	the ``conv`` submodule. `test_cheri.py` pins this for a lone block;
+	this pins it for the artifact `save` actually writes."""
+
+	model = Cherimoya(**small_model_kwargs)
+	path = tmp_path / "model.torch"
+	model.save(str(path))
+
+	state_dict = torch.load(str(path), weights_only=True,
+		map_location='cpu')['state_dict']
+
+	conv_keys = [k for k in state_dict if 'conv_weight' in k]
+	assert conv_keys == ['blocks.{}.conv_weight'.format(i)
+		for i in range(model.n_layers)]
+
+	# The live parameter is the one that moved; the two spellings must
+	# not both appear, or an older install would see an unexpected key.
+	assert [n for n, _ in model.named_parameters() if 'conv_weight' in n] == [
+		'blocks.{}.conv.conv_weight'.format(i) for i in range(model.n_layers)]
+
+
+def test_saved_checkpoint_reloads_without_mutating_the_payload(tmp_path,
+	small_model_kwargs):
+	"""`CheriBlock._load_from_state_dict` re-keys entries as it loads.
+	It must do that to a copy: a caller holding the payload — to load it
+	into a second model, or to inspect it afterwards — must not find its
+	dict rewritten underneath it."""
+
+	model = Cherimoya(**small_model_kwargs)
+	path = tmp_path / "model.torch"
+	model.save(str(path))
+	payload = torch.load(str(path), weights_only=True, map_location='cpu')
+
+	keys_before = list(payload['state_dict'].keys())
+
+	fresh = Cherimoya(**small_model_kwargs)
+	fresh.load_state_dict(payload['state_dict'])
+	assert list(payload['state_dict'].keys()) == keys_before
+
+	# The second load is the point: it must see the same legacy keys.
+	again = Cherimoya(**small_model_kwargs)
+	again.load_state_dict(payload['state_dict'])
+	assert torch.equal(again.blocks[0].conv.conv_weight,
+		model.blocks[0].conv.conv_weight)
+
+
 def test_load_to_specified_device(tmp_path, small_model_kwargs, device):
 	model = Cherimoya(**small_model_kwargs)
 	path = tmp_path / "model.torch"
