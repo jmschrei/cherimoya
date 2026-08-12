@@ -75,19 +75,16 @@ Explicitly:
   so the name and import path are a compatibility surface even though
   nothing in this package calls the class from outside
   :class:`~cherimoya.CheriBlock`.
+  The count head's control-track log has no counterpart class. It is a
+  plain ``torch.log`` call, deliberately: its input is the summed control
+  tracks, which attribution holds fixed between a sequence and its
+  references, so a module there would be a hook point with nothing to
+  correct.
 * **Private** and may change: anything else, including the Triton
   kernels (``_fwd_*``, ``_bwd_*``, ``_fwd_inf_*``), the CPU fallback
   (``_cheri_conv_norm_cpu``), the CheriBlock weight cache
-  (``_w_cache``), the ``torch.log`` module wrapper in the count head
-  (``cherimoya.cherimoya._Log``), and the model's checkpoint-payload
-  helper (``_init_kwargs``).
-
-  ``_Log`` is deliberately *not* public, unlike its counterpart above.
-  It exists for the same reason — giving attribution methods a node in
-  the module tree — but it wraps a single elementwise call to
-  ``torch.log``, which the standard DeepLIFT rescale rule already
-  handles correctly. There is no reason for caller code to name the
-  type, so it stays private and may be renamed or removed.
+  (``_w_cache``), and the model's checkpoint-payload helper
+  (``_init_kwargs``).
 
 
 Development install

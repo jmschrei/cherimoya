@@ -8,30 +8,33 @@ Attribution
 ~~~~~~~~~~~
 
 * The fused dilated convolution + per-example norm inside
-  :class:`cherimoya.CheriBlock` now lives on a ``FusedDilatedConvNorm``
-  submodule (``block.conv``), and the control-track log inside
-  :class:`cherimoya.Cherimoya` on a ``_Log`` submodule, rather than being
-  called inline. Attribution methods that walk the module tree — DeepLIFT
-  and SHAP in particular — now have concrete nodes to hook, which is a
-  prerequisite for correct DeepLIFT support. The kernels, the conditions
-  under which each forward path dispatches, and the numerics are all
-  unchanged.
+  :class:`cherimoya.CheriBlock` now lives on a
+  :class:`~cherimoya.cheri.FusedDilatedConvNorm` submodule
+  (``block.conv``) rather than being called inline. Attribution methods
+  that walk the module tree — DeepLIFT and SHAP in particular — now have
+  a concrete node to hook, which is a prerequisite for correct DeepLIFT
+  support. The kernel, the conditions under which each forward path
+  dispatches, and the numerics are all unchanged. The class is public;
+  import it from ``cherimoya.cheri``, since registering a rule for it
+  means naming the type.
 * Note that the inference megakernel calls the fused op directly rather
   than through ``block.conv``, so hooks on that submodule fire on the CPU
   and Triton training paths but not under ``no_grad`` on CUDA.
   Attribution is unaffected, since it runs with gradients enabled.
-* Nothing is registered against the new nodes by default. An attribution
+* Nothing is registered against the new node by default. An attribution
   method only acts on a module it has been given a rule for, so runs that
-  do not mention these two classes behave exactly as they did before —
-  the nodes exist to be opted into, and adding them changes no existing
-  result.
-* Of the two, only ``FusedDilatedConvNorm`` is public — import it from
-  ``cherimoya.cheri``. Registering a rule for it means naming the class,
-  so its name and import path are a compatibility surface and are treated
-  as one. ``_Log`` stays private: it wraps a single elementwise
-  ``torch.log``, which the standard DeepLIFT rescale rule already handles,
-  so there is no reason for caller code to name that type. See
-  :doc:`development` for the full public/private split.
+  do not mention the class behave exactly as they did before — the node
+  exists to be opted into, and adding it changes no existing result.
+* **The count head's control-track log stays an inline** ``torch.log``.
+  An earlier revision of this work wrapped it in a module for symmetry
+  with the convolution, and that module has been removed again: it could
+  not affect an attribution. That log's input is the summed control
+  tracks, which attribution holds fixed between a sequence and its
+  references, so the difference across the node is exactly zero and the
+  rescale rule has no multiplier to correct — registering a rule for it
+  was measured to leave attributions bitwise identical. It would only
+  become a useful hook point for attributions taken with respect to the
+  control tracks themselves, which is not a supported path.
 
 Compatibility
 ~~~~~~~~~~~~~
@@ -48,7 +51,7 @@ Compatibility
 * The parameter's *name* does change even though its checkpoint key does
   not. ``named_parameters()`` now reports ``blocks.N.conv.conv_weight``
   where it reported ``blocks.N.conv_weight``, and the module tree gains a
-  ``blocks.N.conv`` node per block plus a model-level ``_log``. Code that
+  ``blocks.N.conv`` node per block. Code that
   matches parameter names by substring is unaffected — including the
   Muon / AdamW / SGD split in ``cherimoya fit``, whose ``conv_weight``
   exclusion is a substring test and still routes every parameter to the
