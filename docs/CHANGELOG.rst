@@ -20,6 +20,11 @@ Attribution
   than through ``block.conv``, so hooks on that submodule fire on the CPU
   and Triton training paths but not under ``no_grad`` on CUDA.
   Attribution is unaffected, since it runs with gradients enabled.
+* Nothing is registered against the new nodes by default. An attribution
+  method only acts on a module it has been given a rule for, so runs that
+  do not mention these two classes behave exactly as they did before —
+  the nodes exist to be opted into, and adding them changes no existing
+  result.
 
 Compatibility
 ~~~~~~~~~~~~~
@@ -30,7 +35,23 @@ Compatibility
   the parameter now lives at ``block.conv.conv_weight``. Checkpoints
   round-trip between this version and earlier ones in both directions,
   and loading a pre-existing model reproduces identical forward output,
-  input gradients, and parameter gradients.
+  input gradients, and parameter gradients. Loading accepts either
+  spelling, so a state dict assembled by hand or from a
+  ``named_parameters()`` walk loads as well.
+* The parameter's *name* does change even though its checkpoint key does
+  not. ``named_parameters()`` now reports ``blocks.N.conv.conv_weight``
+  where it reported ``blocks.N.conv_weight``, and the module tree gains a
+  ``blocks.N.conv`` node per block plus a model-level ``_log``. Code that
+  matches parameter names by substring is unaffected — including the
+  Muon / AdamW / SGD split in ``cherimoya fit``, whose ``conv_weight``
+  exclusion is a substring test and still routes every parameter to the
+  optimizer it went to before. What needs the new name is anything that
+  looks the parameter up *exactly* by its ``named_parameters()`` name —
+  ``dict(model.named_parameters())["blocks.0.conv_weight"]`` now raises
+  ``KeyError``, as does any per-parameter map (learning rates, weight
+  decay, a hand-rolled EMA) built before the change and keyed by name.
+  Attribute-path lookups are fine: ``model.get_parameter`` resolves
+  through the alias property, so both spellings return the parameter.
 * Block initialization draws from the RNG in the same order as before, so
   a given seed still rebuilds an identical block.
 * ``CheriBlock.conv_weight`` remains available as a read-only property
