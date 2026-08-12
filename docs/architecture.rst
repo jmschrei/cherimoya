@@ -97,9 +97,18 @@ In code:
 .. code-block:: python
 
    def forward(self, X):
-       X_conv = fused_dilated_conv_norm(X, self.conv_weight, self.dilation)
+       X_conv = self.conv(X)
        X_mlp = self.linear2(self.activation(self.linear1(X_conv)))
        return X + X_mlp * self.residual_scale
+
+``self.conv`` is a :class:`~cherimoya.cheri.FusedDilatedConvNorm`, a thin
+``nn.Module`` around :func:`~cherimoya.cheri.fused_dilated_conv_norm` that
+exists so attribution methods walking the module tree have a node to hook.
+The depthwise weight lives on it, at ``block.conv.conv_weight``;
+``block.conv_weight`` remains as a read-only alias. Note that the
+inference megakernel calls the fused op directly rather than through the
+submodule, so a hook on ``block.conv`` fires on the CPU and training
+paths but **not** under ``no_grad`` on CUDA.
 
 The conv weight has shape ``(3, C)``; the linear weights have shapes
 ``(expansion * C, C)`` and ``(C, expansion * C)``. None of the layers in
@@ -176,7 +185,10 @@ to Muon iff ``ndim == 2 and "weight" in name and name != "linear.weight"
 and "conv_weight" not in name``. The name-based exclusions peel off
 the count head and the per-block ``conv_weight`` (the latter lives on
 the depth-wise dilated path, not a projection matmul, so AdamW handles
-it). Separately, ``lw0`` and ``lw1`` are routed to SGD by exact name
+it). That last test is a substring rather than an exact match, which is
+what keeps it matching now that the parameter is named
+``blocks.N.conv.conv_weight`` in ``named_parameters()``. Separately,
+``lw0`` and ``lw1`` are routed to SGD by exact name
 match. Any 2D projection weight inside a custom block will go to Muon
 automatically. Override this in your own training script if you want
 different routing.

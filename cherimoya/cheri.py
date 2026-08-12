@@ -792,6 +792,12 @@ class FusedDilatedConvNorm(torch.nn.Module):
 	inline) gives attribution methods that walk the module tree, such as
 	DeepLIFT, a concrete node to hook or substitute.
 
+	One asymmetry to know about: the inference megakernel calls the fused
+	op directly rather than through this module, so hooks registered here
+	fire on the CPU and Triton training paths but not under ``no_grad`` on
+	CUDA. Attribution runs need gradients and so always take the training
+	path; code capturing activations at inference time does not.
+
 	Parameters
 	----------
 	n_filters: int

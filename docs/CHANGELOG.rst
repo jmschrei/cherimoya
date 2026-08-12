@@ -16,6 +16,10 @@ Attribution
   prerequisite for correct DeepLIFT support. The kernels, the conditions
   under which each forward path dispatches, and the numerics are all
   unchanged.
+* Note that the inference megakernel calls the fused op directly rather
+  than through ``block.conv``, so hooks on that submodule fire on the CPU
+  and Triton training paths but not under ``no_grad`` on CUDA.
+  Attribution is unaffected, since it runs with gradients enabled.
 
 Compatibility
 ~~~~~~~~~~~~~
