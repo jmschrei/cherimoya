@@ -762,186 +762,143 @@ def test_fused_submodule_hook_skipped_by_inference_path_cuda():
 
 
 # --------- Checkpoint compatibility (conv_weight <-> conv.conv_weight) ----
+#
+# Two properties, each checked once across the cases that can break it
+# rather than once per hand-written combination.
+#
+#   emission  what `state_dict()` writes: the historical `conv_weight`
+#             spelling, in its original position
+#   loading   what `load_state_dict` accepts: either spelling, whatever
+#             the depth of the block in the tree
+#
+# Nesting is a parameter because the two hooks key off `prefix`, and
+# because the emission hook rebuilds a `destination` dict it shares with
+# every other module -- a bug there disturbs siblings, not itself, so a
+# standalone block cannot show it.
 
-def _submodule_format(state_dict):
-	"""Re-key a saved state dict onto the live submodule path.
-
-	`state_dict` deliberately emits the historical `conv_weight`; this
-	produces what a naive `nn.Module` would have written instead, which
-	is the other format `_load_from_state_dict` has to accept."""
-
-	renamed = {}
-	for key, value in state_dict.items():
-		if key.endswith('conv_weight') and not key.endswith('conv.conv_weight'):
-			key = key[:-len('conv_weight')] + 'conv.conv_weight'
-		renamed[key] = value
-
-	return renamed
-
-
-def test_cheri_block_state_dict_uses_legacy_key():
-	"""The on-disk format is frozen. A checkpoint written today must key
-	the depthwise weight exactly as every previously trained model does,
-	so older installs of the package can still read it."""
-
-	block = CheriBlock(n_filters=16, dilation=2)
-	keys = block.state_dict().keys()
-
-	assert 'conv_weight' in keys
-	assert 'conv.conv_weight' not in keys
+LEGACY_KEYS = ['conv_weight', 'linear1.weight', 'linear2.weight']
 
 
-def test_cheri_block_state_dict_key_order_unchanged():
-	"""The renaming hook must leave the key in its original position, not
-	move it to the end of the dict."""
+def _build(nested, seed=0):
+	"""A block, or two blocks under a parent, plus the expected key list."""
 
-	block = CheriBlock(n_filters=16, dilation=2)
-
-	assert list(block.state_dict().keys()) == [
-		'conv_weight', 'linear1.weight', 'linear2.weight']
-
-
-def test_cheri_block_state_dict_key_order_unchanged_when_nested():
-	"""Same guarantee once blocks are children of a parent module — the
-	hook rebuilds the shared destination dict, so it must not disturb
-	keys written by earlier siblings."""
+	torch.manual_seed(seed)
+	if not nested:
+		return CheriBlock(n_filters=16, dilation=2), LEGACY_KEYS
 
 	parent = torch.nn.Sequential(
 		CheriBlock(n_filters=8, dilation=1),
 		CheriBlock(n_filters=8, dilation=2),
 	)
-
-	assert list(parent.state_dict().keys()) == [
-		'0.conv_weight', '0.linear1.weight', '0.linear2.weight',
-		'1.conv_weight', '1.linear1.weight', '1.linear2.weight']
+	keys = ['{}.{}'.format(i, k) for i in range(2) for k in LEGACY_KEYS]
+	return parent, keys
 
 
-def test_cheri_block_loads_legacy_checkpoint():
-	"""Checkpoints written before the wrapper existed hold the weight at
-	`conv_weight`. `_load_from_state_dict` must route it onto the
-	submodule so old models stay loadable."""
+def _respell(state_dict, spelling):
+	"""Rewrite a saved state dict into one of the accepted spellings.
 
-	torch.manual_seed(0)
-	block = CheriBlock(n_filters=16, dilation=2)
-	legacy = block.state_dict()
-	assert 'conv_weight' in legacy
+	``state_dict()`` only ever emits ``legacy``; the others are what a
+	naive ``nn.Module`` walk, or a hand-assembled dict, would produce.
+	"""
 
-	torch.manual_seed(1)
-	fresh = CheriBlock(n_filters=16, dilation=2)
-	fresh.load_state_dict(legacy)
+	out = {}
+	for key, value in state_dict.items():
+		# The second test guards against double-rewriting a key that is
+		# already in submodule form, which `state_dict()` should never
+		# produce -- but if it ever did, mangling the key here would fail
+		# the test for the wrong reason and hide the real cause.
+		if not key.endswith('conv_weight') or key.endswith('conv.conv_weight'):
+			out[key] = value
+			continue
 
-	assert torch.equal(fresh.conv.conv_weight, block.conv.conv_weight)
+		new_key = key[:-len('conv_weight')] + 'conv.conv_weight'
+		if spelling == 'legacy':
+			out[key] = value
+		elif spelling == 'submodule':
+			out[new_key] = value
+		elif spelling == 'both':
+			# A stray legacy key alongside the real one must not win.
+			out[new_key] = value
+			out[key] = torch.zeros_like(value)
+		else:
+			raise ValueError(spelling)
+
+	return out
 
 
-def test_legacy_checkpoint_load_reproduces_original_output():
-	"""End-to-end check: a block restored from a legacy checkpoint must
-	produce the same output as the block that wrote it."""
+def _conv_weights(module):
+	return [p for n, p in module.named_parameters() if n.endswith('conv_weight')]
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["standalone", "nested"])
+def test_state_dict_emits_legacy_keys_in_original_order(nested):
+	"""The on-disk format is frozen: a checkpoint written today keys the
+	depthwise weight exactly as every previously trained model does, in
+	the same position, so older installs can still read it."""
+
+	module, expected = _build(nested)
+
+	assert list(module.state_dict().keys()) == expected
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["standalone", "nested"])
+def test_state_dict_survives_a_trip_through_torch_save(tmp_path, nested):
+	"""...including through disk, which is how checkpoints actually
+	travel between versions."""
+
+	module, expected = _build(nested)
+
+	path = tmp_path / "block.torch"
+	torch.save(module.state_dict(), path)
+	loaded = torch.load(path, weights_only=True)
+
+	assert list(loaded.keys()) == expected
+
+	fresh, _ = _build(nested, seed=1)
+	fresh.load_state_dict(loaded)
+
+	for restored, original in zip(_conv_weights(fresh), _conv_weights(module)):
+		assert torch.equal(restored, original)
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["standalone", "nested"])
+@pytest.mark.parametrize("spelling", ["legacy", "submodule", "both"])
+def test_checkpoint_loads_from_any_spelling(spelling, nested):
+	"""Every spelling of the depthwise key must land on the submodule.
+
+	``legacy`` is what pre-refactor checkpoints and this version's own
+	``state_dict()`` contain; ``submodule`` is what a bare
+	``named_parameters()`` walk produces; ``both`` is a malformed dict
+	carrying each, where the submodule key has to win rather than being
+	clobbered by the stale one."""
+
+	source, _ = _build(nested)
+	state_dict = _respell(source.state_dict(), spelling)
+
+	target, _ = _build(nested, seed=1)
+	# A stray legacy key is unexpected rather than wrong; ignore it.
+	target.load_state_dict(state_dict, strict=(spelling != 'both'))
+
+	for restored, original in zip(_conv_weights(target), _conv_weights(source)):
+		assert torch.equal(restored, original), \
+			"{} spelling did not reach the submodule".format(spelling)
+		assert not torch.equal(restored, torch.zeros_like(restored))
+
+
+def test_loaded_checkpoint_reproduces_the_original_output():
+	"""The end-to-end consequence: a block restored from a checkpoint
+	computes what the block that wrote it computed."""
 
 	torch.manual_seed(0)
 	block = CheriBlock(n_filters=16, dilation=2)
 	x = torch.randn(2, 64, 16)
-	y_expected = block(x)
+	expected = block(x)
 
 	torch.manual_seed(1)
 	restored = CheriBlock(n_filters=16, dilation=2)
 	restored.load_state_dict(block.state_dict())
 
-	assert torch.allclose(restored(x), y_expected, atol=1e-6)
-
-
-def test_submodule_format_checkpoint_also_loads():
-	"""A state dict keyed on the submodule path — what a bare
-	`named_parameters` walk or a hand-built dict produces — must load
-	too, so the block accepts both spellings."""
-
-	torch.manual_seed(0)
-	block_a = CheriBlock(n_filters=16, dilation=2)
-	torch.manual_seed(1)
-	block_b = CheriBlock(n_filters=16, dilation=2)
-
-	new_format = _submodule_format(block_b.state_dict())
-	assert 'conv.conv_weight' in new_format
-
-	block_a.load_state_dict(new_format)
-
-	assert torch.equal(block_a.conv.conv_weight, block_b.conv.conv_weight)
-
-
-def test_new_key_wins_when_both_keys_present():
-	"""If a state dict somehow carries both spellings, the submodule key
-	must take precedence and the legacy one must not clobber it."""
-
-	torch.manual_seed(0)
-	block = CheriBlock(n_filters=16, dilation=2)
-
-	sd = _submodule_format(block.state_dict())
-	sd['conv_weight'] = torch.zeros_like(sd['conv.conv_weight'])
-
-	fresh = CheriBlock(n_filters=16, dilation=2)
-	# The stray legacy key is unexpected; ignore it rather than error.
-	fresh.load_state_dict(sd, strict=False)
-
-	assert torch.equal(fresh.conv.conv_weight, block.conv.conv_weight)
-	assert not torch.allclose(fresh.conv.conv_weight,
-		torch.zeros_like(fresh.conv.conv_weight))
-
-
-def test_legacy_checkpoint_migrates_for_nested_blocks():
-	"""The hooks key off `prefix`, so they must work when the block is
-	nested inside a parent module rather than loaded standalone."""
-
-	torch.manual_seed(0)
-	parent = torch.nn.Sequential(
-		CheriBlock(n_filters=8, dilation=1),
-		CheriBlock(n_filters=8, dilation=2),
-	)
-
-	legacy = parent.state_dict()
-	assert {'0.conv_weight', '1.conv_weight'} <= set(legacy)
-
-	torch.manual_seed(1)
-	fresh = torch.nn.Sequential(
-		CheriBlock(n_filters=8, dilation=1),
-		CheriBlock(n_filters=8, dilation=2),
-	)
-	fresh.load_state_dict(legacy)
-
-	for i in range(2):
-		assert torch.equal(fresh[i].conv.conv_weight,
-			parent[i].conv.conv_weight), f"block {i} did not migrate"
-
-	# ...and the submodule spelling round-trips through nesting as well.
-	torch.manual_seed(2)
-	fresh2 = torch.nn.Sequential(
-		CheriBlock(n_filters=8, dilation=1),
-		CheriBlock(n_filters=8, dilation=2),
-	)
-	fresh2.load_state_dict(_submodule_format(legacy))
-
-	for i in range(2):
-		assert torch.equal(fresh2[i].conv.conv_weight,
-			parent[i].conv.conv_weight), f"block {i} did not load"
-
-
-def test_cheri_block_state_dict_round_trips_through_save(tmp_path):
-	"""`torch.save`/`torch.load` of a block state dict must survive with
-	the legacy key intact, since that is how checkpoints reach disk."""
-
-	torch.manual_seed(0)
-	block = CheriBlock(n_filters=16, dilation=2)
-
-	path = tmp_path / "block.torch"
-	torch.save(block.state_dict(), path)
-	loaded = torch.load(path, weights_only=True)
-
-	assert list(loaded.keys()) == [
-		'conv_weight', 'linear1.weight', 'linear2.weight']
-
-	torch.manual_seed(1)
-	fresh = CheriBlock(n_filters=16, dilation=2)
-	fresh.load_state_dict(loaded)
-
-	assert torch.equal(fresh.conv.conv_weight, block.conv.conv_weight)
+	assert torch.allclose(restored(x), expected, atol=1e-6)
 
 
 @pytest.mark.cuda
