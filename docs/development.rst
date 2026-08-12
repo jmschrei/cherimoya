@@ -53,21 +53,41 @@ Explicitly:
 
 * **Public** symbols, re-exported from ``cherimoya.__init__``:
   :class:`~cherimoya.Cherimoya`, :class:`~cherimoya.CheriBlock`,
-  :class:`~cherimoya.cherimoya.EMA`.
+  :class:`~cherimoya.cherimoya.EMA`, and the four model wrappers
+  :class:`~cherimoya.wrappers.ControlWrapper`,
+  :class:`~cherimoya.wrappers.ProfileWrapper`,
+  :class:`~cherimoya.wrappers.LogCountWrapper` and
+  :class:`~cherimoya.wrappers.ExpectedCountsWrapper`.
 * **Public** module-level symbols:
   :func:`~cherimoya.io.PeakGenerator`,
   :class:`~cherimoya.io.PeakNegativeSampler`,
   :func:`~cherimoya.cheri.fused_dilated_conv_norm`,
+  :class:`~cherimoya.cheri.FusedDilatedConvNorm`,
   :class:`~cherimoya.cheri.FusedDilatedConvNormFunc`,
   :func:`~cherimoya.performance.calculate_performance_measures` and
   its component metrics, :func:`~cherimoya.losses._mixture_loss`
   (despite the underscore — it is the trainer's loss function and
   the API is stable).
+
+  :class:`~cherimoya.cheri.FusedDilatedConvNorm` is public because
+  naming the class *is* the interface: an attribution method that wants
+  to treat the fused convolution specially has to identify it by type,
+  so the name and import path are a compatibility surface even though
+  nothing in this package calls the class from outside
+  :class:`~cherimoya.CheriBlock`.
 * **Private** and may change: anything else, including the Triton
   kernels (``_fwd_*``, ``_bwd_*``, ``_fwd_inf_*``), the CPU fallback
   (``_cheri_conv_norm_cpu``), the CheriBlock weight cache
-  (``_w_cache``), and the model's checkpoint-payload helper
-  (``_init_kwargs``).
+  (``_w_cache``), the ``torch.log`` module wrapper in the count head
+  (``cherimoya.cherimoya._Log``), and the model's checkpoint-payload
+  helper (``_init_kwargs``).
+
+  ``_Log`` is deliberately *not* public, unlike its counterpart above.
+  It exists for the same reason — giving attribution methods a node in
+  the module tree — but it wraps a single elementwise call to
+  ``torch.log``, which the standard DeepLIFT rescale rule already
+  handles correctly. There is no reason for caller code to name the
+  type, so it stays private and may be renamed or removed.
 
 
 Development install

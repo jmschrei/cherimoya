@@ -25,6 +25,13 @@ Attribution
   do not mention these two classes behave exactly as they did before —
   the nodes exist to be opted into, and adding them changes no existing
   result.
+* Of the two, only ``FusedDilatedConvNorm`` is public — import it from
+  ``cherimoya.cheri``. Registering a rule for it means naming the class,
+  so its name and import path are a compatibility surface and are treated
+  as one. ``_Log`` stays private: it wraps a single elementwise
+  ``torch.log``, which the standard DeepLIFT rescale rule already handles,
+  so there is no reason for caller code to name that type. See
+  :doc:`development` for the full public/private split.
 
 Compatibility
 ~~~~~~~~~~~~~
