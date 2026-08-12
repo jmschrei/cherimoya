@@ -33,6 +33,46 @@ to the pure-PyTorch fallback (``_cheri_conv_norm_cpu``). Numerically
 equivalent up to floating-point error.
 
 
+FusedDilatedConvNorm
+--------------------
+
+.. autoclass:: FusedDilatedConvNorm
+   :members: forward
+   :undoc-members:
+   :show-inheritance:
+
+   .. rubric:: Constructor
+
+   .. automethod:: __init__
+
+An ``nn.Module`` wrapper around :func:`fused_dilated_conv_norm`, held by
+each :class:`CheriBlock` as ``block.conv``. It owns the depthwise weight
+(``block.conv.conv_weight``) and adds nothing but module dispatch — the
+kernel, its launches, and the numerics are identical to calling the
+function directly.
+
+Its purpose is to give attribution methods that discover their targets by
+walking ``named_modules`` — DeepLIFT and SHAP in particular — a concrete
+node to hook or substitute. Registering a handler for it is the caller's
+job; the module is inert on its own, so an attribution run that does not
+mention it behaves exactly as it did before this class existed.
+
+.. note::
+
+   The inference megakernel calls the fused op directly rather than
+   through this submodule, so hooks registered on ``block.conv`` fire on
+   the CPU and Triton training paths but **not** under ``no_grad`` on
+   CUDA. Attribution runs are unaffected, since they need gradients and
+   therefore take the training path.
+
+.. warning::
+
+   Do not confuse this with :class:`FusedDilatedConvNormFunc` below. The
+   module is the hookable node in the tree; the ``Func`` is the
+   ``torch.autograd.Function`` implementing the fused kernel that the
+   module ultimately calls.
+
+
 FusedDilatedConvNormFunc
 ------------------------
 
@@ -42,8 +82,8 @@ FusedDilatedConvNormFunc
 
 A custom ``torch.autograd.Function`` that fuses the 3-tap dilated
 depthwise convolution and per-example layer normalization. User code
-interacts with it through :func:`fused_dilated_conv_norm` and
-:class:`CheriBlock`.
+interacts with it through :func:`fused_dilated_conv_norm`,
+:class:`FusedDilatedConvNorm` and :class:`CheriBlock`.
 
 
 Forward kernels

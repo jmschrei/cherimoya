@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from cherimoya import Cherimoya
+from cherimoya.cherimoya import _Log
 
 
 @pytest.fixture
@@ -232,18 +233,12 @@ def test_grouped_model_fit_smoke(tmp_path):
 	training_data = torch.utils.data.DataLoader(sampler, batch_size=4,
 		num_workers=0)
 
-	# Optimizers — split params the same way fit.py does: 2D projection
-	# weights to Muon, Kendall lw0/lw1 to SGD, everything else (incl.
-	# conv_weight and the head) to AdamW.
-	muon_params, adam_params, lw_params = [], [], []
-	for name, p in model.named_parameters():
-		if name in ("lw0", "lw1"):
-			lw_params.append(p)
-		elif (p.ndim == 2 and "weight" in name and name != "linear.weight"
-				and "conv_weight" not in name):
-			muon_params.append(p)
-		else:
-			adam_params.append(p)
+	# Optimizers — route params using the same helper `cherimoya fit`
+	# uses, rather than restating the rule, so this smoke test exercises
+	# the real routing instead of a copy that could drift from it.
+	from cherimoya_cli.commands.fit import _split_parameters
+
+	muon_params, adam_params, lw_params = _split_parameters(model)
 	muon_opt = Muon(muon_params, lr=1e-3, weight_decay=0.0)
 	adam_opt = torch.optim.AdamW(adam_params, lr=1e-3, weight_decay=0.0)
 	lw_opt = torch.optim.SGD(lw_params, lr=1e-3, weight_decay=0.0,
@@ -429,6 +424,56 @@ def test_save_payload_format(tmp_path, small_model_kwargs):
 	assert isinstance(payload, dict)
 	assert set(payload.keys()) == {'config', 'state_dict'}
 	assert payload['config']['n_filters'] == small_model_kwargs['n_filters']
+
+
+def test_saved_checkpoint_uses_legacy_conv_weight_keys(tmp_path,
+	small_model_kwargs):
+	"""The on-disk key set is a compatibility surface shared with every
+	previously trained checkpoint and with installed versions of the
+	package, so it is frozen even though the parameter has moved onto
+	the ``conv`` submodule. `test_cheri.py` pins this for a lone block;
+	this pins it for the artifact `save` actually writes."""
+
+	model = Cherimoya(**small_model_kwargs)
+	path = tmp_path / "model.torch"
+	model.save(str(path))
+
+	state_dict = torch.load(str(path), weights_only=True,
+		map_location='cpu')['state_dict']
+
+	conv_keys = [k for k in state_dict if 'conv_weight' in k]
+	assert conv_keys == ['blocks.{}.conv_weight'.format(i)
+		for i in range(model.n_layers)]
+
+	# The live parameter is the one that moved; the two spellings must
+	# not both appear, or an older install would see an unexpected key.
+	assert [n for n, _ in model.named_parameters() if 'conv_weight' in n] == [
+		'blocks.{}.conv.conv_weight'.format(i) for i in range(model.n_layers)]
+
+
+def test_saved_checkpoint_reloads_without_mutating_the_payload(tmp_path,
+	small_model_kwargs):
+	"""`CheriBlock._load_from_state_dict` re-keys entries as it loads.
+	It must do that to a copy: a caller holding the payload — to load it
+	into a second model, or to inspect it afterwards — must not find its
+	dict rewritten underneath it."""
+
+	model = Cherimoya(**small_model_kwargs)
+	path = tmp_path / "model.torch"
+	model.save(str(path))
+	payload = torch.load(str(path), weights_only=True, map_location='cpu')
+
+	keys_before = list(payload['state_dict'].keys())
+
+	fresh = Cherimoya(**small_model_kwargs)
+	fresh.load_state_dict(payload['state_dict'])
+	assert list(payload['state_dict'].keys()) == keys_before
+
+	# The second load is the point: it must see the same legacy keys.
+	again = Cherimoya(**small_model_kwargs)
+	again.load_state_dict(payload['state_dict'])
+	assert torch.equal(again.blocks[0].conv.conv_weight,
+		model.blocks[0].conv.conv_weight)
 
 
 def test_load_to_specified_device(tmp_path, small_model_kwargs, device):
@@ -713,3 +758,88 @@ def test_model_no_grad_stable_across_repeated_calls_cuda():
 	assert torch.equal(c1, c2)
 	assert torch.equal(p1, p3)
 	assert torch.equal(c1, c3)
+
+
+# --------- _Log module wrapper --------------------------------------------
+
+def test_log_module_matches_torch_log():
+	"""The wrapper must be a pure pass-through to `torch.log`."""
+
+	log = _Log()
+	x = torch.rand(4, 8) + 0.1  # strictly positive; log is undefined at <= 0
+
+	assert torch.equal(log(x), torch.log(x))
+
+
+def test_log_module_has_no_parameters():
+	"""A pure op wrapper must not introduce trainable state."""
+
+	assert list(_Log().parameters()) == []
+
+
+def test_model_registers_log_module():
+	"""DeepLIFT locates hook targets by walking `named_modules`, so the
+	log has to be a registered child of the model."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
+		n_control_tracks=2, verbose=False)
+
+	assert isinstance(model._log, _Log)
+	assert dict(model.named_modules())['_log'] is model._log
+
+
+def test_model_forward_uses_log_module_with_control_tracks():
+	"""A hook on `model._log` must fire during the forward when control
+	tracks are present — this is the path DeepLIFT needs to intercept."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
+		n_control_tracks=2, verbose=False).eval()
+	L = _input_window_for(model)
+	X = torch.randn(1, 4, L)
+	X_ctl = torch.rand(1, 2, L)
+
+	calls = []
+	model._log.register_forward_hook(
+		lambda mod, inp, out: calls.append(out))
+
+	model(X, X_ctl)
+
+	assert len(calls) == 1, f"_Log hook fired {len(calls)} times"
+	assert torch.isfinite(calls[0]).all()
+
+
+def test_model_log_module_unused_without_control_tracks():
+	"""With no control tracks there is nothing to log, so the module
+	must stay out of the graph rather than run on a dummy input."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
+		n_control_tracks=0, verbose=False).eval()
+	L = _input_window_for(model)
+
+	calls = []
+	model._log.register_forward_hook(
+		lambda mod, inp, out: calls.append(out))
+
+	model(torch.randn(1, 4, L))
+
+	assert calls == []
+
+
+def test_model_log_module_output_matches_inline_log():
+	"""End-to-end guard that routing through the module did not change
+	the counts head: recompute the expected log term directly."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
+		n_control_tracks=2, verbose=False).eval()
+	L = _input_window_for(model)
+	X = torch.randn(1, 4, L)
+	X_ctl = torch.rand(1, 2, L)
+
+	captured = []
+	model._log.register_forward_hook(
+		lambda mod, inp, out: captured.append((inp[0], out)))
+
+	model(X, X_ctl)
+
+	x_in, y_out = captured[0]
+	assert torch.equal(y_out, torch.log(x_in))

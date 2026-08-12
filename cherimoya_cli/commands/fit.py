@@ -2,6 +2,56 @@
 # Author: Jacob Schreiber <jmschreiber91@gmail.com>
 
 
+def _split_parameters(model):
+    """Route each trainable parameter to one of the three optimizers.
+
+    Muon takes 2D projection weights inside Cheri Blocks
+    (linear1/linear2.weight). ``conv_weight`` is 2D but lives on the
+    depth-wise dilated path, not a projection matmul, and is routed to
+    AdamW -- note the test is a substring, so it matches whether the
+    parameter sits directly on the block or on its ``conv`` submodule.
+    ``lw0`` / ``lw1`` are the Kendall loss-balancing weights and are
+    routed by exact name to SGD. Everything else goes to AdamW.
+
+    Every parameter lands in exactly one bucket, so the three lists
+    partition ``model.named_parameters()``.
+
+    Parameters
+    ----------
+    model: torch.nn.Module
+            The model whose parameters are being routed.
+
+    Returns
+    -------
+    muon_params: list
+            2D projection weights, for the Muon optimizer.
+
+    adam_params: list
+            Everything not claimed by the other two, for AdamW.
+
+    lw_params: list
+            The Kendall loss-balancing weights, for SGD.
+    """
+
+    muon_params = []
+    adam_params = []
+    lw_params = []
+    for name, p in model.named_parameters():
+        if name in ("lw0", "lw1"):
+            lw_params.append(p)
+        elif (
+            p.ndim == 2
+            and "weight" in name
+            and name != "linear.weight"
+            and "conv_weight" not in name
+        ):
+            muon_params.append(p)
+        else:
+            adam_params.append(p)
+
+    return muon_params, adam_params, lw_params
+
+
 def run(args):
     import argparse
     import copy
@@ -152,25 +202,7 @@ def run(args):
     num_warmup_iters = len(training_data) * n_warmup_epochs
     num_decay_iters = len(training_data) * max(1, max_epochs - n_warmup_epochs)
 
-    # Muon takes 2D projection weights inside Cheri Blocks
-    # (linear1/linear2.weight). ``conv_weight`` is 2D but lives on the
-    # depth-wise dilated path, not a projection matmul, and is routed to
-    # AdamW. ``lw0`` / ``lw1`` are routed by exact name to SGD.
-    muon_params = []
-    adam_params = []
-    lw_params = []
-    for name, p in model.named_parameters():
-        if name in ("lw0", "lw1"):
-            lw_params.append(p)
-        elif (
-            p.ndim == 2
-            and "weight" in name
-            and name != "linear.weight"
-            and "conv_weight" not in name
-        ):
-            muon_params.append(p)
-        else:
-            adam_params.append(p)
+    muon_params, adam_params, lw_params = _split_parameters(model)
 
     muon_optimizer = Muon(
         muon_params, lr=parameters["muon_lr"], weight_decay=parameters["muon_wd"]

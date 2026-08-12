@@ -783,6 +783,78 @@ def fused_dilated_conv_norm(x, w, dilation):
 	return _cheri_conv_norm_cpu(x, w, dilation)
 
 
+class FusedDilatedConvNorm(torch.nn.Module):
+	"""nn.Module wrapper around the fused dilated conv + per-example norm.
+
+	This wrapper adds only Python-level module dispatch -- the underlying
+	kernel and its launches are unchanged, and the op stays fused. Owning
+	the operation as a module (rather than calling the autograd Function
+	inline) gives attribution methods that walk the module tree, such as
+	DeepLIFT, a concrete node to hook or substitute.
+
+	One asymmetry to know about: the inference megakernel calls the fused
+	op directly rather than through this module, so hooks registered here
+	fire on the CPU and Triton training paths but not under ``no_grad`` on
+	CUDA. Attribution runs need gradients and so always take the training
+	path; code capturing activations at inference time does not.
+
+	Parameters
+	----------
+	n_filters: int
+		The number of channels (the C dimension).
+
+	dilation: int
+		Spacing between the three taps.
+	"""
+
+	def __init__(self, n_filters, dilation):
+		super().__init__()
+		self.n_filters = n_filters
+		self.dilation = dilation
+
+		# Allocated here but *not* initialized here. CheriBlock applies
+		# trunc_normal_ after building linear1/linear2 so that the
+		# sequence of RNG draws matches pre-submodule versions exactly
+		# and a given seed reproduces the same block. Do not fold the
+		# init back into this constructor.
+		self.conv_weight = torch.nn.Parameter(torch.randn(3, n_filters))
+
+	def forward(self, X):
+		assert X.ndim == 3, f"expected (N, L, C), got {tuple(X.shape)}"
+		assert X.shape[-1] == self.n_filters, (
+			f"channel dim {X.shape[-1]} != n_filters {self.n_filters}")
+		return fused_dilated_conv_norm(X, self.conv_weight, self.dilation)
+
+
+def _rename_conv_key(module, destination, prefix, _local_metadata):
+	"""Emit the depthwise weight under its pre-submodule name.
+
+	The parameter now lives on ``block.conv``, so a naive state dict
+	would key it as ``conv.conv_weight``. Thousands of trained models
+	and any number of installed copies of this package expect
+	``conv_weight``, and a released version reading a checkpoint with
+	the new key fails outright rather than degrading. Renaming on the
+	way out keeps the on-disk format frozen, so checkpoints stay
+	readable in both directions; `CheriBlock._load_from_state_dict`
+	handles the other half by accepting either name on the way in.
+
+	The rename rebuilds the dict rather than pop-and-reassign so that
+	the key keeps its original position, leaving the serialized key
+	order byte-for-byte what it has always been.
+	"""
+
+	new_key = prefix + 'conv.conv_weight'
+	if new_key not in destination:
+		return
+
+	old_key = prefix + 'conv_weight'
+	items = [(old_key if k == new_key else k, v)
+		for k, v in destination.items()]
+
+	destination.clear()
+	destination.update(items)
+
+
 class CheriBlock(torch.nn.Module):
 	"""A single Cheri Block.
 
@@ -819,9 +891,11 @@ class CheriBlock(torch.nn.Module):
 	  Any case that fails these conditions falls back to the training
 	  path, so existing model configurations keep working unchanged.
 
-	Existing trained checkpoints are bit-compatible: the parameter
-	layout, init order, and forward semantics of the training path are
-	unchanged. The inference megakernel produces outputs that differ
+	Existing trained checkpoints are bit-compatible: the init order and
+	the forward semantics of the training path are unchanged, and the
+	depthwise weight is read and written under its historical
+	``conv_weight`` key even though it now lives on the ``conv``
+	submodule. The inference megakernel produces outputs that differ
 	from the training path by at most ~1e-5 max-abs at unit-scale
 	outputs; this drift comes from bf16 weight casts in the MLP and is
 	the precision/speed tradeoff documented in ``_cast_weights``.
@@ -855,12 +929,12 @@ class CheriBlock(torch.nn.Module):
 
 		hidden = expansion * n_filters
 
-		self.conv_weight = torch.nn.Parameter(torch.randn(3, n_filters))
+		self.conv = FusedDilatedConvNorm(n_filters, dilation)
 		self.linear1 = torch.nn.Linear(n_filters, hidden, bias=False)
 		self.linear2 = torch.nn.Linear(hidden, n_filters, bias=False)
 		self.activation = torch.nn.GELU(approximate='tanh')
 
-		torch.nn.init.trunc_normal_(self.conv_weight, std=0.02)
+		torch.nn.init.trunc_normal_(self.conv.conv_weight, std=0.02)
 		torch.nn.init.trunc_normal_(self.linear1.weight, std=0.02)
 		torch.nn.init.trunc_normal_(self.linear2.weight, std=0.02)
 
@@ -888,6 +962,44 @@ class CheriBlock(torch.nn.Module):
 			if not m.training:
 				m.train(False)
 		self.register_load_state_dict_post_hook(_refresh)
+
+		# Write the depthwise weight out under its historical name so
+		# that checkpoints saved here stay readable by installs that
+		# predate the FusedDilatedConvNorm submodule. See
+		# `_rename_conv_key` for the details.
+		self.register_state_dict_post_hook(_rename_conv_key)
+
+	@property
+	def conv_weight(self):
+		"""The depthwise convolution weight, of shape ``(3, n_filters)``.
+
+		Read-only alias for ``self.conv.conv_weight``. The parameter used
+		to live directly on the block and moved onto the
+		``FusedDilatedConvNorm`` submodule so that attribution methods
+		which walk the module tree have a node to hook. Code that reaches
+		for ``block.conv_weight`` keeps working and gets the same object
+		back; assign through ``block.conv.conv_weight`` instead.
+		"""
+
+		return self.conv.conv_weight
+
+	def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+		"""Load parameters, migrating checkpoints that predate ``self.conv``.
+
+		Older CheriBlocks held the depthwise weight directly on the block
+		as ``conv_weight``; it now lives on the ``FusedDilatedConvNorm``
+		submodule as ``conv.conv_weight``. Checkpoints are written in the
+		old format (see `_rename_conv_key`), so this covers both those and
+		any state dict produced by a bare ``named_parameters`` walk.
+		"""
+
+		old_key = prefix + 'conv_weight'
+		new_key = prefix + 'conv.conv_weight'
+
+		if old_key in state_dict and new_key not in state_dict:
+			state_dict[new_key] = state_dict.pop(old_key)
+
+		super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 	def train(self, mode=True):
 		"""Set training mode and (un)populate the eval-time bf16 cache.
@@ -962,9 +1074,9 @@ class CheriBlock(torch.nn.Module):
 
 		if self._can_use_inference_path(X):
 			w1, w2 = self._cast_weights(X)
-			return _fwd_inf_forward(X, self.conv_weight, self.dilation,
+			return _fwd_inf_forward(X, self.conv.conv_weight, self.dilation,
 				w1, w2)
 
-		X_conv = fused_dilated_conv_norm(X, self.conv_weight, self.dilation)
+		X_conv = self.conv(X)
 		X_mlp = self.linear2(self.activation(self.linear1(X_conv)))
 		return X + X_mlp * self.residual_scale

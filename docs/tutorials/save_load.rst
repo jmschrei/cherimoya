@@ -29,6 +29,35 @@ megakernel) is intentionally not part of the state dict and is not
 saved. It is rebuilt on the next forward pass.
 
 
+State dict keys are frozen
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+One key does not match the module tree, deliberately. Each block's
+depthwise convolution weight is the parameter
+``blocks.N.conv.conv_weight`` — it lives on the ``conv`` submodule — but
+it is written to and read from the state dict as ``blocks.N.conv_weight``,
+in that position, which is where it has always been:
+
+.. code-block:: python
+
+   >>> [n for n, _ in model.named_parameters() if 'conv_weight' in n][:1]
+   ['blocks.0.conv.conv_weight']
+   >>> [k for k in model.state_dict() if 'conv_weight' in k][:1]
+   ['blocks.0.conv_weight']
+
+The on-disk format is a compatibility surface shared with every
+already-trained checkpoint and with any installed version of the package,
+so it is held fixed while the module tree is free to change. A
+``state_dict`` post-hook renames on the way out and
+``CheriBlock._load_from_state_dict`` accepts either spelling on the way
+in, so checkpoints move in both directions between versions.
+
+Write ``block.conv.conv_weight`` when you need the parameter itself.
+``block.conv_weight`` still reads it — the same object, not a copy — but
+is read-only; assigning through it raises rather than leaving the
+submodule holding the old tensor.
+
+
 Loading
 -------
 
