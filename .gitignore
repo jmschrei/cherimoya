@@ -61,3 +61,6 @@ docs/_build/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Local compatibility sweep (see compat/README.md)
+compat/
