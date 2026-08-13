@@ -6,7 +6,6 @@ import pytest
 import torch
 
 from cherimoya import Cherimoya
-from cherimoya.cherimoya import _Log
 
 
 @pytest.fixture
@@ -760,86 +759,63 @@ def test_model_no_grad_stable_across_repeated_calls_cuda():
 	assert torch.equal(c1, c3)
 
 
-# --------- _Log module wrapper --------------------------------------------
+# --------- control-track term in the count head ---------------------------
 
-def test_log_module_matches_torch_log():
-	"""The wrapper must be a pure pass-through to `torch.log`."""
+def test_counts_head_control_term_is_log_of_summed_controls():
+	"""The count head takes ``log(sum(controls) + 1)`` as one extra input.
 
-	log = _Log()
-	x = torch.rand(4, 8) + 0.1  # strictly positive; log is undefined at <= 0
+	Asserted on the arithmetic rather than by hooking a module, so it holds
+	however that log happens to be spelled. The count path takes control
+	tracks *only* through this term -- the trunk features come from the
+	sequence alone -- so holding the sequence fixed and changing only the
+	controls isolates it: the whole change in the prediction has to be the
+	last column of the head's weight times the change in the log term."""
 
-	assert torch.equal(log(x), torch.log(x))
-
-
-def test_log_module_has_no_parameters():
-	"""A pure op wrapper must not introduce trainable state."""
-
-	assert list(_Log().parameters()) == []
-
-
-def test_model_registers_log_module():
-	"""DeepLIFT locates hook targets by walking `named_modules`, so the
-	log has to be a registered child of the model."""
-
-	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
-		n_control_tracks=2, verbose=False)
-
-	assert isinstance(model._log, _Log)
-	assert dict(model.named_modules())['_log'] is model._log
-
-
-def test_model_forward_uses_log_module_with_control_tracks():
-	"""A hook on `model._log` must fire during the forward when control
-	tracks are present — this is the path DeepLIFT needs to intercept."""
-
+	torch.manual_seed(0)
 	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
 		n_control_tracks=2, verbose=False).eval()
 	L = _input_window_for(model)
 	X = torch.randn(1, 4, L)
-	X_ctl = torch.rand(1, 2, L)
 
-	calls = []
-	model._log.register_forward_hook(
-		lambda mod, inp, out: calls.append(out))
+	ctl_a = torch.rand(1, 2, L)
+	ctl_b = torch.rand(1, 2, L) * 7.0     # a different total, same shape
 
-	model(X, X_ctl)
+	with torch.no_grad():
+		_, counts_a = model(X, ctl_a)
+		_, counts_b = model(X, ctl_b)
 
-	assert len(calls) == 1, f"_Log hook fired {len(calls)} times"
-	assert torch.isfinite(calls[0]).all()
+	# Controls are summed over the trimmed window only, so the untrimmed
+	# flanks must not contribute.
+	start, end = model.trimming, L - model.trimming
+	sums = [c[:, :, start:end].float().sum() for c in (ctl_a, ctl_b)]
+	delta_term = torch.log(sums[1] + 1) - torch.log(sums[0] + 1)
 
+	expected = model.linear.weight[:, -1] * delta_term
+	observed = (counts_b - counts_a)[0]
 
-def test_model_log_module_unused_without_control_tracks():
-	"""With no control tracks there is nothing to log, so the module
-	must stay out of the graph rather than run on a dummy input."""
-
-	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
-		n_control_tracks=0, verbose=False).eval()
-	L = _input_window_for(model)
-
-	calls = []
-	model._log.register_forward_hook(
-		lambda mod, inp, out: calls.append(out))
-
-	model(torch.randn(1, 4, L))
-
-	assert calls == []
+	assert torch.allclose(observed, expected, atol=1e-5), (
+		"count head's control term is not log(sum + 1): "
+		"expected {}, got {}".format(expected.tolist(), observed.tolist()))
 
 
-def test_model_log_module_output_matches_inline_log():
-	"""End-to-end guard that routing through the module did not change
-	the counts head: recompute the expected log term directly."""
+def test_counts_head_ignores_controls_outside_the_trimmed_window():
+	"""Signal in the untrimmed flanks must not reach the count head, which
+	is what makes the sum above a sum over ``[trimming, L - trimming)``."""
 
+	torch.manual_seed(0)
 	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
 		n_control_tracks=2, verbose=False).eval()
 	L = _input_window_for(model)
 	X = torch.randn(1, 4, L)
-	X_ctl = torch.rand(1, 2, L)
 
-	captured = []
-	model._log.register_forward_hook(
-		lambda mod, inp, out: captured.append((inp[0], out)))
+	ctl = torch.zeros(1, 2, L)
+	ctl[:, :, model.trimming:L - model.trimming] = 0.5
 
-	model(X, X_ctl)
+	flanked = ctl.clone()
+	flanked[:, :, :model.trimming] = 99.0      # only outside the window
 
-	x_in, y_out = captured[0]
-	assert torch.equal(y_out, torch.log(x_in))
+	with torch.no_grad():
+		_, counts = model(X, ctl)
+		_, counts_flanked = model(X, flanked)
+
+	assert torch.equal(counts, counts_flanked)
