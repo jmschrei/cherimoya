@@ -70,6 +70,17 @@ Compatibility
   submodule holding the old parameter — assign to
   ``block.conv.conv_weight`` instead.
 
+Documentation
+~~~~~~~~~~~~~
+
+* The bundled Claude Code agent skill now writes its cross-references as
+  complete skill-root-relative paths (``references/cli.md``) rather than
+  bare filenames (``cli.md``). A bare name does not say which directory
+  the file is in, so an agent following a pointer had to search for the
+  target first. All 26 mentions across the nine reference files were
+  converted and every target verified to exist. No guidance changed.
+  Re-run ``cherimoya install-skill --force`` to pick up the corrections.
+
 v0.2.1
 ------
 
