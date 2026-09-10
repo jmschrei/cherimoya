@@ -13,7 +13,7 @@ private and may change between versions:
 - `EMA` — the exponential-moving-average wrapper used during training.
 - `ControlWrapper`, `ProfileWrapper`, `LogCountWrapper`,
   `ExpectedCountsWrapper` — output wrappers for analysis (see
-  `using-tangermeme.md`).
+  `references/using-tangermeme.md`).
 
 ## Constructing and calling a model
 
@@ -48,7 +48,8 @@ grouping):
 ### Control tracks
 Models trained with controls expect a control tensor every forward:
 `model(X, X_ctl)`. For analysis tools that pass only a sequence, wrap in
-`ControlWrapper` (see `using-tangermeme.md`) so a zero control is synthesized.
+`ControlWrapper` (see `references/using-tangermeme.md`) so a zero control is
+synthesized.
 
 ## Saving and loading — the checkpoint format
 
@@ -103,7 +104,7 @@ Rules of thumb:
 - **Interactive / exploratory work, or after compile errors:** `compile=False`
   is safest — the lost speedup (~10–20% on the megakernel) rarely matters at that
   scale and it rules out an unrecognized `torch.compile`/CUDA-graph traceback
-  (see `troubleshooting.md`).
+  (see `references/troubleshooting.md`).
 - **Large-scale / high-throughput:** the default `max-autotune` is worth it; fall
   back to `max-autotune-no-cudagraphs` on a CUDA-graph error, and to
   `compile=False` only if that still fails.
@@ -115,7 +116,7 @@ Rules of thumb:
   the log — not any mid-epoch training loss. Expected, not drift.
 - From a pipeline run, load **`{name}.torch`** (best validation count Pearson);
   `{name}.final.torch` is the final-epoch EMA snapshot. See
-  `interpreting-outputs.md`.
+  `references/interpreting-outputs.md`.
 - **Legacy `torch.save(model, ...)` checkpoints (pre-0.1.0) are not loadable**
   and must be retrained. Cherimoya is under active development and may break
   checkpoint compatibility between versions — pin the version you train with if
@@ -127,5 +128,6 @@ The CLI subcommands and `model.fit(...)` share this save format. For an
 end-to-end walkthrough (data loading, `fit()`, `predict()` signatures) see the
 Python API tutorial at
 <https://cherimoya.readthedocs.io/en/latest/tutorials/python_api.html>. For most
-"train on my data" requests the CLI pipeline (`cli-training-pipeline.md`) is the
-better tool than a hand-written loop.
+"train on my data" requests the CLI pipeline
+(`references/cli-training-pipeline.md`) is the better tool than a hand-written
+loop.

@@ -3,7 +3,7 @@
 Before building a pipeline you need to know *what the user actually has*. This
 is a recognition guide: given a file (often just an extension), what is it, which
 pipeline slot does it fill, and what to confirm. For assay-driven settings
-(shifts, strandedness), see `assay-defaults.md`.
+(shifts, strandedness), see `references/assay-defaults.md`.
 
 ## The pipeline slots
 
@@ -44,10 +44,11 @@ The measured coverage the model learns to predict. Two forms:
 Confirm with the user:
 - **Reads or fragments?** A `.bam` almost always holds **aligned reads**; a
   `.tsv`/`.tsv.gz` (often `.bed`/`.bed.gz`) usually holds **fragments**. Decides
-  `-f` and `-pe` — see the reads-vs-fragments table in `assay-defaults.md`.
+  `-f` and `-pe` — see the reads-vs-fragments table in
+  `references/assay-defaults.md`.
 - **Stranded or unstranded?** ChIP/ATAC/DNase are usually unstranded (one
   track); many TF/initiation assays are stranded (`+`/`-` pair). Decides `-u`
-  and the grouping (below). See `assay-defaults.md`.
+  and the grouping (below). See `references/assay-defaults.md`.
 - **Replicates?** How they combine depends on input type. **BAM/SAM/fragment**
   replicates passed as multiple `-i` are merged into one bigWig by `bam2bw` (one
   pooled track). **Pre-made bigWig** replicates are *not* pooled — a flat list is
