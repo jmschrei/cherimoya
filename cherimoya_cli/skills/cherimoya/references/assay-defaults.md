@@ -46,7 +46,7 @@ Why (from the pipeline source):
 
 So: a fragment file gets `-f` and *not* `-pe`; a paired-end read BAM gets `-pe`
 and *not* `-f`. If unsure which a user has, ask — or infer from the extension and
-confirm (see the flag/filetype check in `input-files.md`).
+confirm (see the flag/filetype check in `references/input-files.md`).
 
 ## Starting points by assay (confirm before applying)
 
@@ -85,7 +85,7 @@ Typically a single-end read BAM modeled as one unstranded track: `-u`
 - Leave strandedness on (omit `-u`); the pipeline emits a `(+, -)` pair as one
   stranded group.
 - For pre-made bigWigs, remember the nested grouping
-  (`[["plus.bw","minus.bw"]]`) from `input-files.md`.
+  (`[["plus.bw","minus.bw"]]`) from `references/input-files.md`.
 
 ### Non-human genome
 - Set `callpeaks_gsize` to `"mm"` for mouse (or a numeric effective size), **and**

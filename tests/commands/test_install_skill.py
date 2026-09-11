@@ -10,6 +10,7 @@ a user's skills directory), a collision without --force must error, and
 
 import argparse
 import os
+import re
 
 import pytest
 
@@ -66,3 +67,62 @@ def test_symlink_install_points_at_source(tmp_path):
 	dest = _run(tmp_path, symlink=True)
 	assert os.path.islink(dest)
 	assert os.path.isfile(os.path.join(dest, "SKILL.md"))
+
+
+SKILL_SOURCE = os.path.join(os.path.dirname(os.path.abspath(
+	install_skill.__file__)), os.pardir, "skills", "cherimoya")
+
+
+def _skill_documents():
+	"""Every Markdown file that ships in the skill, as (path, text) pairs."""
+
+	paths = [os.path.join(SKILL_SOURCE, "SKILL.md")]
+
+	refs = os.path.join(SKILL_SOURCE, "references")
+	paths += sorted(os.path.join(refs, name) for name in os.listdir(refs)
+		if name.endswith(".md"))
+
+	documents = []
+	for path in paths:
+		with open(path) as f:
+			documents.append((path, f.read()))
+
+	return documents
+
+
+def test_cross_references_are_complete_paths_that_resolve():
+	"""Every `*.md` a skill file names must be a real, skill-root path.
+
+	A bare ``cli.md`` does not say which directory it lives in, so an
+	agent following the pointer has to search for the target. Mentions
+	are written as ``references/cli.md`` (or ``SKILL.md`` at the root),
+	relative to the skill root, and must name a file that exists.
+	"""
+
+	mention = re.compile(r"`([A-Za-z0-9_/.-]*\.md)`")
+
+	for path, text in _skill_documents():
+		for target in mention.findall(text):
+			assert target == "SKILL.md" or target.startswith("references/"), (
+				"{} names `{}` by bare filename; write the complete "
+				"skill-root-relative path".format(
+					os.path.basename(path), target))
+
+			assert os.path.isfile(os.path.join(SKILL_SOURCE, target)), (
+				"{} points at `{}`, which is not a file in the "
+				"skill".format(os.path.basename(path), target))
+
+
+def test_every_reference_is_reachable_from_the_router():
+	"""An unlinked reference file is one no agent will ever open."""
+
+	with open(os.path.join(SKILL_SOURCE, "SKILL.md")) as f:
+		router = f.read()
+
+	refs = os.path.join(SKILL_SOURCE, "references")
+	for name in sorted(os.listdir(refs)):
+		if not name.endswith(".md"):
+			continue
+
+		assert "`references/{}`".format(name) in router, (
+			"references/{} is not linked from SKILL.md".format(name))

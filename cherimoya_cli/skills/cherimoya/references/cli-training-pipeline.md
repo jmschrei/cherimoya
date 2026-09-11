@@ -25,8 +25,9 @@ cherimoya pipeline-json \
 ```
 
 Assay-specific flags (`-u` unstranded, `-f` fragments, `-pe` paired-end,
-`-ps`/`-ns` read shifts, `-sf` scale factor) are in `assay-defaults.md` — get
-them right, because they change the biology, not just the bookkeeping.
+`-ps`/`-ns` read shifts, `-sf` scale factor) are in
+`references/assay-defaults.md` — get them right, because they change the
+biology, not just the bookkeeping.
 
 **Watch the `-p` flag.** In `pipeline-json`, `-p` means **peaks**; in every
 other subcommand it means the **parameters JSON**. Don't carry the meaning
@@ -49,13 +50,14 @@ always explain the change you make:
 - **Out of GPU memory?** Lower `fit_parameters.batch_size` (64 → 32/16) or
   `fit_parameters.n_filters` (128 → 64), or set `fit_parameters.dtype` to
   `"bfloat16"`.
-- **Small dataset?** See dataset-size guidance in `troubleshooting.md`.
+- **Small dataset?** See dataset-size guidance in
+  `references/troubleshooting.md`.
 - **Skip a step:** most sub-dicts accept `"skip": true`.
 - **Dry run:** set top-level `"dry_run": true` to write all per-step JSONs
   without running anything — useful to show the user what will run before
   spending GPU time.
 
-Every key and default is tabulated in `cli.md` and, exhaustively, at
+Every key and default is tabulated in `references/cli.md` and, exhaustively, at
 <https://cherimoya.readthedocs.io/en/latest/cli.html>.
 
 ## Step 3 — run it
@@ -98,7 +100,7 @@ Worth telling a user up front:
   annotation, marginalization) are what get skipped without `-m`, so the run
   ends after TF-MoDISco.
 - `{name}.torch` is the best-validation checkpoint the downstream steps load;
-  see `interpreting-outputs.md` for `.torch` vs `.final.torch`.
+  see `references/interpreting-outputs.md` for `.torch` vs `.final.torch`.
 
 ## Re-running a single step
 
@@ -121,4 +123,4 @@ Two things that make re-running work:
   but you can re-run it standalone above.
 
 `negatives` is a standalone subcommand with its own flags (no JSON); see
-`cli.md`.
+`references/cli.md`.

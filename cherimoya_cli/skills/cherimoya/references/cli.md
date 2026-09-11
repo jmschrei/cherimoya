@@ -1,9 +1,9 @@
 # CLI subcommand map
 
 `cherimoya` has one subcommand per pipeline stage. Most people only need
-`pipeline-json` + `pipeline` (see `cli-training-pipeline.md`); the rest re-run a
-single stage. This maps a goal to a subcommand. For exhaustive flag and
-JSON-key tables, defer to
+`pipeline-json` + `pipeline` (see `references/cli-training-pipeline.md`);
+the rest re-run a single stage. This maps a goal to a subcommand. For
+exhaustive flag and JSON-key tables, defer to
 <https://cherimoya.readthedocs.io/en/latest/cli.html>.
 
 ## Goal → subcommand

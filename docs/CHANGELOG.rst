@@ -70,6 +70,35 @@ Compatibility
   submodule holding the old parameter — assign to
   ``block.conv.conv_weight`` instead.
 
+Documentation
+~~~~~~~~~~~~~
+
+* The bundled Claude Code agent skill now writes its cross-references as
+  complete skill-root-relative paths (``references/cli.md``) rather than
+  bare filenames (``cli.md``). A bare name does not say which directory
+  the file is in, so an agent following a pointer had to search for the
+  target first. All 26 mentions across the nine reference files were
+  converted and every target verified to exist. No guidance changed.
+  Re-run ``cherimoya install-skill --force`` to pick up the corrections.
+
+Tooling
+~~~~~~~
+
+* The CLI tests are now named after the modules they cover, mirroring
+  the package layout with the top-level package name elided the way
+  ``cherimoya/io.py`` maps to ``tests/test_io.py``:
+  ``tests/test_cli_utils.py`` becomes ``tests/test_utils.py``, and
+  ``tests/test_evaluate_cli.py``, ``tests/test_fit_wiring.py`` and
+  ``tests/test_install_skill.py`` move under a new ``tests/commands/``
+  subpackage as ``test_evaluate.py``, ``test_fit.py`` and
+  ``test_install_skill.py``. Renames only — no test content changed and
+  the suite count is unchanged. ``cherimoya_cli/utils.py`` is a
+  top-level module rather than a command, so its test stays at the
+  ``tests/`` root. Each file's docstring still records the slice of its
+  module it covers, which the filename alone does not: ``test_fit.py``
+  exercises parameter wiring and optimizer routing without training,
+  and ``test_evaluate.py`` covers the TSV output shape.
+
 v0.2.1
 ------
 

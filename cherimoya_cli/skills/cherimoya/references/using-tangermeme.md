@@ -60,6 +60,6 @@ wrapper = LogCountWrapper(ControlWrapper(model))
   user wants to *design* rather than *analyze*.
 
 The CLI already wires these for the standard flow (`attribute`, `seqlets`,
-`marginalize` in `cli-training-pipeline.md`). Reach for tangermeme directly only
-for something the pipeline doesn't do — a custom attribution target, variant
-scoring, or bespoke design objective.
+`marginalize` in `references/cli-training-pipeline.md`). Reach for tangermeme
+directly only for something the pipeline doesn't do — a custom attribution
+target, variant scoring, or bespoke design objective.

@@ -41,7 +41,8 @@ By likelihood:
 2. **Mismatched strand counts** — stranded data passed flat (or unstranded data
    as a pair) gives `y` the wrong shape. Set `verbose=true` and check the
    train/validation shapes printed at startup. Confirm a stranded `(+, -)` pair
-   is nested (`[["plus.bw","minus.bw"]]`), not flat (see `input-files.md`).
+   is nested (`[["plus.bw","minus.bw"]]`), not flat (see
+   `references/input-files.md`).
 
 ## "Stranded predictions come almost entirely from one strand"
 
@@ -115,12 +116,12 @@ reuses its bf16 weight cast.
 
 The checkpoint was saved with the legacy `torch.save(model, ...)` path from
 before v0.1.0. It's not loadable by the current config-plus-state-dict loader;
-retrain with the current release. See `using-in-python.md` for the save/load
-format.
+retrain with the current release. See `references/using-in-python.md` for
+the save/load format.
 
 ## "The loaded model predicts differently than training reported"
 
 Not a mismatch. The saved checkpoint holds the **EMA-applied** weights, which
 produced the best validation numbers. Compare against the **EMA validation** row
 in `{name}.log`, not the mid-epoch training loss. See the checkpoint note in
-`interpreting-outputs.md`.
+`references/interpreting-outputs.md`.

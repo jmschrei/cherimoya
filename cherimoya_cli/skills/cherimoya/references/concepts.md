@@ -38,8 +38,8 @@ A model can be good at one and not the other — hence separate metrics.
 
 Some assays distinguish the `+` and `-` DNA strands (a `(+, -)` pair of tracks);
 others don't (one unstranded track). This is a per-assay property, not
-inferable from a filename — see `assay-defaults.md`. Getting it wrong is silent;
-see the grouping footgun in `input-files.md`.
+inferable from a filename — see `references/assay-defaults.md`. Getting it
+wrong is silent; see the grouping footgun in `references/input-files.md`.
 
 ## Attribution, seqlets, motifs
 
@@ -65,11 +65,11 @@ The "what did the model learn" chain, in order:
   weights kept during training; it validates better than the raw weights.
   Cherimoya **saves the EMA weights**, so a reloaded model reproduces the EMA
   validation numbers in the log, not the mid-epoch training loss (see
-  `interpreting-outputs.md`).
+  `references/interpreting-outputs.md`).
 - **Reverse-complement augmentation** — training also shows the model each
   sequence's reverse complement (on by default); for stranded data this swaps the
   `+`/`-` tracks, which is why stranded pairs must be grouped correctly.
 - **Early stopping** — training halts after a set number of epochs (default 5)
   with no improvement in validation count Pearson, keeping the best checkpoint.
 
-For every default value, see `cli.md` or `cherimoya_cli/defaults.py`.
+For every default value, see `references/cli.md` or `cherimoya_cli/defaults.py`.

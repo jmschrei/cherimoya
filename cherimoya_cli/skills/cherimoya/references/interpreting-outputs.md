@@ -14,9 +14,9 @@ chr20).
 Headline number: **`count_pearson`** — how well predicted per-peak total signal
 correlates with truth on held-out chromosomes.
 - Good models on a solid dataset land well above 0.5, often 0.7–0.9+.
-- Near 0 means it didn't learn — see "stuck Pearson" in `troubleshooting.md`
-  (common causes: validation chromosomes with no peaks, dropped controls, an
-  uninformative signal).
+- Near 0 means it didn't learn — see "stuck Pearson" in
+  `references/troubleshooting.md` (common causes: validation chromosomes
+  with no peaks, dropped controls, an uninformative signal).
 
 `profile_pearson` / `profile_jsd` describe how well the profile **shape**
 (base-pair resolution) was learned, separate from total counts.
@@ -60,8 +60,9 @@ locus, as three aligned files:
 - `{name}.attributions.idxs.npy` — boolean mask back to the original loci list
   (which loci survived N-filtering).
 
-Don't eyeball these as files; load and plot them (see `using-tangermeme.md`) or
-let the seqlet/MoDISco steps consume them.
+Don't eyeball these as files; load and plot them (see
+`references/using-tangermeme.md`) or let the seqlet/MoDISco steps
+consume them.
 
 ### Seqlets — `{name}.seqlets.bed`
 Short, high-importance stretches pulled from the attributions, in genome
