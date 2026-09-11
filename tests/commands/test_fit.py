@@ -1,3 +1,8 @@
+# This file is named for cherimoya_cli/commands/fit.py but does not cover all
+# of it. It checks that parameters reach the right downstream calls and that
+# _split_parameters routes the optimizer; fit.run's execution and its error
+# paths are untested. It was test_fit_wiring.py until the rename, which carried
+# that scope in the name -- widen the file rather than trusting the name.
 """Wiring tests for `cherimoya fit` — confirms parameters flow into the
 right downstream calls without actually training."""
 
