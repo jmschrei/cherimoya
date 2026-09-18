@@ -24,6 +24,21 @@
 # "minus.bw"]`` as a stranded pair must update to the nested form
 # ``[["plus.bw", "minus.bw"]]`` to keep the +/- swap on RC.
 
+# A note on `random_state`:
+#
+# Training is seeded by default so that a run can be repeated: the seed
+# fixes the model's initialization and the peak/negative sampler's draw
+# order. Set it to any other integer to get an independent run -- rerunning
+# the same JSON unchanged reproduces the same model rather than giving an
+# independent replicate. Setting it to null does not turn seeding off; it
+# means "draw a seed, print it, and record it in the evaluate JSON", so an
+# unplanned run can still be repeated afterwards.
+#
+# Seeding does not make CUDA training bitwise reproducible. The fused
+# conv+norm kernel reduces with relaxed atomics, so the summation order
+# varies between launches. What the seed fixes is the initialization and
+# the sequence of examples, not the last bits of the arithmetic.
+
 training_chroms = ["chr2", "chr4", "chr5", "chr7", "chr9", "chr10", "chr11",
     "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19",
     "chr21", "chr22", "chrX", "chrY"]
@@ -67,7 +82,7 @@ default_fit_parameters = {
 	'negatives': None,
 	'signals': None,
 	'controls': None,
-	'random_state': None,
+	'random_state': 0,
 	'performance_filename': 'performance.tsv',
 	'skip': False,
 }
@@ -179,7 +194,7 @@ default_pipeline_parameters = {
 	# Data parameters
 	'batch_size': 512,
 	'verbose': True,
-	'random_state': None,
+	'random_state': 0,
 
 	'exclusion_lists': None,
 	'sequences': None,

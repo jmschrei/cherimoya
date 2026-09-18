@@ -56,11 +56,13 @@ def run(args):
     import argparse
     import copy
     import os
+    import random
     import sys
     import json
 
     os.environ["TORCH_CUDNN_V8_API_ENABLED"] = "1"
 
+    import numpy
     import torch
 
     torch.backends.cudnn.benchmark = True
@@ -87,6 +89,29 @@ def run(args):
     if parameters["skip"]:
         sys.exit()
 
+    # Resolve the seed before anything draws from an RNG. A null
+    # `random_state` means "pick one and tell me" rather than "stay
+    # unseeded": the run still varies between invocations, but the seed
+    # that produced it is printed and written into the evaluate JSON, so
+    # the run can be repeated afterwards. Drawing it here and storing it
+    # back into `parameters` is what puts it in that JSON, which is a
+    # deepcopy of this dict.
+    if parameters["random_state"] is None:
+        parameters["random_state"] = int(numpy.random.randint(0, 2**31 - 1))
+
+        # Printed whether or not `verbose` is set: a drawn seed is the
+        # one part of the run that cannot be recovered afterwards if
+        # training dies before the evaluate JSON is written.
+        print("Drew random_state={}; set it in the JSON to repeat this run."
+            .format(parameters["random_state"]))
+
+    # The sampler and the model each take the seed directly; these calls
+    # cover everything else that training touches.
+    random.seed(parameters["random_state"])
+    numpy.random.seed(parameters["random_state"])
+    torch.manual_seed(parameters["random_state"])
+    torch.cuda.manual_seed_all(parameters["random_state"])
+
     # Resolve grouped/flat signal specs into a flat list of files plus
     # the per-group sizes. The flat list is what extract_loci and the
     # `bam2bw`-style tooling need; the group sizes determine the
@@ -110,6 +135,7 @@ def run(args):
         print("Loading signal from: ", parameters["signals"])
         print("Loading controls from: ", parameters["controls"])
         print("Loading exclusion list from: ", parameters["exclusion_lists"])
+        print("Random State: ", parameters["random_state"])
         print()
 
     ###
@@ -183,6 +209,7 @@ def run(args):
         trimming=trimming,
         name=parameters["name"],
         verbose=parameters["verbose"],
+        random_state=parameters["random_state"],
     ).to(parameters["device"])
 
     if parameters["verbose"]:
