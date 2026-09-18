@@ -143,13 +143,34 @@ class Cherimoya(torch.nn.Module):
 	verbose: bool, optional
 		Whether the training-progress logger prints to stdout. Default
 		is True.
+
+	random_state: int or None, optional
+		Seed for the weight initialization. Every parameter in the model
+		is either overwritten by one of the ``trunc_normal_`` calls
+		below, zeroed, or set to one, so a given seed fully determines
+		the starting weights regardless of the global RNG state. The
+		seed is *not* stored in the checkpoint: it describes how a model
+		was initialized, not its architecture, and a loaded model takes
+		its weights from the state dict rather than from init. If None,
+		the global RNG is used and the initialization is not
+		reproducible. Default is None.
 	"""
 
 	def __init__(self, n_filters=128, n_layers=9, signal_groups=None,
 		n_control_tracks=0, expansion=2, residual_scale=0.15, name=None,
 		trimming=None, verbose=True, compile=True,
-		compile_mode='max-autotune'):
+		compile_mode='max-autotune', random_state=None):
 		super(Cherimoya, self).__init__()
+
+		# One generator feeds every weight draw in the model, including
+		# those inside the blocks. A local generator rather than
+		# `torch.manual_seed` so that asking for a reproducible model
+		# does not reseed the caller's global RNG stream. Construction
+		# still advances that stream -- Conv1d/Linear run their own
+		# default init first -- but every value it produces is then
+		# overwritten below.
+		generator = (None if random_state is None
+			else torch.Generator().manual_seed(random_state))
 
 		if signal_groups is None:
 			signal_groups = [1]
@@ -175,7 +196,7 @@ class Cherimoya(torch.nn.Module):
 
 		self.blocks = torch.nn.ModuleList([
 			CheriBlock(n_filters, 2**i, expansion=expansion,
-				residual_scale=residual_scale)
+				residual_scale=residual_scale, generator=generator)
 			for i in range(self.n_layers)
 		])
 
@@ -188,9 +209,12 @@ class Cherimoya(torch.nn.Module):
 		self.lw0 = torch.nn.Parameter(torch.ones(self.n_groups))
 		self.lw1 = torch.nn.Parameter(torch.ones(self.n_groups))
 
-		torch.nn.init.trunc_normal_(self.iconv.weight, std=0.02)
-		torch.nn.init.trunc_normal_(self.fconv.weight, std=0.02)
-		torch.nn.init.trunc_normal_(self.linear.weight, std=0.02)
+		torch.nn.init.trunc_normal_(self.iconv.weight, std=0.02,
+			generator=generator)
+		torch.nn.init.trunc_normal_(self.fconv.weight, std=0.02,
+			generator=generator)
+		torch.nn.init.trunc_normal_(self.linear.weight, std=0.02,
+			generator=generator)
 
 		torch.nn.init.zeros_(self.iconv.bias)
 		torch.nn.init.zeros_(self.fconv.bias)

@@ -819,3 +819,90 @@ def test_counts_head_ignores_controls_outside_the_trimmed_window():
 		_, counts_flanked = model(X, flanked)
 
 	assert torch.equal(counts, counts_flanked)
+
+
+# --------- random_state initialization -------------------------------------
+
+def _init_state(**kwargs):
+	"""Build a small model and return its state dict."""
+
+	params = dict(n_filters=8, n_layers=2, verbose=False)
+	params.update(kwargs)
+	return Cherimoya(**params).state_dict()
+
+
+def test_random_state_reproduces_the_initialization():
+	a = _init_state(random_state=0)
+	b = _init_state(random_state=0)
+
+	assert a.keys() == b.keys()
+	for key in a:
+		assert torch.equal(a[key], b[key]), (
+			"parameter {} differs between two models built with the same "
+			"random_state".format(key))
+
+
+def test_random_state_reproduces_the_initialization_with_controls():
+	"""The control path widens fconv and adds a column to the count head,
+	so it is initialized by the same calls but at different shapes."""
+
+	a = _init_state(random_state=0, n_control_tracks=2)
+	b = _init_state(random_state=0, n_control_tracks=2)
+
+	for key in a:
+		assert torch.equal(a[key], b[key])
+
+
+def test_random_state_ignores_the_global_rng():
+	"""A seeded model must not depend on whatever the caller last seeded
+	the global RNG with — that is the whole point of the local generator."""
+
+	torch.manual_seed(999)
+	a = _init_state(random_state=0)
+
+	torch.manual_seed(111)
+	b = _init_state(random_state=0)
+
+	for key in a:
+		assert torch.equal(a[key], b[key])
+
+
+def test_different_random_state_changes_the_initialization():
+	a = _init_state(random_state=0)
+	b = _init_state(random_state=1)
+
+	assert not torch.equal(a['iconv.weight'], b['iconv.weight'])
+
+
+def test_no_random_state_leaves_the_initialization_unseeded():
+	"""The default stays non-deterministic, so nothing that relied on
+	fresh weights per construction changes."""
+
+	a = _init_state()
+	b = _init_state()
+
+	assert not torch.equal(a['iconv.weight'], b['iconv.weight'])
+
+
+def test_random_state_is_not_part_of_the_checkpoint_config():
+	"""random_state describes how a model was initialized, not its
+	architecture. Persisting it would put a key in the saved config that
+	older versions would reject as an unexpected kwarg."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, verbose=False, random_state=0)
+	assert 'random_state' not in model._init_kwargs()
+
+
+def test_random_state_survives_a_save_load_round_trip(tmp_path):
+	"""Loading restores weights from the state dict, so the loaded model
+	matches the seeded one even though the seed itself is not stored."""
+
+	model = Cherimoya(n_filters=8, n_layers=2, verbose=False, random_state=0)
+
+	path = str(tmp_path / "seeded.torch")
+	model.save(path)
+	loaded = Cherimoya.load(path)
+
+	a, b = model.state_dict(), loaded.state_dict()
+	for key in a:
+		assert torch.equal(a[key], b[key])

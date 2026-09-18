@@ -985,3 +985,36 @@ def test_cheri_block_init_matches_legacy_rng_order():
 		 0.006855, -0.032090, -0.011746,  0.012008,  0.008756, -0.001929,
 		 0.006605, -0.003750, -0.028541,  0.011851, -0.023164,  0.000715,
 		 0.004320, -0.018322,  0.031197, -0.063074], 4)
+
+
+def test_cheri_block_generator_seeds_initialization():
+	"""A seeded generator must fully determine the block's weights. Every
+	parameter the block owns is overwritten by a `trunc_normal_` draw, so
+	whatever the global RNG was last seeded with is irrelevant."""
+
+	torch.manual_seed(999)
+	a = CheriBlock(n_filters=8, dilation=1,
+		generator=torch.Generator().manual_seed(7))
+
+	torch.manual_seed(111)
+	b = CheriBlock(n_filters=8, dilation=1,
+		generator=torch.Generator().manual_seed(7))
+
+	for (name, pa), (_, pb) in zip(a.named_parameters(), b.named_parameters()):
+		assert torch.equal(pa, pb), (
+			"{} differs between two blocks built from the same generator "
+			"seed".format(name))
+
+
+def test_cheri_block_generator_defaults_to_the_global_rng():
+	"""`generator=None` is the pre-existing path — it must keep drawing
+	from the global RNG, which is what pins the legacy values above."""
+
+	torch.manual_seed(0)
+	seeded = CheriBlock(n_filters=8, dilation=1, expansion=2)
+
+	torch.manual_seed(0)
+	default = CheriBlock(n_filters=8, dilation=1, expansion=2,
+		generator=None)
+
+	assert torch.equal(seeded.conv.conv_weight, default.conv.conv_weight)

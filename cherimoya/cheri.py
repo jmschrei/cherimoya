@@ -918,9 +918,18 @@ class CheriBlock(torch.nn.Module):
 	residual_scale: float, optional
 		Fixed scalar applied to the MLP output before it is added back
 		to the residual stream. Default is 0.15.
+
+	generator: torch.Generator or None, optional
+		The generator to draw the weight initialization from. Every
+		parameter the block owns is overwritten by one of the
+		``trunc_normal_`` calls below, so passing a seeded generator
+		makes the block's initial weights a pure function of that seed
+		and independent of the global RNG state. If None, the global
+		RNG is used. Default is None.
 	"""
 
-	def __init__(self, n_filters, dilation, expansion=2, residual_scale=0.15):
+	def __init__(self, n_filters, dilation, expansion=2, residual_scale=0.15,
+		generator=None):
 		super().__init__()
 		self.n_filters = n_filters
 		self.dilation = dilation
@@ -934,9 +943,12 @@ class CheriBlock(torch.nn.Module):
 		self.linear2 = torch.nn.Linear(hidden, n_filters, bias=False)
 		self.activation = torch.nn.GELU(approximate='tanh')
 
-		torch.nn.init.trunc_normal_(self.conv.conv_weight, std=0.02)
-		torch.nn.init.trunc_normal_(self.linear1.weight, std=0.02)
-		torch.nn.init.trunc_normal_(self.linear2.weight, std=0.02)
+		torch.nn.init.trunc_normal_(self.conv.conv_weight, std=0.02,
+			generator=generator)
+		torch.nn.init.trunc_normal_(self.linear1.weight, std=0.02,
+			generator=generator)
+		torch.nn.init.trunc_normal_(self.linear2.weight, std=0.02,
+			generator=generator)
 
 		# Eval-time weight caches, materialized at .eval() time and cleared
 		# at .train() time. Non-persistent buffers so they move with
