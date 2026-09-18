@@ -23,6 +23,7 @@ Creating a model
        expansion=2,               # MLP expansion factor inside each Cheri Block
        residual_scale=0.15,       # fixed residual scale
        name="my_model",           # used for save filenames
+       random_state=0,            # seeds the weight initialization
    ).cuda()
 
 ``signal_groups`` is the list of channel counts per signal group, one
@@ -123,6 +124,10 @@ history.
 * Per-position jitter and reverse-complement flips are drawn from the
   per-epoch RNG, so two runs with the same seed produce bit-identical
   training data.
+
+The sampler is only half of a reproducible run. Pass ``random_state``
+to ``Cherimoya`` as well to fix the weight initialization, which is
+what ``cherimoya fit`` does with the single seed in its JSON.
 
 
 Preparing validation data

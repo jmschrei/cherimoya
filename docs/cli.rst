@@ -138,8 +138,10 @@ JSON schema (top-level keys, with defaults from
      - ``true``
      - Print per-step progress.
    * - ``random_state``
-     - ``null``
-     - Base RNG seed for the data sampler.
+     - 0
+     - Base RNG seed, inherited by the fit and marginalize steps.
+       Seeds the model's initialization and the sampler's draw order.
+       Set ``null`` to have one drawn, printed, and recorded instead.
    * - ``exclusion_lists``
      - ``null``
      - BED file(s) of regions to exclude.
@@ -341,8 +343,9 @@ Unspecified keys fall back to the fit-level defaults.
      - ``"cuda"``
      - Training device.
    * - ``random_state``
-     - ``null``
-     - Base RNG seed.
+     - 0
+     - Base RNG seed. See :ref:`what a seed fixes <reproducibility>`.
+       Left ``null`` here, the pipeline's top-level value is used.
 
 
 attribute_parameters
@@ -507,7 +510,8 @@ Skipped entirely when the top-level ``motifs`` is null.
      - Shuffle the background loci before sampling.
    * - ``random_state``
      - 0
-     - RNG seed for shuffling.
+     - RNG seed for the locus shuffle. Left ``null`` here, the
+       pipeline's top-level value is used.
    * - ``minimal``
      - ``true``
      - Use the minimal marginalization output format.
