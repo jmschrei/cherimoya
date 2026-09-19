@@ -38,8 +38,11 @@ def run(args):
     ).float()
 
     if parameters["shuffle"] == True:
+        # Seeded from `random_state` so that which loci the report is
+        # built from is reproducible. `RandomState(None)` draws from
+        # system entropy, so a null seed keeps the unseeded behavior.
         idxs = numpy.arange(X.shape[0])
-        numpy.random.shuffle(idxs)
+        numpy.random.RandomState(parameters["random_state"]).shuffle(idxs)
         X = X[idxs]
 
     if parameters["n_loci"] is not None:

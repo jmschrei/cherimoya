@@ -4,6 +4,55 @@ Changelog
 Unreleased
 ----------
 
+Reproducibility
+~~~~~~~~~~~~~~~
+
+* Training is now seeded by default. ``random_state`` defaults to ``0``
+  in ``default_fit_parameters`` and at the top level of
+  ``default_pipeline_parameters``, and :class:`cherimoya.Cherimoya` takes
+  a ``random_state`` that seeds its initialization from a local
+  ``torch.Generator``. The seed previously reached only the
+  peak/negative sampler, so two runs with the same ``random_state`` saw
+  the same examples in the same order but started from different
+  weights — the larger of the two sources of run-to-run variance was
+  unseeded. **Rerunning an unchanged fit JSON now rebuilds the same
+  model rather than producing an independent replicate; vary**
+  ``random_state`` **to get replicates.**
+
+* ``random_state: null`` no longer means "run unseeded". ``cherimoya
+  fit`` draws a seed, prints it whether or not ``verbose`` is set, and
+  stores it back into the parameters it deepcopies into the generated
+  evaluate JSON. The drawn seed used to be created inside
+  :class:`~cherimoya.io.PeakNegativeSampler` and never printed, logged,
+  or saved, so a run made with the old default could not be repeated
+  even in principle.
+
+* A fit JSON that omits ``random_state`` is now accepted. ``merge_parameters``
+  rejects a missing key whose default is ``None`` unless the key is in a
+  small whitelist, and ``random_state`` was not in it, so a hand-written
+  JSON that left the seed out failed with ``Must provide value for
+  'random_state'`` instead of falling back to a default.
+
+* ``cherimoya marginalize`` now uses the ``random_state`` it documents.
+  The locus shuffle called ``numpy.random.shuffle`` directly, so the seed
+  in ``default_marginalize_parameters`` — and the ``0`` printed for it in
+  the CLI reference — had no effect, and every report was built from a
+  different sample of background loci.
+
+* The bundled Claude Code agent skill gains a ``random_state`` entry in
+  its training vocabulary and a note in the pipeline reference that a
+  rerun of an unchanged JSON is not a replicate. Re-run ``cherimoya
+  install-skill --force`` to pick them up.
+
+* The reproducibility claims in the README and in the architecture page
+  now state the CUDA limit. The fused convolution + normalization kernel
+  accumulates its per-example statistics with relaxed atomic adds, so the
+  order of that floating-point reduction varies between launches: two
+  seeded GPU runs share an initialization and an example order but are
+  not bitwise equal, and training compounds the difference rather than
+  holding it at rounding scale. CPU runs with the same seed are bitwise
+  identical, across separate processes and thread counts.
+
 Attribution
 ~~~~~~~~~~~
 

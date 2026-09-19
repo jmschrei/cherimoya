@@ -321,3 +321,166 @@ def test_fit_routing_is_stable_without_control_tracks():
 			assert names[name] == ['muon'], f"{name} -> {names[name]}"
 		elif name.endswith('conv_weight'):
 			assert names[name] == ['adam'], f"{name} -> {names[name]}"
+
+
+def _run_capturing_peak_generator(path):
+	"""Run fit.run and return the kwargs PeakGenerator was called with.
+
+	Execution stops at that call, which is far enough to see every
+	parameter the sampler is given but short of any real IO.
+	"""
+
+	from cherimoya_cli.commands import fit as fit_cmd
+
+	captured = {}
+
+	class _StopFit(Exception):
+		pass
+
+	def fake_peak_generator(**kwargs):
+		captured.update(kwargs)
+		raise _StopFit()
+
+	with mock.patch("cherimoya.io.PeakGenerator",
+			side_effect=fake_peak_generator):
+		try:
+			fit_cmd.run(argparse.Namespace(parameters=str(path)))
+		except _StopFit:
+			pass
+		except Exception:
+			if not captured:
+				raise
+
+	assert captured, "PeakGenerator was never called"
+	return captured
+
+
+def test_default_fit_parameters_random_state_is_zero():
+	"""Training is seeded by default. The nested pipeline copy stays
+	None so that `_extract_set` lets the top-level value through — a 0
+	there would shadow whatever the user set at the top level."""
+
+	from cherimoya_cli.defaults import (
+		default_fit_parameters,
+		default_pipeline_parameters,
+	)
+	assert default_fit_parameters['random_state'] == 0
+	assert default_pipeline_parameters['random_state'] == 0
+	assert default_pipeline_parameters['fit_parameters']['random_state'] is None
+
+
+def test_pipeline_random_state_reaches_the_fit_json():
+	"""The top-level pipeline seed must survive `_extract_set` into the
+	fit JSON, since that is the dict the fit step actually reads."""
+
+	from cherimoya_cli.defaults import (
+		default_fit_parameters,
+		default_pipeline_parameters,
+	)
+	from cherimoya_cli.utils import _extract_set
+
+	parameters = dict(default_pipeline_parameters)
+	parameters['random_state'] = 7
+
+	extracted = _extract_set(parameters, default_fit_parameters,
+		'fit_parameters')
+	assert extracted['random_state'] == 7
+
+
+def test_fit_forwards_random_state_to_peak_generator(fit_json):
+	"""The sampler's draw order is the half of reproducibility that was
+	already wired; confirm an explicit seed still reaches it."""
+
+	import json as _json
+
+	cfg = _json.loads(open(fit_json).read())
+	cfg['random_state'] = 42
+	open(fit_json, 'w').write(_json.dumps(cfg))
+
+	captured = _run_capturing_peak_generator(fit_json)
+	assert captured.get('random_state') == 42
+
+
+def test_fit_accepts_a_json_without_random_state(tmp_path):
+	"""merge_parameters rejects a missing key whose default is None, so
+	before the default became 0 a hand-written JSON that left the seed
+	out failed outright rather than falling back to it."""
+
+	from cherimoya_cli.defaults import default_fit_parameters
+
+	cfg = dict(default_fit_parameters)
+	del cfg['random_state']
+	cfg['sequences'] = 'fake.fa'
+	cfg['loci'] = 'fake.bed'
+	cfg['negatives'] = 'fake_negatives.bed'
+	cfg['signals'] = ['fake.bw']
+	cfg['name'] = 'fit_random_state_default_test'
+	cfg['device'] = 'cpu'
+
+	path = tmp_path / "fit.json"
+	path.write_text(json.dumps(cfg))
+
+	captured = _run_capturing_peak_generator(path)
+	assert captured.get('random_state') == 0
+
+
+def test_fit_draws_and_announces_a_null_random_state(fit_json, capsys):
+	"""A null seed means "pick one and tell me", not "stay unseeded".
+	The drawn value has to be printed regardless of `verbose`, because
+	a run that dies before the evaluate JSON is written leaves no other
+	record of it."""
+
+	import json as _json
+
+	cfg = _json.loads(open(fit_json).read())
+	cfg['random_state'] = None
+	cfg['verbose'] = False
+	open(fit_json, 'w').write(_json.dumps(cfg))
+
+	captured = _run_capturing_peak_generator(fit_json)
+
+	drawn = captured.get('random_state')
+	assert isinstance(drawn, int), (
+		"a null random_state must be resolved to an integer before the "
+		"sampler is built; got {!r}".format(drawn))
+
+	out = capsys.readouterr().out
+	assert "Drew random_state={}".format(drawn) in out
+
+
+def test_fit_seeds_the_model_initialization(fit_json):
+	"""The seed has to reach the model as well as the sampler — the
+	initialization is the larger source of run-to-run variance, and it
+	was the half that nothing seeded before."""
+
+	import torch
+
+	from cherimoya_cli.commands import fit as fit_cmd
+
+	captured = {}
+
+	class _StopFit(Exception):
+		pass
+
+	def fake_extract_loci(**kwargs):
+		# (sequences, signals); controls are absent in the fixture JSON.
+		return torch.zeros(1, 4, 16), torch.zeros(1, 1, 8)
+
+	def fake_model(**kwargs):
+		captured.update(kwargs)
+		raise _StopFit()
+
+	with mock.patch("cherimoya.io.PeakGenerator", return_value=object()), \
+			mock.patch("tangermeme.io.extract_loci",
+				side_effect=fake_extract_loci), \
+			mock.patch("cherimoya.Cherimoya", side_effect=fake_model):
+		try:
+			fit_cmd.run(argparse.Namespace(parameters=fit_json))
+		except _StopFit:
+			pass
+		except Exception:
+			if not captured:
+				raise
+
+	assert captured, "Cherimoya was never constructed"
+	assert captured.get('random_state') == 0

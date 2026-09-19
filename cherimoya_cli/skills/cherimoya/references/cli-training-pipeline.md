@@ -52,6 +52,9 @@ always explain the change you make:
   `"bfloat16"`.
 - **Small dataset?** See dataset-size guidance in
   `references/troubleshooting.md`.
+- **Want replicates?** `random_state` defaults to `0`, so rerunning the same
+  JSON rebuilds the *same* model rather than an independent replicate. Give
+  each replicate its own seed.
 - **Skip a step:** most sub-dicts accept `"skip": true`.
 - **Dry run:** set top-level `"dry_run": true` to write all per-step JSONs
   without running anything — useful to show the user what will run before

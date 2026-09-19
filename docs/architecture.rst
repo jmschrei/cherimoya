@@ -295,11 +295,39 @@ highest validation count Pearson correlation. ``early_stopping``, if
 set, stops training when that count Pearson has not improved for that
 many consecutive epochs.
 
-**Reproducibility.** The peak/negative sampler
+.. _reproducibility:
+
+**Reproducibility.** ``random_state`` seeds both halves of a training
+run. The model's initialization is drawn from a local
+``torch.Generator``, so a given seed fixes the starting weights
+whatever the global RNG has been set to. The peak/negative sampler
 (:class:`~cherimoya.io.PeakNegativeSampler`) is a pure function of
-``(random_state, epoch, idx)``. Two runs with the same ``random_state``
-draw the same examples in the same order, and ``num_workers > 1`` is a
-pure speed optimization — it does not change the batch sequence.
+``(random_state, epoch, idx)``, so two runs with the same seed draw the
+same examples in the same order, and ``num_workers > 1`` is a pure
+speed optimization — it does not change the batch sequence.
+
+``cherimoya fit`` seeds with ``random_state = 0`` by default. Rerunning
+an unchanged JSON therefore rebuilds the same model rather than giving
+an independent replicate; vary the seed to get replicates. Setting it
+to ``null`` does not turn seeding off — a seed is drawn, printed, and
+written into the generated evaluate JSON, so a run made without
+planning to repeat it can still be repeated.
+
+What the seed does not buy is bitwise equality on CUDA. The fused
+convolution + normalization kernel accumulates its per-example
+statistics with relaxed atomic adds, so the order of that
+floating-point reduction varies between launches, and training runs
+with ``torch.backends.cudnn.benchmark`` enabled. Two seeded GPU runs
+start from the same weights and see the same examples, and then
+diverge. A single step differs only in the last bits, but training
+compounds that difference, so the gap between two same-seed GPU runs
+grows with the number of epochs rather than staying at rounding scale.
+They remain statistically equivalent models, not the same model.
+
+On CPU two runs with the same seed are bitwise identical, in separate
+processes and at different ``torch.set_num_threads`` values. If you
+need a training run you can reproduce exactly, that is the device to
+do it on.
 
 
 How these choices were made
