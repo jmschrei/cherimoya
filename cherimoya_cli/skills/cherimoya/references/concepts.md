@@ -74,9 +74,9 @@ The "what did the model learn" chain, in order:
 - **Random state (seed)** — fixes the model's initial weights and the order the
   sampler draws examples in, so a run can be repeated. Defaults to `0`; set it
   to `null` and one is drawn, printed, and recorded in the evaluate JSON. Two
-  runs with the same seed are identical on CPU. On GPU they share an
-  initialization and an example order but drift in the last bits, because the
-  fused kernel reduces with atomics — so a seed repeats a run, it does not make
-  GPU training bitwise deterministic.
+  runs with the same seed are bitwise identical on CPU. On GPU they share an
+  initialization and an example order but diverge as training compounds the
+  last-bit differences from the fused kernel's atomic reductions — a seed
+  repeats the setup of a run, it does not make GPU training deterministic.
 
 For every default value, see `references/cli.md` or `cherimoya_cli/defaults.py`.

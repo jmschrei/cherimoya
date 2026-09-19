@@ -49,7 +49,9 @@ Reproducibility
   accumulates its per-example statistics with relaxed atomic adds, so the
   order of that floating-point reduction varies between launches: two
   seeded GPU runs share an initialization and an example order but are
-  not bitwise equal. CPU runs are.
+  not bitwise equal, and training compounds the difference rather than
+  holding it at rounding scale. CPU runs with the same seed are bitwise
+  identical, across separate processes and thread counts.
 
 Attribution
 ~~~~~~~~~~~

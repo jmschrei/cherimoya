@@ -36,8 +36,10 @@
 #
 # Seeding does not make CUDA training bitwise reproducible. The fused
 # conv+norm kernel reduces with relaxed atomics, so the summation order
-# varies between launches. What the seed fixes is the initialization and
-# the sequence of examples, not the last bits of the arithmetic.
+# varies between launches, and two same-seed GPU runs diverge as training
+# compounds that difference. What the seed fixes is the initialization and
+# the sequence of examples, not the arithmetic. CPU runs with the same seed
+# are bitwise identical.
 
 training_chroms = ["chr2", "chr4", "chr5", "chr7", "chr9", "chr10", "chr11",
     "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19",

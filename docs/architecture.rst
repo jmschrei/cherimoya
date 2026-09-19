@@ -318,8 +318,16 @@ convolution + normalization kernel accumulates its per-example
 statistics with relaxed atomic adds, so the order of that
 floating-point reduction varies between launches, and training runs
 with ``torch.backends.cudnn.benchmark`` enabled. Two seeded GPU runs
-start from the same weights and see the same examples, then drift in
-the low bits. On CPU they stay identical.
+start from the same weights and see the same examples, and then
+diverge. A single step differs only in the last bits, but training
+compounds that difference, so the gap between two same-seed GPU runs
+grows with the number of epochs rather than staying at rounding scale.
+They remain statistically equivalent models, not the same model.
+
+On CPU two runs with the same seed are bitwise identical, in separate
+processes and at different ``torch.set_num_threads`` values. If you
+need a training run you can reproduce exactly, that is the device to
+do it on.
 
 
 How these choices were made

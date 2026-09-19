@@ -51,7 +51,7 @@ GPU acceleration requires Triton and a CUDA-capable device; a pure-PyTorch CPU f
 - Annotate seqlets against a known motif database via [tomtom-lite](https://cherimoya.readthedocs.io/en/latest/tutorials/attribution.html#tomtom-lite-annotation).
 - [Marginalize](https://cherimoya.readthedocs.io/en/latest/tutorials/variant_effect.html#motif-marginalization-cli) the contribution of inserted motifs in counterfactual sequence designs.
 - [Score variants](https://cherimoya.readthedocs.io/en/latest/tutorials/variant_effect.html) by predicting their effects on the underlying profile and counts.
-- Repeat a training run from its seed — training is seeded by default (`random_state = 0`), which fixes both the model's initialization and the peak/negative sampler's draw order (a pure function of `(seed, epoch, index)`, so `num_workers > 1` is purely a speed optimization that produces the same batch sequence as `num_workers = 1`). Seeded runs match exactly on CPU; on CUDA they share an initialization and an example order but drift in the low bits, because the fused kernel reduces with atomics.
+- Repeat a training run from its seed — training is seeded by default (`random_state = 0`), which fixes both the model's initialization and the peak/negative sampler's draw order (a pure function of `(seed, epoch, index)`, so `num_workers > 1` is purely a speed optimization that produces the same batch sequence as `num_workers = 1`). Seeded runs are bitwise identical on CPU; on CUDA they share an initialization and an example order but diverge as training compounds the last-bit differences from the fused kernel's atomic reductions.
 - Stream remote BAM, BED, and FASTA inputs directly without downloading them first.
 
 ### The Cheri Block
