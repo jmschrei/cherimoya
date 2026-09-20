@@ -323,7 +323,16 @@ Unspecified keys fall back to the fit-level defaults.
      - Evaluation-time RC averaging.
    * - ``max_epochs``
      - 20
-     - Maximum training epochs.
+     - Maximum training epochs. Raised at run time when it would buy
+       fewer than ``min_total_steps`` optimizer steps.
+   * - ``min_total_steps``
+     - 20000
+     - Minimum optimizer steps for the run. An epoch is one pass over the
+       peaks, so ``max_epochs`` alone buys a step count proportional to
+       how many peaks an experiment has; this raises ``max_epochs`` until
+       the run reaches this many steps. The learning rate schedules are
+       laid out over the raised value, so they stretch with it. ``null``
+       disables the floor.
    * - ``training_chroms``
      - hg38 default (chr2, chr4, chr5, chr7, chr9-22, chrX, chrY)
      - Chromosomes used for training.

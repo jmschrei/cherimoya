@@ -75,6 +75,21 @@ Logging
 Training
 ~~~~~~~~
 
+* **A minimum optimizer step count now overrides** ``max_epochs``.
+  ``min_total_steps`` is a new CLI parameter, ``20000`` by default in
+  ``default_fit_parameters`` and in the ``fit_parameters`` block of
+  ``default_pipeline_parameters``. An epoch is one pass over the peaks,
+  so ``max_epochs`` alone buys a number of optimizer steps proportional
+  to how many peaks an experiment has -- 20 epochs is 280 steps for an
+  experiment with 14 batches of peaks and 54,000 for one with 2,700.
+  ``cherimoya fit`` now raises ``max_epochs`` until the run reaches
+  ``min_total_steps``, and lays the warmup and cosine decay out over the
+  raised value so the schedule stretches with the run rather than
+  decaying inside the original budget. The new epoch count and total
+  step count are printed when ``verbose`` is set. Experiments that
+  already clear the floor are untouched, and ``min_total_steps: null``
+  disables it. :meth:`cherimoya.Cherimoya.fit` is unchanged.
+
 * **Early stopping is now off by default.** ``early_stopping`` is
   ``None`` in ``default_fit_parameters`` and in the ``fit_parameters``
   block of ``default_pipeline_parameters``; it was ``5``. A run with
