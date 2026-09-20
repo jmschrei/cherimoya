@@ -94,6 +94,43 @@ class EMA:
 		self._backup = {}
 
 
+def _group_depths(y, signal_groups):
+	"""Batch-mean observed counts for each signal group.
+
+	The profile MNLL is a sum of per-read log-likelihoods, so it scales with
+	read depth; dividing each group's term by its own depth makes the
+	weighted term depth-invariant. The channel axis of ``y`` is ordered by
+	group, so a group's depth is a sum over its own channels only.
+
+	Summing over every group at once instead would rescale all groups by the
+	same number and leave their weights relative to each other untouched,
+	which is not a normalization across groups at all.
+
+
+	Parameters
+	----------
+	y: torch.tensor, shape=(batch_size, n_channels, length)
+		The observed counts.
+
+	signal_groups: list of int
+		Channels belonging to each group, in order.
+
+
+	Returns
+	-------
+	depths: torch.tensor, shape=(n_groups,)
+		Batch-mean counts per group, floored at 1 so the division is safe on
+		a batch where a group has no reads.
+	"""
+
+	depths, lo = [], 0
+	for width in signal_groups:
+		depths.append(y[:, lo:lo + width].sum(dim=(1, 2)).float().mean())
+		lo += width
+
+	return torch.stack(depths).clamp(min=1.0)
+
+
 class Cherimoya(torch.nn.Module):
 	"""The Cherimoya sequence-to-function model.
 
@@ -426,7 +463,7 @@ class Cherimoya(torch.nn.Module):
 	def fit(self, training_data, muon_optimizer, adam_optimizer, lw_optimizer,
 		muon_scheduler, adam_scheduler, lw_scheduler, X_valid, X_ctl_valid,
 		y_valid, max_epochs=50, batch_size=64, dtype='float32', device='cuda',
-		early_stopping=None):
+		early_stopping=None, loss_weights=None):
 		"""Fit the model to data and validate it periodically.
 
 		This method controls the training of a Cherimoya model. It will fit
@@ -506,7 +543,24 @@ class Cherimoya(torch.nn.Module):
 			max_epochs is reached. If an integer, continue training until that
 			number of epochs has been hit without improvement in performance.
 			Default is None.
+
+		loss_weights: tuple or None, optional
+			Fixed weights ``(w0, w1)`` for the profile and count terms,
+			replacing the learned Kendall weights ``lw0`` and ``lw1``. When
+			given, the profile loss is first divided by each group's own
+			batch-mean read depth, which is what ``lw0`` adapts to -- the
+			MNLL is a sum of per-read log-likelihoods and so scales with
+			depth, while the count MSE is on a log scale where depth is an
+			additive shift the model absorbs. ``lw0`` and ``lw1`` stop
+			receiving gradient, so ``lw_optimizer`` becomes inert.
+			``(1.333, 0.274)`` reproduces the operating point the learned
+			weights reach. If None, use the Kendall weights. Default is
+			None.
 		"""
+
+		if loss_weights is not None:
+			self.lw0.requires_grad = False
+			self.lw1.requires_grad = False
 
 		if X_valid is not None:
 			y_valid_counts = y_valid.sum(dim=2)
@@ -560,13 +614,20 @@ class Cherimoya(torch.nn.Module):
 					signal_groups=self.signal_groups)
 
 
-				w0 = (1.0 / (2.0 * self.lw0 ** 2))
-				w1 = (1.0 / (2.0 * self.lw1 ** 2))
-				loss = (w0 * profile_loss).sum() + (w1 * count_loss).sum()
+				if loss_weights is None:
+					w0 = (1.0 / (2.0 * self.lw0 ** 2))
+					w1 = (1.0 / (2.0 * self.lw1 ** 2))
+					loss = ((w0 * profile_loss).sum()
+						+ (w1 * count_loss).sum())
 
-				if self.lw0.requires_grad == True:
-					loss += (torch.log(self.lw0) ** 2).sum()
-					loss += (torch.log(self.lw1) ** 2).sum()
+					if self.lw0.requires_grad == True:
+						loss += (torch.log(self.lw0) ** 2).sum()
+						loss += (torch.log(self.lw1) ** 2).sum()
+				else:
+					w0, w1 = loss_weights
+					depths = _group_depths(y, self.signal_groups)
+					loss = ((w0 * profile_loss / depths).sum()
+						+ (w1 * count_loss).sum())
 
 				loss.backward()
 
@@ -590,7 +651,8 @@ class Cherimoya(torch.nn.Module):
 
 			# `.grad` is None when the epoch took no training step, which
 			# happens when the loader yielded no full batch.
-			if (self.lw0.requires_grad == True and self.lw0.grad is not None
+			if (loss_weights is None and self.lw0.requires_grad == True
+				and self.lw0.grad is not None
 				and torch.abs(self.lw0.grad).mean() < 1):
 				self.lw0.requires_grad = False
 				self.lw1.requires_grad = False

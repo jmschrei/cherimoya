@@ -325,6 +325,14 @@ Unspecified keys fall back to the fit-level defaults.
      - 20
      - Maximum training epochs. Raised at run time when it would buy
        fewer than ``min_total_steps`` optimizer steps.
+   * - ``loss_weights``
+     - ``null``
+     - Fixed ``[w0, w1]`` for the profile and count terms, replacing the
+       learned Kendall weights ``lw0`` / ``lw1``. When set, the profile
+       loss is divided by each signal group's own batch-mean read depth
+       first, and the ``lw_*`` optimizer becomes inert.
+       ``[1.333, 0.274]`` reproduces the operating point the learned
+       weights reach. ``null`` keeps the Kendall weights.
    * - ``min_total_steps``
      - 20000
      - Minimum optimizer steps for the run. An epoch is one pass over the
