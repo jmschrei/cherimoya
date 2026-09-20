@@ -53,6 +53,25 @@ Reproducibility
   holding it at rounding scale. CPU runs with the same seed are bitwise
   identical, across separate processes and thread counts.
 
+Logging
+~~~~~~~
+
+* The **Training MNLL** and **Training Count MSE** columns of
+  ``{name}.log`` are now averaged over the epoch's batches. They
+  previously held whatever the last full batch of the epoch produced,
+  a single-batch estimate noisy enough that the two training columns
+  could look flat or non-monotonic while the model was improving.
+  Expect the columns in a new log to sit at a different level, and to
+  move far more smoothly, than in one written before this change; the
+  validation columns are unchanged. Thanks to Ethan Armand for the
+  report in issue #19.
+
+* An epoch in which the loader yields no full batch now writes a row
+  with nan in those two columns instead of raising. The training loop
+  skips any batch smaller than ``batch_size``, so a dataset smaller
+  than one batch used to end the run with a ``NameError`` from the
+  logging code rather than a row showing that nothing trained.
+
 Attribution
 ~~~~~~~~~~~
 

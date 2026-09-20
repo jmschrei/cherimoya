@@ -440,6 +440,22 @@ across groups:
 Each group contributes one number to each mean, so no modality is
 double-counted because it happens to be stranded.
 
+The two training columns are epoch averages:
+
+* **Training MNLL** is the mean, over every full batch in the epoch,
+  of that batch's profile loss averaged across groups.
+* **Training Count MSE** is the same average of the batch's count
+  loss.
+
+Both are the unweighted mean across groups of the raw per-group loss,
+not the Kendall-weighted sum the optimizer descends, which is what
+makes them comparable to the validation columns beside them. They are
+still measured with the live training weights as those weights change
+through the epoch, while the validation columns are computed once at
+the end of the epoch with the EMA weights, so a small gap between the
+training and validation MNLL is expected even on data the model fits
+well.
+
 ``{name}.detailed.log`` — saved to disk only (never printed). Same
 columns as the summary log, plus one ``ProfilePearson_g{i}`` and one
 ``CountPearson_g{i}`` column per signal group, for offline

@@ -291,6 +291,146 @@ def test_grouped_model_fit_smoke(tmp_path):
 	], "unexpected detail columns: {}".format(extra)
 
 
+def _tiny_fit_setup(tmp_path, name, n_examples, batch_size):
+	"""Build everything ``Cherimoya.fit`` needs for a one-epoch CPU run.
+
+	Returns the model and the keyword arguments for ``fit``, with the
+	training data coming from a plain ``TensorDataset`` so the number of
+	batches per epoch is exactly known.
+	"""
+
+	from torch.optim import Muon
+	from torch.optim.lr_scheduler import LinearLR
+	from cherimoya_cli.commands.fit import _split_parameters
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1],
+		verbose=False, compile=False, random_state=0)
+	# .save()/.log land next to model.name, so point it into tmp_path.
+	model.name = str(tmp_path / name)
+
+	L = _input_window_for(model)
+	out_L = L - 2 * model.trimming
+
+	g = torch.Generator().manual_seed(0)
+	X = torch.zeros(n_examples, 4, L)
+	X[:, 0, :] = 1.0  # one-hot at A
+	y = torch.randint(0, 5, (n_examples, 1, out_L), generator=g).float()
+	labels = torch.ones(n_examples)
+
+	dataset = torch.utils.data.TensorDataset(X, y, labels)
+	training_data = torch.utils.data.DataLoader(dataset,
+		batch_size=batch_size, num_workers=0)
+
+	muon_params, adam_params, lw_params = _split_parameters(model)
+	muon_opt = Muon(muon_params, lr=1e-3, weight_decay=0.0)
+	adam_opt = torch.optim.AdamW(adam_params, lr=1e-3, weight_decay=0.0)
+	lw_opt = torch.optim.SGD(lw_params, lr=1e-3, weight_decay=0.0,
+		momentum=0.9)
+
+	X_valid = torch.zeros(2, 4, L)
+	X_valid[:, 0, :] = 1.0
+	y_valid = torch.randint(0, 5, (2, 1, out_L), generator=g).float()
+
+	kwargs = dict(training_data=training_data,
+		muon_optimizer=muon_opt, adam_optimizer=adam_opt,
+		lw_optimizer=lw_opt,
+		muon_scheduler=LinearLR(muon_opt, start_factor=1.0, total_iters=1),
+		adam_scheduler=LinearLR(adam_opt, start_factor=1.0, total_iters=1),
+		lw_scheduler=LinearLR(lw_opt, start_factor=1.0, total_iters=1),
+		X_valid=X_valid, X_ctl_valid=None, y_valid=y_valid,
+		max_epochs=1, batch_size=batch_size, dtype='float32',
+		device='cpu', early_stopping=None)
+
+	return model, kwargs
+
+
+def _read_log_row(path, epoch=0):
+	"""Read one row of a training log, parsed the way a reader would.
+
+	The logger writes the table with ``pandas.DataFrame.to_csv``, so a
+	nan lands in the file as an empty cell; reading it back with pandas
+	turns it into a nan again.
+	"""
+
+	import pandas
+	return pandas.read_csv(path, sep="\t").iloc[epoch]
+
+
+def test_training_losses_are_epoch_averages(tmp_path, monkeypatch):
+	"""The ``Training MNLL`` and ``Training Count MSE`` columns report
+	the average over the epoch's batches, not the last batch alone
+	(issue #19). Spies on ``_mixture_loss`` to capture what each
+	training batch actually produced, then checks the logged value
+	against their mean -- and against the last batch, which is what the
+	column used to hold."""
+
+	import cherimoya.cherimoya as cherimoya_module
+
+	batch_size, n_batches = 2, 4
+	model, kwargs = _tiny_fit_setup(tmp_path, "avg",
+		n_examples=batch_size * n_batches, batch_size=batch_size)
+
+	# Record the per-batch losses. The validation pass calls
+	# `_mixture_loss` too, but under `torch.no_grad()`, so the
+	# grad-enabled calls are exactly the training batches.
+	real_mixture_loss = cherimoya_module._mixture_loss
+	per_batch = []
+
+	def spy(*args, **kwargs_):
+		profile_loss, count_loss = real_mixture_loss(*args, **kwargs_)
+		if torch.is_grad_enabled():
+			per_batch.append((profile_loss.mean().item(),
+				count_loss.mean().item()))
+		return profile_loss, count_loss
+
+	monkeypatch.setattr(cherimoya_module, "_mixture_loss", spy)
+
+	model.fit(**kwargs)
+
+	assert len(per_batch) == n_batches, (
+		"expected one grad-enabled loss call per batch, got {}"
+		.format(len(per_batch)))
+
+	row = _read_log_row(tmp_path / "avg.log")
+	logged_profile = row["Training MNLL"]
+	logged_count = row["Training Count MSE"]
+
+	expected_profile = sum(p for p, _ in per_batch) / n_batches
+	expected_count = sum(c for _, c in per_batch) / n_batches
+
+	assert logged_profile == pytest.approx(expected_profile, rel=1e-6)
+	assert logged_count == pytest.approx(expected_count, rel=1e-6)
+
+	# The old behavior logged the final batch. Guard against a test that
+	# would pass either way by requiring the average to differ from it.
+	last_profile, last_count = per_batch[-1]
+	assert logged_profile != pytest.approx(last_profile, rel=1e-6)
+	assert logged_count != pytest.approx(last_count, rel=1e-6)
+
+
+def test_epoch_with_no_full_batch_logs_nan_training_losses(tmp_path):
+	"""An epoch in which every batch is smaller than ``batch_size`` --
+	so the training loop skips them all and no step is taken -- finishes
+	and logs nan for the two training-loss columns instead of raising."""
+
+	import math
+
+	# Three examples with batch_size=4: one short batch, which the fit
+	# loop skips, leaving the epoch with no training step at all.
+	model, kwargs = _tiny_fit_setup(tmp_path, "empty", n_examples=3,
+		batch_size=4)
+
+	best = model.fit(**kwargs)
+	assert math.isfinite(float(best))
+
+	row = _read_log_row(tmp_path / "empty.log")
+	assert math.isnan(row["Training MNLL"])
+	assert math.isnan(row["Training Count MSE"])
+	# The validation half of the row is still real.
+	assert math.isfinite(row["Validation MNLL"])
+	assert int(row["Iteration"]) == 0
+
+
 def test_signal_groups_round_trips_through_save_load(tmp_path):
 	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1, 2],
 		verbose=False)
