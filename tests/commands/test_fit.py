@@ -82,6 +82,41 @@ def test_default_fit_parameters_default_num_workers_is_one():
 	assert default_pipeline_parameters['fit_parameters']['num_workers'] == 1
 
 
+def test_default_fit_parameters_disable_early_stopping():
+	"""Early stopping is off by default in both the fit defaults and the
+	fit block of the pipeline defaults, matching Cherimoya.fit's own
+	``early_stopping=None``. A non-None default here would cut the cosine
+	learning rate schedule -- laid out over ``max_epochs`` -- short."""
+
+	from cherimoya_cli.defaults import (
+		default_fit_parameters,
+		default_pipeline_parameters,
+	)
+	assert default_fit_parameters['early_stopping'] is None
+	assert default_pipeline_parameters['fit_parameters']['early_stopping'] is None
+
+
+def test_fit_json_without_early_stopping_merges_to_none(tmp_path):
+	"""A hand-written fit JSON that omits ``early_stopping`` must merge to
+	None rather than raising 'Must provide value', since merge_parameters
+	rejects a missing key whose default is None unless it is whitelisted."""
+
+	from cherimoya_cli.defaults import default_fit_parameters
+	from cherimoya_cli.utils import merge_parameters
+
+	cfg = dict(default_fit_parameters)
+	cfg['sequences'] = 'fake.fa'
+	cfg['loci'] = 'fake.bed'
+	cfg['negatives'] = 'fake_negatives.bed'
+	cfg['signals'] = ['fake.bw']
+	del cfg['early_stopping']
+
+	path = tmp_path / "fit.json"
+	path.write_text(json.dumps(cfg))
+
+	assert merge_parameters(str(path), default_fit_parameters)['early_stopping'] is None
+
+
 def test_fit_forwards_grouped_signals_to_peak_generator(tmp_path):
 	"""When the JSON gives a grouped signals spec, fit.run must
 	forward the inferred signal_groups (and control_groups) to

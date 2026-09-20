@@ -291,9 +291,13 @@ restored (``restore``). The model file saved as ``best`` and the
 ``.final.torch`` checkpoint contain the EMA-applied weights.
 
 **Best-model selection.** The best checkpoint is the one with the
-highest validation count Pearson correlation. ``early_stopping``, if
-set, stops training when that count Pearson has not improved for that
-many consecutive epochs.
+highest validation count Pearson correlation. ``early_stopping`` is
+``None`` by default, so training runs the full ``max_epochs`` and the
+best checkpoint is taken from all of them. Set it to an integer to
+stop once that count Pearson has not improved for that many
+consecutive epochs. Note that the learning rate schedule is built
+over ``max_epochs``, so stopping before then leaves the cosine decay
+partway through rather than at its ``1e-5`` floor.
 
 .. _reproducibility:
 

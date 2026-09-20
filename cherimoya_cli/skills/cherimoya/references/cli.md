@@ -54,9 +54,10 @@ Quote these; don't guess others — read `defaults.py` or the docs.
 
 - Windows: `in_window` 2114, `out_window` 1000.
 - Model: `n_filters` 128, `n_layers` 9, `expansion` 2.
-- Training: `batch_size` 64, `max_epochs` 20, `early_stopping` 5 (epochs of no
-  validation count-Pearson improvement), `n_warmup_epochs` 2,
-  `negative_ratio` 0.25, `reverse_complement` true, `num_workers` 1.
+- Training: `batch_size` 64, `max_epochs` 20, `early_stopping` `null` (off —
+  set an int for epochs of no validation count-Pearson improvement),
+  `n_warmup_epochs` 2, `negative_ratio` 0.25, `reverse_complement` true,
+  `num_workers` 1.
 - Inference stages: `batch_size` 512.
 - Device/dtype: `cuda` / `float32`.
 - Split (hg38): `validation_chroms` = chr8, chr20; everything else (minus

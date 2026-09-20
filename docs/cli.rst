@@ -309,9 +309,9 @@ Unspecified keys fall back to the fit-level defaults.
      - 1
      - Async prefetch workers for the data loader.
    * - ``early_stopping``
-     - 5
+     - ``null``
      - Stop after N consecutive epochs with no validation count
-       Pearson improvement.
+       Pearson improvement. ``null`` trains the full ``max_epochs``.
    * - ``max_jitter``
      - 500
      - Maximum jitter (bp) for peak centers at training time.

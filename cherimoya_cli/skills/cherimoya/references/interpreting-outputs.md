@@ -23,9 +23,9 @@ correlates with truth on held-out chromosomes.
 
 ### `{name}.log` — per-epoch training curve
 One row per epoch (train/validation metrics). Shows whether validation count
-Pearson climbed and where early stopping kicked in. **Compare final results
-against the EMA validation numbers here, not the mid-epoch training loss** (see
-the checkpoint note below).
+Pearson climbed and which epoch the kept checkpoint came from. **Compare final
+results against the EMA validation numbers here, not the mid-epoch training
+loss** (see the checkpoint note below).
 
 ### `{name}.detailed.log`
 `.log` plus per-group `ProfilePearson_g{i}` / `CountPearson_g{i}` columns —

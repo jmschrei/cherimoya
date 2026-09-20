@@ -225,7 +225,8 @@ Training
        y_valid=y_valid,
        max_epochs=20,
        batch_size=64,
-       early_stopping=5,            # stop after 5 epochs without count-Pearson gain
+       early_stopping=None,         # default: train all max_epochs; an int stops
+                                    # after that many epochs without count-Pearson gain
        dtype='float32',             # or 'bfloat16' for mixed precision via autocast
        device='cuda',
    )
