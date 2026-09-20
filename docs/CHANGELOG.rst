@@ -92,6 +92,12 @@ Training
   division: it is computed on ``log1p`` counts, where depth is an additive
   shift the model absorbs into its bias.
 
+  ``cherimoya fit`` reports which scheme is in force. With ``verbose``
+  set it printed ``SGD Optimizer (lw): lr=..., wd=..., momentum=...``
+  unconditionally, which describes an optimizer that takes no effective
+  step once ``loss_weights`` is given. It now prints ``Fixed Loss
+  Weights: profile=..., count=...`` instead when the weights are fixed.
+
   ``(1.333, 0.274)`` reproduces the operating point the learned weights
   reach. On single-experiment models this is free: +0.0001 median count
   Pearson over 44 accessibility experiments (95% CI [-0.0012, +0.0011]) and

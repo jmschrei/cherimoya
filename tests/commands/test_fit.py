@@ -654,3 +654,96 @@ def test_fit_json_loss_weights_survives_as_a_pair(tmp_path):
 	merged = merge_parameters(str(path), default_fit_parameters)
 	w0, w1 = merged['loss_weights']
 	assert (w0, w1) == (1.333, 0.274)
+
+
+# --------- the verbose loss-balance line ----------------------------------
+#
+# `_loss_balance_summary` is imported directly for the same reason as
+# `_max_epochs_for_min_steps` above: `fit.run` is not executed by these
+# tests, so the line it prints is checked where the rule lives.
+
+def test_loss_balance_summary_reports_the_sgd_optimizer_by_default():
+	"""With the Kendall weights in use, `lw_optimizer` is training `lw0`
+	and `lw1`, so its hyperparameters are what the run is governed by."""
+
+	from cherimoya_cli.commands.fit import _loss_balance_summary
+
+	summary = _loss_balance_summary(None, 0.01, 0.0, 0.9)
+	assert summary == "SGD Optimizer (lw): lr=0.01, wd=0.0, momentum=0.9"
+
+
+def test_loss_balance_summary_reports_the_fixed_weights():
+	"""When `loss_weights` is given, `lw0` and `lw1` stop receiving
+	gradient, so the SGD hyperparameters describe an optimizer that does
+	nothing. The constants actually balancing the two losses are reported
+	instead, and none of the SGD values leak into the line."""
+
+	from cherimoya_cli.commands.fit import _loss_balance_summary
+
+	summary = _loss_balance_summary((1.333, 0.274), 0.01, 0.0, 0.9)
+	assert "1.333" in summary
+	assert "0.274" in summary
+	assert "SGD" not in summary
+	assert "momentum" not in summary
+
+
+def test_loss_balance_summary_accepts_the_pair_as_a_list():
+	"""JSON has no tuple, so `parameters['loss_weights']` arrives as a
+	list and must be reported the same way a tuple is."""
+
+	from cherimoya_cli.commands.fit import _loss_balance_summary
+
+	assert (_loss_balance_summary([1.333, 0.274], 0.01, 0.0, 0.9)
+		== _loss_balance_summary((1.333, 0.274), 0.01, 0.0, 0.9))
+
+
+@pytest.mark.parametrize("loss_weights,expected,forbidden", [
+	(None, "SGD Optimizer (lw): lr=", "Fixed Loss Weights"),
+	([1.333, 0.274], "Fixed Loss Weights: profile=1.333, count=0.274",
+		"SGD Optimizer (lw)"),
+])
+def test_fit_banner_names_the_loss_balancing_in_force(fit_json, capsys,
+	loss_weights, expected, forbidden):
+	"""End to end through `fit.run`: with `verbose` on, the banner must
+	name whichever scheme the run uses -- the `lw_*` optimizer when the
+	weights are learned, the constants when they are fixed and that
+	optimizer is inert. Training is cut off at `model.fit`, which is the
+	call the banner immediately precedes."""
+
+	import json as _json
+
+	import torch
+
+	from cherimoya_cli.commands import fit as fit_cmd
+
+	cfg = _json.loads(open(fit_json).read())
+	cfg['loss_weights'] = loss_weights
+	cfg['verbose'] = True
+	cfg['n_layers'] = 2
+	cfg['n_filters'] = 8
+	open(fit_json, 'w').write(_json.dumps(cfg))
+
+	class _StopFit(Exception):
+		pass
+
+	def fake_extract_loci(**kwargs):
+		return torch.zeros(1, 4, 16), torch.zeros(1, 1, 8)
+
+	class _FakeDataset:
+		peak_sequences = torch.zeros(4, 4, 16)
+		negative_sequences = torch.zeros(4, 4, 16)
+
+	class _FakeLoader(list):
+		dataset = _FakeDataset()
+
+	with mock.patch("cherimoya.io.PeakGenerator",
+				return_value=_FakeLoader([None] * 4)), \
+			mock.patch("tangermeme.io.extract_loci",
+				side_effect=fake_extract_loci), \
+			mock.patch("cherimoya.Cherimoya.fit", side_effect=_StopFit()):
+		with pytest.raises(_StopFit):
+			fit_cmd.run(argparse.Namespace(parameters=fit_json))
+
+	out = capsys.readouterr().out
+	assert expected in out
+	assert forbidden not in out

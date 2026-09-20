@@ -91,6 +91,51 @@ def _max_epochs_for_min_steps(max_epochs, steps_per_epoch, min_total_steps):
     return -(-min_total_steps // steps_per_epoch)
 
 
+def _loss_balance_summary(loss_weights, lw_lr, lw_wd, lw_momentum):
+    """Describe how the profile and count losses are balanced.
+
+    The two loss terms are balanced either by the learned Kendall weights
+    `lw0` and `lw1`, which the `lw_optimizer` trains, or by the constants
+    given in `loss_weights`. In the second case `lw0` and `lw1` stop
+    receiving gradient and the optimizer takes no effective step, so
+    reporting its learning rate describes something that is not happening;
+    the constants actually in use are reported instead.
+
+
+    Parameters
+    ----------
+    loss_weights: tuple or None
+        The fixed `(profile, count)` weights, or None to use the learned
+        Kendall weights.
+
+    lw_lr: float
+        The learning rate of the `lw_optimizer`.
+
+    lw_wd: float
+        The weight decay of the `lw_optimizer`.
+
+    lw_momentum: float
+        The momentum of the `lw_optimizer`.
+
+
+    Returns
+    -------
+    summary: str
+        One line describing the loss balancing, for `verbose` output.
+    """
+
+    if loss_weights is None:
+        return "SGD Optimizer (lw): lr={}, wd={}, momentum={}".format(
+            lw_lr, lw_wd, lw_momentum
+        )
+
+    w0, w1 = loss_weights
+    return (
+        "Fixed Loss Weights: profile={}, count={} "
+        "(learned lw0/lw1 disabled)".format(w0, w1)
+    )
+
+
 def run(args):
     import argparse
     import copy
@@ -349,9 +394,13 @@ def run(args):
             )
         )
         print(
-            "SGD Optimizer (lw): lr={}, wd={}, momentum={}\n".format(
-                parameters["lw_lr"], parameters["lw_wd"], parameters["lw_momentum"]
+            _loss_balance_summary(
+                parameters["loss_weights"],
+                parameters["lw_lr"],
+                parameters["lw_wd"],
+                parameters["lw_momentum"],
             )
+            + "\n"
         )
 
     ###
