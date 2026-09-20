@@ -368,6 +368,7 @@ def run(args):
         X_ctl_valid=valid_controls,
         y_valid=valid_signals,
         max_epochs=max_epochs,
+        loss_weights=parameters["loss_weights"],
         batch_size=parameters["batch_size"],
         early_stopping=parameters["early_stopping"],
         dtype=parameters["dtype"],

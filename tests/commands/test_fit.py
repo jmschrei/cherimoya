@@ -605,3 +605,52 @@ def test_fit_json_without_min_total_steps_merges_to_the_default(tmp_path):
 
 	assert merge_parameters(str(path), default_fit_parameters
 		)['min_total_steps'] == 20000
+
+
+# --------- fixed loss weights ---------------------------------------------
+
+def test_default_loss_weights_is_none():
+	"""The Kendall weights stay the default. Turning the fixed weights on
+	is opt-in, in both the fit defaults and the fit block of the pipeline
+	defaults."""
+
+	from cherimoya_cli.defaults import (
+		default_fit_parameters,
+		default_pipeline_parameters,
+	)
+	assert default_fit_parameters['loss_weights'] is None
+	assert default_pipeline_parameters['fit_parameters']['loss_weights'] is None
+
+
+def test_fit_json_without_loss_weights_merges_to_none(tmp_path):
+	"""``loss_weights`` defaults to None, and ``merge_parameters`` rejects a
+	missing key whose default is None unless it is whitelisted. A fit JSON
+	written before this parameter existed must still run."""
+
+	from cherimoya_cli.defaults import default_fit_parameters
+	from cherimoya_cli.utils import merge_parameters
+
+	cfg = dict(default_fit_parameters)
+	del cfg['loss_weights']
+	path = tmp_path / "fit.json"
+	path.write_text(json.dumps(cfg))
+
+	assert merge_parameters(str(path), default_fit_parameters
+		)['loss_weights'] is None
+
+
+def test_fit_json_loss_weights_survives_as_a_pair(tmp_path):
+	"""JSON has no tuple, so the pair arrives as a list; ``fit`` unpacks it
+	either way and the values must not be coerced or reordered."""
+
+	from cherimoya_cli.defaults import default_fit_parameters
+	from cherimoya_cli.utils import merge_parameters
+
+	cfg = dict(default_fit_parameters)
+	cfg['loss_weights'] = [1.333, 0.274]
+	path = tmp_path / "fit.json"
+	path.write_text(json.dumps(cfg))
+
+	merged = merge_parameters(str(path), default_fit_parameters)
+	w0, w1 = merged['loss_weights']
+	assert (w0, w1) == (1.333, 0.274)

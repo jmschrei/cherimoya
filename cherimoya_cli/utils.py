@@ -50,7 +50,7 @@ def merge_parameters(parameters, default_parameters):
 			parameters = json.load(infile)
 
 	unset_parameters = ("controls", "warning_threshold", "early_stopping",
-		"count_loss_weight", "exclusion_lists")
+		"count_loss_weight", "exclusion_lists", "loss_weights")
 	for parameter, value in default_parameters.items():
 		if parameter not in parameters:
 			if value is None and parameter not in unset_parameters:

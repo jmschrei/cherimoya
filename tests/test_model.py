@@ -1046,3 +1046,146 @@ def test_random_state_survives_a_save_load_round_trip(tmp_path):
 	a, b = model.state_dict(), loaded.state_dict()
 	for key in a:
 		assert torch.equal(a[key], b[key])
+
+
+# --------- fixed loss weights ----------------------------------------------
+#
+# `lw0` and `lw1` are Parameters of shape (n_groups,), so the Kendall
+# mechanism learns one weight per signal group. `loss_weights` replaces them
+# with constants, and the per-group depth division is what stands in for the
+# per-group adaptation they provided. These import `_group_depths` from the
+# module rather than restating the rule.
+
+def test_group_depths_sums_within_each_group():
+	"""Each group's depth is a sum over its own channels only. With
+	signal_groups=[1, 2] the first group is channel 0 and the second is
+	channels 1-2, so a pooled sum would give both the same number."""
+
+	from cherimoya.cherimoya import _group_depths
+
+	y = torch.zeros(2, 3, 10)
+	y[:, 0, :] = 1.0      # group 0: 10 counts per example
+	y[:, 1, :] = 2.0      # group 1: (2 + 3) * 10 = 50 per example
+	y[:, 2, :] = 3.0
+
+	depths = _group_depths(y, [1, 2])
+	assert depths.shape == (2,)
+	assert torch.allclose(depths, torch.tensor([10.0, 50.0]))
+
+
+def test_group_depths_averages_over_the_batch():
+	"""The divisor is a batch mean, so two examples of different depth
+	give their average rather than either one."""
+
+	from cherimoya.cherimoya import _group_depths
+
+	y = torch.zeros(2, 1, 4)
+	y[0] = 1.0            # 4 counts
+	y[1] = 3.0            # 12 counts
+
+	assert torch.allclose(_group_depths(y, [1]), torch.tensor([8.0]))
+
+
+def test_group_depths_is_floored_at_one():
+	"""A group with no reads in a batch would otherwise divide by zero."""
+
+	from cherimoya.cherimoya import _group_depths
+
+	y = torch.zeros(2, 2, 5)
+	y[:, 1, :] = 4.0
+
+	depths = _group_depths(y, [1, 1])
+	assert torch.allclose(depths, torch.tensor([1.0, 20.0]))
+
+
+def test_group_depths_differs_from_a_pooled_mean():
+	"""The point of the per-group form: a pooled divisor rescales every
+	group by the same number and so leaves their weights relative to each
+	other untouched."""
+
+	from cherimoya.cherimoya import _group_depths
+
+	y = torch.zeros(1, 2, 10)
+	y[:, 0, :] = 1.0
+	y[:, 1, :] = 9.0
+
+	depths = _group_depths(y, [1, 1])
+	pooled = y.sum(dim=(1, 2)).float().mean()
+
+	assert not torch.allclose(depths, pooled.expand(2))
+	assert torch.allclose(depths.sum(), pooled)
+
+
+def test_fit_with_loss_weights_freezes_the_kendall_weights(tmp_path):
+	"""Passing `loss_weights` must stop `lw0`/`lw1` receiving gradient, so
+	the SGD group is inert and the weights hold the values they were
+	initialized to."""
+
+	import math
+	import os
+	from torch.optim import Muon
+	from torch.optim.lr_scheduler import LinearLR
+	from cherimoya.io import (PeakNegativeSampler,
+		channel_permutation_from_groups)
+	from cherimoya_cli.commands.fit import _split_parameters
+
+	signal_groups = [1, 2]
+	n_outputs = sum(signal_groups)
+
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=signal_groups,
+		verbose=False, compile=False)
+	model.name = str(tmp_path / "fixed")
+
+	L = _input_window_for(model)
+	out_L = L - 2 * model.trimming
+
+	g = torch.Generator().manual_seed(0)
+	peak_sequences = torch.zeros(16, 4, L)
+	peak_sequences[:, 0, :] = 1.0
+	peak_signals = torch.randint(0, 5, (16, n_outputs, out_L),
+		generator=g).float()
+	neg_sequences = torch.zeros(8, 4, L)
+	neg_sequences[:, 0, :] = 1.0
+	neg_signals = torch.zeros(8, n_outputs, out_L)
+
+	sampler = PeakNegativeSampler(
+		peak_sequences=peak_sequences, peak_signals=peak_signals,
+		negative_sequences=neg_sequences, negative_signals=neg_signals,
+		in_window=L, out_window=out_L, max_jitter=0, negative_ratio=0,
+		random_state=0, reverse_complement=True,
+		signal_perm=channel_permutation_from_groups(signal_groups))
+	training_data = torch.utils.data.DataLoader(sampler, batch_size=4,
+		num_workers=0)
+
+	muon_params, adam_params, lw_params = _split_parameters(model)
+	muon_opt = Muon(muon_params, lr=1e-3, weight_decay=0.0)
+	adam_opt = torch.optim.AdamW(adam_params, lr=1e-3, weight_decay=0.0)
+	lw_opt = torch.optim.SGD(lw_params, lr=1e-1, weight_decay=0.0,
+		momentum=0.9)
+	scheds = [LinearLR(o, start_factor=1.0, total_iters=1)
+		for o in (muon_opt, adam_opt, lw_opt)]
+
+	X_valid = torch.zeros(4, 4, L)
+	X_valid[:, 0, :] = 1.0
+	y_valid = torch.randint(0, 5, (4, n_outputs, out_L),
+		generator=g).float()
+
+	lw0_before = model.lw0.detach().clone()
+	lw1_before = model.lw1.detach().clone()
+
+	cwd = os.getcwd()
+	os.chdir(tmp_path)
+	try:
+		best = model.fit(training_data, muon_opt, adam_opt, lw_opt,
+			scheds[0], scheds[1], scheds[2],
+			X_valid=X_valid, X_ctl_valid=None, y_valid=y_valid,
+			max_epochs=2, batch_size=4, dtype='float32', device='cpu',
+			early_stopping=None, loss_weights=(1.333, 0.274))
+	finally:
+		os.chdir(cwd)
+
+	assert math.isfinite(float(best))
+	assert model.lw0.requires_grad is False
+	assert model.lw1.requires_grad is False
+	assert torch.allclose(model.lw0.detach(), lw0_before)
+	assert torch.allclose(model.lw1.detach(), lw1_before)
