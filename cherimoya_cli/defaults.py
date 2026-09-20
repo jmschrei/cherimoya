@@ -42,8 +42,8 @@
 # are bitwise identical.
 
 training_chroms = ["chr2", "chr4", "chr5", "chr7", "chr9", "chr10", "chr11",
-    "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19",
-    "chr21", "chr22", "chrX", "chrY"]
+	"chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19",
+	"chr21", "chr22", "chrX", "chrY"]
 
 validation_chroms = ['chr8', 'chr20']
 
