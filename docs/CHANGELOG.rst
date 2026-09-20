@@ -75,6 +75,31 @@ Logging
 Training
 ~~~~~~~~
 
+* **The Kendall loss weights can be replaced by constants.**
+  :meth:`cherimoya.Cherimoya.fit` takes a ``loss_weights`` tuple, exposed
+  as ``loss_weights`` in the fit and pipeline JSONs, which replaces the
+  learned ``lw0`` / ``lw1`` with fixed values and stops the ``lw_*``
+  optimizer receiving gradient. The default is ``None``, which keeps the
+  existing behaviour.
+
+  When set, the profile loss is first divided by **each signal group's own**
+  batch-mean read depth. That division is the point: ``lw0`` and ``lw1`` are
+  ``Parameter(torch.ones(n_groups))``, so on a multi-task model the Kendall
+  mechanism learns one weight per experiment, and the profile MNLL is a sum
+  of per-read log-likelihoods that scales with read depth. Dividing every
+  group by one pooled number would rescale them all equally and leave their
+  weights relative to each other untouched. The count MSE needs no such
+  division: it is computed on ``log1p`` counts, where depth is an additive
+  shift the model absorbs into its bias.
+
+  ``(1.333, 0.274)`` reproduces the operating point the learned weights
+  reach. On single-experiment models this is free: +0.0001 median count
+  Pearson over 44 accessibility experiments (95% CI [-0.0012, +0.0011]) and
+  within 0.005 on two TF panels of 22 and 26. On 24 four-experiment
+  multi-task models it is +0.0021 per group over a pooled divisor
+  (68 of 92 groups) and +0.0014 over the learned weights (59 of 92).
+  ``lw0`` and ``lw1`` remain on the model, so checkpoints are unaffected.
+
 * **A minimum optimizer step count now overrides** ``max_epochs``.
   ``min_total_steps`` is a new CLI parameter, ``20000`` by default in
   ``default_fit_parameters`` and in the ``fit_parameters`` block of
