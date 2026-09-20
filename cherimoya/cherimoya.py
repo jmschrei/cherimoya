@@ -529,6 +529,12 @@ class Cherimoya(torch.nn.Module):
 		for epoch in range(max_epochs):
 			tic = time.time()
 
+			# Running totals for the epoch's training losses. These are
+			# kept as on-device tensors and only pulled to the host once,
+			# when the epoch's log row is built: a `.item()` per batch
+			# would force a host sync on every training step.
+			profile_loss_sum, count_loss_sum, n_batches = 0.0, 0.0, 0
+
 			for data in training_data:
 				X, y, labels = data[0], data[-2], data[-1]
 				X_ctl = data[1].to(device) if len(data) == 4 else None
@@ -574,11 +580,18 @@ class Cherimoya(torch.nn.Module):
 
 				ema.update(self)
 
+				profile_loss_sum = profile_loss_sum + profile_loss.mean().detach()
+				count_loss_sum = count_loss_sum + count_loss.mean().detach()
+				n_batches += 1
+
 				iteration += 1
 
 			train_time = time.time() - tic
 
-			if self.lw0.requires_grad == True and torch.abs(self.lw0.grad).mean() < 1:
+			# `.grad` is None when the epoch took no training step, which
+			# happens when the loader yielded no full batch.
+			if (self.lw0.requires_grad == True and self.lw0.grad is not None
+				and torch.abs(self.lw0.grad).mean() < 1):
 				self.lw0.requires_grad = False
 				self.lw1.requires_grad = False
 
@@ -623,12 +636,25 @@ class Cherimoya(torch.nn.Module):
 				valid_profile_corr_mean = float(numpy.mean(
 					per_group_profile_corr))
 
+				# Average the training losses over the epoch's batches.
+				# Every batch kept by the loop has exactly `batch_size`
+				# examples, so this mean of per-batch means is the mean
+				# over examples. An epoch that yielded no full batch logs
+				# nan rather than raising, so the run continues and the
+				# log shows what happened.
+				if n_batches > 0:
+					train_profile_loss = (profile_loss_sum / n_batches).item()
+					train_count_loss = (count_loss_sum / n_batches).item()
+				else:
+					train_profile_loss = float("nan")
+					train_count_loss = float("nan")
+
 				summary_row = [epoch,
 					iteration,
 					train_time,
 					valid_time,
-					profile_loss.mean().item(),
-					count_loss.mean().item(),
+					train_profile_loss,
+					train_count_loss,
 					valid_profile_loss.mean().item(),
 					valid_profile_corr_mean,
 					valid_count_corr,
