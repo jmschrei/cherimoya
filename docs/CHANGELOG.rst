@@ -72,6 +72,22 @@ Logging
   than one batch used to end the run with a ``NameError`` from the
   logging code rather than a row showing that nothing trained.
 
+Training
+~~~~~~~~
+
+* **Early stopping is now off by default.** ``early_stopping`` is
+  ``None`` in ``default_fit_parameters`` and in the ``fit_parameters``
+  block of ``default_pipeline_parameters``; it was ``5``. A run with
+  the default parameters now trains all ``max_epochs`` and keeps the
+  epoch with the best validation count Pearson, rather than halting
+  after five epochs without an improvement. The learning rate
+  schedule is laid out over ``max_epochs`` and the validation metric
+  is measured on the EMA weights, so a patience counter over that
+  metric was ending runs partway through the cosine decay.
+  :meth:`cherimoya.Cherimoya.fit` already defaulted to ``None``; only
+  the CLI defaults disagreed. Set ``early_stopping`` to an integer in
+  the fit or pipeline JSON to get the old behavior.
+
 Attribution
 ~~~~~~~~~~~
 

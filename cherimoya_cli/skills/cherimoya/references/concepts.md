@@ -69,8 +69,11 @@ The "what did the model learn" chain, in order:
 - **Reverse-complement augmentation** — training also shows the model each
   sequence's reverse complement (on by default); for stranded data this swaps the
   `+`/`-` tracks, which is why stranded pairs must be grouped correctly.
-- **Early stopping** — training halts after a set number of epochs (default 5)
-  with no improvement in validation count Pearson, keeping the best checkpoint.
+- **Early stopping** — **off by default** (`early_stopping: null`): training
+  runs all `max_epochs` and keeps the best checkpoint from all of them. Set it
+  to an integer to halt after that many epochs with no improvement in
+  validation count Pearson. The learning rate schedule is laid out over
+  `max_epochs`, so stopping early cuts the cosine decay short.
 - **Random state (seed)** — fixes the model's initial weights and the order the
   sampler draws examples in, so a run can be repeated. Defaults to `0`; set it
   to `null` and one is drawn, printed, and recorded in the evaluate JSON. Two
