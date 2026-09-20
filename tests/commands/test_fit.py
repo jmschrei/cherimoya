@@ -519,3 +519,89 @@ def test_fit_seeds_the_model_initialization(fit_json):
 
 	assert captured, "Cherimoya was never constructed"
 	assert captured.get('random_state') == 0
+
+
+# --------- the minimum step count ----------------------------------------
+#
+# These import `_max_epochs_for_min_steps` from the fit command for the same
+# reason the routing tests import `_split_parameters`: the rule lives in one
+# place and an edit to it is caught here rather than diverging from a copy.
+
+def test_default_min_total_steps_is_twenty_thousand():
+	"""An epoch is one pass over the peaks, so `max_epochs` alone buys a
+	step count proportional to peak count. The floor is on by default in
+	both the fit defaults and the fit block of the pipeline defaults."""
+
+	from cherimoya_cli.defaults import (
+		default_fit_parameters,
+		default_pipeline_parameters,
+	)
+	assert default_fit_parameters['min_total_steps'] == 20000
+	assert (default_pipeline_parameters['fit_parameters']['min_total_steps']
+		== 20000)
+
+
+def test_min_steps_extends_a_short_run():
+	"""14 batches of peaks over 20 epochs is 280 steps, far under the
+	floor, so the run is extended to the epoch count that reaches it."""
+
+	from cherimoya_cli.commands.fit import _max_epochs_for_min_steps
+
+	assert _max_epochs_for_min_steps(20, 14, 20000) == 1429
+	assert 1429 * 14 >= 20000
+
+
+def test_min_steps_rounds_up_rather_than_landing_short():
+	"""The division has to round up: 20 epochs of 999 is 19,980, and an
+	epoch count that lands one step under the floor would defeat it."""
+
+	from cherimoya_cli.commands.fit import _max_epochs_for_min_steps
+
+	assert _max_epochs_for_min_steps(20, 999, 20000) == 21
+	assert 21 * 999 >= 20000
+
+
+def test_min_steps_leaves_a_long_enough_run_alone():
+	"""An accessibility-shaped experiment has thousands of batches per
+	epoch and already clears the floor, so nothing changes. Equality
+	counts as clearing it."""
+
+	from cherimoya_cli.commands.fit import _max_epochs_for_min_steps
+
+	assert _max_epochs_for_min_steps(20, 2700, 20000) == 20
+	assert _max_epochs_for_min_steps(20, 1000, 20000) == 20
+
+
+def test_min_steps_null_disables_the_floor():
+	"""`min_total_steps: null` is the escape hatch for a short run, e.g. a
+	smoke test that sets max_epochs to 1."""
+
+	from cherimoya_cli.commands.fit import _max_epochs_for_min_steps
+
+	assert _max_epochs_for_min_steps(20, 14, None) == 20
+	assert _max_epochs_for_min_steps(1, 14, None) == 1
+
+
+def test_min_steps_tolerates_an_empty_training_set():
+	"""`len(training_data)` can be zero if every locus was filtered out.
+	Dividing by it would raise before the clearer error downstream."""
+
+	from cherimoya_cli.commands.fit import _max_epochs_for_min_steps
+
+	assert _max_epochs_for_min_steps(20, 0, 20000) == 20
+
+
+def test_fit_json_without_min_total_steps_merges_to_the_default(tmp_path):
+	"""A fit JSON written before this parameter existed still runs, and
+	picks up the floor rather than failing on the missing key."""
+
+	from cherimoya_cli.defaults import default_fit_parameters
+	from cherimoya_cli.utils import merge_parameters
+
+	cfg = dict(default_fit_parameters)
+	del cfg['min_total_steps']
+	path = tmp_path / "fit.json"
+	path.write_text(json.dumps(cfg))
+
+	assert merge_parameters(str(path), default_fit_parameters
+		)['min_total_steps'] == 20000

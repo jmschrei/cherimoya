@@ -52,6 +52,45 @@ def _split_parameters(model):
     return muon_params, adam_params, lw_params
 
 
+def _max_epochs_for_min_steps(max_epochs, steps_per_epoch, min_total_steps):
+    """Raise `max_epochs` until the run reaches `min_total_steps` steps.
+
+    An epoch is one pass over the peaks, so `max_epochs` buys a number of
+    optimizer steps proportional to how many peaks an experiment has -- an
+    experiment with 14 batches of peaks gets 280 steps out of 20 epochs while
+    one with 2,700 batches gets 54,000. This puts a floor under that by
+    extending the run, and returns `max_epochs` unchanged when the floor is
+    already met or `min_total_steps` is None.
+
+
+    Parameters
+    ----------
+    max_epochs: int
+        The number of epochs requested in the parameters.
+
+    steps_per_epoch: int
+        Batches in one pass over the training data, i.e. `len(training_data)`.
+
+    min_total_steps: int or None
+        The minimum number of optimizer steps the run should take. None
+        disables the floor.
+
+
+    Returns
+    -------
+    max_epochs: int
+        The number of epochs to train for.
+    """
+
+    if min_total_steps is None or steps_per_epoch <= 0:
+        return max_epochs
+
+    if steps_per_epoch * max_epochs >= min_total_steps:
+        return max_epochs
+
+    return -(-min_total_steps // steps_per_epoch)
+
+
 def run(args):
     import argparse
     import copy
@@ -226,6 +265,23 @@ def run(args):
 
     n_warmup_epochs = parameters["n_warmup_epochs"]
     max_epochs = parameters["max_epochs"]
+
+    # Both learning rate schedules are built from `max_epochs` just below, so
+    # extending the run here stretches them with it rather than leaving them
+    # to decay inside the original budget.
+    steps_per_epoch = len(training_data)
+    floored_epochs = _max_epochs_for_min_steps(max_epochs, steps_per_epoch,
+        parameters["min_total_steps"])
+
+    if floored_epochs != max_epochs:
+        max_epochs = floored_epochs
+
+        if parameters["verbose"]:
+            print("Raising max_epochs to {} to reach the {} step minimum "
+                "({} steps/epoch, {} total)\n".format(max_epochs,
+                    parameters["min_total_steps"], steps_per_epoch,
+                    steps_per_epoch * max_epochs))
+
     num_warmup_iters = len(training_data) * n_warmup_epochs
     num_decay_iters = len(training_data) * max(1, max_epochs - n_warmup_epochs)
 
