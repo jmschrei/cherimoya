@@ -109,4 +109,6 @@ the numbers:
 When `loss_weights` is set, `lw0` and `lw1` stop receiving gradient, the
 `log(lw)²` prior is dropped, and the freeze rule does not run. They remain on
 the model, so checkpoints are unaffected either way. `null` (the default)
-keeps the learned weights.
+keeps the learned weights. Under `verbose`, `fit` prints `Fixed Loss
+Weights: profile=..., count=...` in place of the `SGD Optimizer (lw)` line,
+so the log says which of the two schemes the run used.

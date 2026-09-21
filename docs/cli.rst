@@ -332,7 +332,9 @@ Unspecified keys fall back to the fit-level defaults.
        loss is divided by each signal group's own batch-mean read depth
        first, and the ``lw_*`` optimizer becomes inert.
        ``[1.333, 0.274]`` reproduces the operating point the learned
-       weights reach. ``null`` keeps the Kendall weights.
+       weights reach. ``null`` keeps the Kendall weights. Under
+       ``verbose``, the two weights are printed in place of the
+       ``lw_*`` optimizer's hyperparameters.
    * - ``min_total_steps``
      - 20000
      - Minimum optimizer steps for the run. An epoch is one pass over the
