@@ -26,7 +26,7 @@ dependencies = [
     "tqdm>=4.64.1",
     "seaborn>=0.11.2",
     "modisco>=2.0.0",
-    "tangermeme>=0.2.3",
+    "tangermeme>=1.5.0",
     "macs3",
     "bam2bw>=0.4.1",
     "bpnet-lite>=1.0.0",

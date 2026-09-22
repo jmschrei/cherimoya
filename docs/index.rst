@@ -136,6 +136,7 @@ measured numbers.
    api/model
    api/cheri
    api/wrappers
+   api/deep_lift_shap
    api/io
    api/losses
    api/performance

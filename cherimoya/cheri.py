@@ -54,7 +54,7 @@ def _cheri_conv(x, w, dilation):
 
 	The convolution half of the fused op, split out so that the Triton
 	path's CPU reference and anything that has to reconstruct the conv
-	output -- the DeepLIFT rule in `cherimoya.attributions` does -- share
+	output -- the DeepLIFT rule in `cherimoya.deep_lift_shap` does -- share
 	one definition of the weight layout and the padding rather than two
 	that can drift apart.
 
