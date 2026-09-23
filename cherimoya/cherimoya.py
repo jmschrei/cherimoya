@@ -84,7 +84,10 @@ class EMA:
 		for name, p in model.named_parameters():
 			if name in self.shadow:
 				self._backup[name] = p.detach().clone()
-				p.data.copy_(self.shadow[name].data)
+				# Not `p.data.copy_`: a `.data` write is the one that
+				# does not advance the version counter, which is how
+				# `CheriBlock` spots a stale eval cache.
+				p.copy_(self.shadow[name])
 
 	@torch.no_grad()
 	def restore(self, model):
@@ -92,7 +95,7 @@ class EMA:
 
 		for name, p in model.named_parameters():
 			if name in self._backup:
-				p.data.copy_(self._backup[name].data)
+				p.copy_(self._backup[name])
 		self._backup = {}
 
 

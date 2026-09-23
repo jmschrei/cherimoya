@@ -131,6 +131,39 @@ Bug fixes
   one shape hits this path exactly once, with nothing after it to
   notice.
 
+* Applying an EMA snapshot to a model already in eval mode left the
+  Cheri Block's cached MLP weights holding the *previous* weights, so on
+  CUDA the depthwise convolution ran on the EMA snapshot while the MLP
+  ran on whatever was loaded before it. :meth:`cherimoya.EMA.apply_shadow`
+  and :meth:`~cherimoya.EMA.restore` wrote through ``Tensor.data``, which
+  is precisely the assignment that does not advance a tensor's version
+  counter, and ``CheriBlock.train(False)`` materializes bf16 casts of the
+  MLP weights that only ``train()``/``eval()`` and a ``load_state_dict``
+  post-hook refreshed. Measured on a 9-layer, 128-filter model at fp32
+  on CUDA, the documented ``model.eval(); ema.apply_shadow(model)``
+  sequence produced profile logits **1.9e-2** away from the same weights
+  evaluated with a fresh cache, against an output scale of 0.77 — about
+  2.5% of the signal. It is now exactly 0.
+
+  ``cherimoya fit`` was not affected in practice: ``tangermeme.predict``
+  calls ``model.eval()`` inside ``_preserve_model_state``, after the
+  swap, which happened to rebuild the cache. Direct users of
+  :class:`~cherimoya.EMA` were, and so was any code that writes a weight
+  in place while in eval mode — an optimizer step, a hand-edited tensor.
+
+  Two changes. ``EMA`` no longer writes through ``.data``, so the swap is
+  visible to anything watching the version counter; both methods were
+  already under ``no_grad``, so nothing else about them changes. And
+  ``CheriBlock`` records the version counters its cache was built from
+  and falls back to an inline cast when they have moved, which is the
+  same path a block already takes when the inference kernel is reached
+  without a prior ``.eval()``. Calling ``.eval()`` again rebuilds the
+  cache and restores the fast path.
+
+  Only the fp32 cache branch was affected. Under ``torch.autocast`` the
+  block's input dtype does not match the cached cast, so the inline path
+  was already being taken and fp16/bf16 results were correct.
+
 * A hand-written ``pipeline`` JSON that omitted ``motifs`` raised
   ``KeyError: 'motifs'`` at the seqlet annotation step — after the model
   had already been trained. ``pipeline.run`` reads

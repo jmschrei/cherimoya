@@ -973,6 +973,10 @@ class CheriBlock(torch.nn.Module):
 		self.register_buffer('_w2_eval_bf16', None, persistent=False)
 		self.register_buffer('_w2_eval_native', None, persistent=False)
 
+		# A plain attribute, not a buffer: a tuple of ints that must
+		# stay out of the state dict.
+		self._eval_cache_version = None
+
 		# Refresh the eval cache after this block's parameters are
 		# loaded directly via load_state_dict (standalone CheriBlock
 		# use). When the block is nested inside Cherimoya, the parent's
@@ -1035,13 +1039,26 @@ class CheriBlock(torch.nn.Module):
 			self._w1_eval_bf16 = None
 			self._w2_eval_bf16 = None
 			self._w2_eval_native = None
+			self._eval_cache_version = None
 		else:
 			with torch.no_grad():
 				w2_folded = self.linear2.weight * self.residual_scale
 				self._w1_eval_bf16 = self.linear1.weight.to(torch.bfloat16)
 				self._w2_eval_bf16 = w2_folded.to(torch.bfloat16)
 				self._w2_eval_native = w2_folded
+			self._eval_cache_version = self._weight_versions()
 		return self
+
+	def _weight_versions(self):
+		"""The version counters of the two weights the cache derives from.
+
+		``Tensor._version`` advances on every in-place write that does
+		not go through ``.data`` — an optimizer step, a hand-edited
+		weight, an EMA swap — so comparing it is how ``_cast_weights``
+		tells a live cache from a stale one.
+		"""
+
+		return (self.linear1.weight._version, self.linear2.weight._version)
 
 	def _can_use_inference_path(self, X):
 		"""Return True iff the no_grad fused inference kernel can be used
@@ -1070,17 +1087,25 @@ class CheriBlock(torch.nn.Module):
 		  returns the parameter directly for w1 and the precomputed
 		  residual-folded buffer for w2.
 
-		Any other case falls back to an inline cast.
+		Any other case falls back to an inline cast, and so does a cache
+		whose parameters have been written since it was built — which
+		would otherwise put the MLP on one snapshot of the weights and
+		the depthwise convolution, read live, on another. Call
+		``.eval()`` again to rebuild the cache and get the fast path
+		back.
 
 		For fp32 input we downcast to bf16: roughly 2x dot throughput on
 		Hopper at the cost of ~1.4e-04 max-abs on the default model's
 		profile logits versus the training path, against a logit scale
 		of 0.73."""
 
-		if X.dtype == torch.float32 and self._w1_eval_bf16 is not None:
+		fresh = (self._eval_cache_version is not None
+			and self._eval_cache_version == self._weight_versions())
+
+		if X.dtype == torch.float32 and self._w1_eval_bf16 is not None and fresh:
 			return self._w1_eval_bf16, self._w2_eval_bf16
 
-		if (self._w2_eval_native is not None
+		if (self._w2_eval_native is not None and fresh
 			and X.dtype == self.linear1.weight.dtype):
 			return self.linear1.weight, self._w2_eval_native
 
