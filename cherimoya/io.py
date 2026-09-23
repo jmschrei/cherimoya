@@ -257,6 +257,12 @@ class PeakNegativeSampler(torch.utils.data.Dataset):
 		self.negative_signals = negative_signals.numpy(force=True)
 		self.n_negatives = len(self.negative_sequences)
 
+		if negative_ratio > 0 and self.n_negatives == 0:
+			raise ValueError(
+				"negative_ratio is {} but no negative sequences were "
+				"given; pass negatives or set negative_ratio to 0"
+				.format(negative_ratio))
+
 		if peak_controls is not None:
 			self.peak_controls = peak_controls.numpy(force=True)
 			self.negative_controls = negative_controls.numpy(force=True)

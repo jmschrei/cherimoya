@@ -186,5 +186,7 @@ behavior is observable:
   just recomputes the bf16 cast inline per call. See
   :doc:`/benchmarks` for the per-call cost.
 * The path produces outputs that differ from the training Triton
-  path by at most ~1e-5 max-abs at unit-scale fp32 outputs (~1e-2
-  for bf16 input, ~1e-3 for fp16 input).
+  path by at most ~1.4e-04 max-abs on the default model's profile
+  logits at fp32 (logit scale 0.73), ~4.9e-04 under fp16 autocast and
+  ~3.9e-03 under bf16 autocast. See :doc:`/architecture` for the
+  measurement.
