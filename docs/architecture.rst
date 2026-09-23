@@ -46,13 +46,19 @@ The model consists of three stages.
 The default 9-layer, 128-filter model has roughly 610K parameters. The
 default input window is 2114 bp and the default output window is 1000
 bp; the difference (557 bp on each side) is the ``trimming`` and equals
-``46 + sum(2**i for i in range(n_layers))`` by default. The ``46`` is
-the receptive field of the 21-bp input stem (10 bp each side) and the
-75-bp profile head (37 bp each side);
-the dilated-conv sum (``1 + 2 + 4 + … + 256 = 511`` for the default
-9-layer model) is the receptive field of the backbone itself. The
-trimming therefore matches the model's receptive field on each side,
-so every output position has full context.
+``46 + sum(2**i for i in range(n_layers))`` by default, where the
+dilated-conv sum is ``1 + 2 + 4 + … + 256 = 511`` for the default
+9-layer model.
+
+The convolutional receptive field is slightly wider than that. The
+21-bp input stem reaches 10 bp each side, the dilated stack another
+511, and the 75-bp profile head another 37, for a half-width of
+``10 + 511 + 37 = 558`` and a full receptive field of **1117 bp**. The
+trimming constant is ``46`` rather than ``47``, so ``trimming`` is 557
+against a half-width of 558 and the outermost output position on each
+side reads one base of zero padding. The other 998 of the 1000 output
+positions have full context. The constant is not changed: that would
+change every model's output window.
 
 
 The Cheri Block

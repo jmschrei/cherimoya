@@ -68,7 +68,7 @@ Design highlights
 * **Cheri Blocks**. A dilated depthwise convolution fused with a
   per-example layer normalization and a channel-mixing MLP, implemented
   as a custom Triton kernel. The default 9-layer model is ~610K
-  parameters with a 1115 bp receptive field.
+  parameters with a 1117 bp receptive field.
 * **Three forward paths, one set of weights**. A CPU fallback, a
   Triton fwd+bwd kernel for training, and a fwd-only megakernel for
   inference, agreeing to ~2.5e-04 max-abs at fp32 on the default

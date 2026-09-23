@@ -613,6 +613,30 @@ Documentation
   The earlier figure remains in the v0.2.0 changelog entry below, which
   is a record of what was claimed at the time rather than a current
   statement.
+* The receptive field was documented as 1115 bp. Measured, it is
+  **1117 bp**: the 21-bp stem reaches 10 bases each side, the dilated
+  stack 511, and the 75-bp profile head 37, for a half-width of 558.
+  The architecture page's own derivation already summed to 558 while
+  stating the ``46`` trimming constant, which is 47 minus one — so
+  ``trimming`` is 557 against a half-width of 558, and the outermost
+  output position on each side reads one base of zero padding rather
+  than having "full context" as the page claimed. The constant is not
+  changed: it would change every model's output window.
+
+* ``docs/conf.py`` hard-coded ``release = '0.2.0'`` while
+  ``pyproject.toml`` said ``0.2.1``. It now reads the installed
+  metadata.
+
+* The README described the Kendall weighting as "one learnable weight
+  per output track"; there are two per signal *group*, ``lw0`` for the
+  profile term and ``lw1`` for the counts term. It also described
+  "minimal weight decay on the Muon-routed projection weights", which
+  are in fact the only weights that get any — ``muon_wd`` is 0.03 and
+  ``adam_wd`` is 0.
+
+* ``docs/development.rst``'s repository layout omitted
+  ``cherimoya/wrappers.py``, ``cherimoya_cli/skills/`` and
+  ``cherimoya_cli/commands/install_skill.py``.
 
 Tooling
 ~~~~~~~

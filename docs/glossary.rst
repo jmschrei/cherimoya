@@ -43,13 +43,16 @@ Input window vs output window vs trimming
    bp) than it predicts over (``out_window``, default 1000 bp). The
    difference, half on each side, is the **trimming** — the
    context the model uses to predict the central window. The default
-   trimming of 557 bp matches the model's receptive field.
+   trimming of 557 bp is one base short of the receptive field's
+   half-width, so the two outermost output positions read a single
+   base of zero padding.
 
 Receptive field
    The number of input bases that can influence a single output
-   prediction. For Cherimoya's default 9-layer backbone it is 1115 bp.
-   The 21-bp input stem plus the dilated stack
-   (dilations ``1, 2, 4, …, 256``) gives this number.
+   prediction. For Cherimoya's default 9-layer backbone it is 1117 bp:
+   the 21-bp input stem (10 bp each side), the dilated stack
+   (``1 + 2 + … + 256 = 511``) and the 75-bp profile head (37 bp each
+   side) give a half-width of 558.
 
 Saturation mutagenesis (in silico)
    The exhaustive *in-silico* variant scan: for each position in a
