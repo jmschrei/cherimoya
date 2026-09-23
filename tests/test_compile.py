@@ -410,3 +410,71 @@ def test_forward_parity_across_dtypes_cpu():
 	_assert_close(y_eager_c, y_comp_c)
 	_assert_close(y_eager_p, y_eager_p2, atol=0, rtol=0)
 	_assert_close(y_comp_p, y_comp_p2, atol=0, rtol=0)
+
+
+@pytest.fixture
+def dynamo_enabled(monkeypatch):
+	"""Undo conftest's suite-wide dynamo opt-out for tests about dynamo.
+	`torch.compile` reads the env var when it wraps the forward, so the
+	model has to be built inside this fixture's scope."""
+	monkeypatch.setenv("TORCHDYNAMO_DISABLE", "0")
+	with torch._dynamo.config.patch(disable=False):
+		torch._dynamo.reset()
+		yield
+	torch._dynamo.reset()
+
+
+@pytest.mark.triton
+def test_eval_forward_compiles_to_one_graph_cuda(dynamo_enabled):
+	"""The eval-cache freshness check in `CheriBlock._cast_weights` reads
+	`Tensor._version`, which torch 2.12's dynamo cannot compare without a
+	graph break. A break inside the block loop sent all of `_forward_impl`
+	to eager and compiled each block separately, once per dilation, until
+	it hit the recompile limit."""
+	from torch._dynamo.utils import counters
+
+	counters.clear()
+
+	torch.manual_seed(0)
+	model = Cherimoya(**_tiny_kwargs(n_filters=32, n_layers=9)).cuda().eval()
+	X = torch.randn(2, 4, _input_window_for(model), device='cuda')
+
+	with torch.no_grad():
+		model(X)
+
+	assert counters['stats']['unique_graphs'] == 1
+
+
+@pytest.mark.triton
+def test_compiled_forward_sees_ema_swap_in_eval_cuda(dynamo_enabled):
+	"""`model.eval(); ema.apply_shadow(model)` must run the compiled
+	forward on the EMA weights, with no second `eval()` call. The
+	reference is a second compiled model built on the EMA weights, since
+	shifting every weight by 0.05 moves compiled-vs-eager drift past the
+	parity tolerance; a stale cache instead lands on the pre-swap output,
+	which here differs by ~1 in the counts."""
+	from cherimoya.cherimoya import EMA
+
+	torch.manual_seed(0)
+	_, m_swapped = _build_pair('cuda', **_CUDA_KWARGS)
+	ema = EMA(m_swapped)
+	for p in ema.shadow.values():
+		p.add_(0.05)
+
+	L = _input_window_for(m_swapped)
+	X = torch.randn(2, 4, L, device='cuda')
+
+	with torch.no_grad():
+		m_swapped(X)
+		ema.apply_shadow(m_swapped)
+
+		m_fresh = Cherimoya(**_tiny_kwargs(**_CUDA_KWARGS)).cuda()
+		m_fresh.load_state_dict(m_swapped.state_dict())
+		m_fresh.eval()
+
+		# Clone: both models replay CUDA graphs that reuse output memory.
+		y_swap_p, y_swap_c = [y.clone() for y in m_swapped(X)]
+		y_fresh_p, y_fresh_c = [y.clone() for y in m_fresh(X)]
+
+	_assert_close(y_swap_p, y_fresh_p)
+	_assert_close(y_swap_c, y_fresh_c)

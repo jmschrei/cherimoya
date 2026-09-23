@@ -137,6 +137,27 @@ Bug fixes
   block's input dtype does not match the cached cast, so the inline path
   was already being taken and fp16/bf16 results were correct.
 
+* The version check added by the entry above broke the compiled eval
+  forward on torch 2.12. Dynamo cannot compare ``Tensor._version``
+  values without a graph break, and a break inside the block loop sends
+  all of ``Cherimoya._forward_impl`` to eager and compiles each
+  ``CheriBlock`` on its own, once per dilation, until it hits
+  ``torch._dynamo hit config.recompile_limit (8)``, a warning printed
+  during validation in ``cherimoya fit``. Results stayed correct,
+  but the eval forward was 6-17% slower than a single graph (0.59 vs
+  0.66 ms for 32 filters, 1.34 vs 1.42 ms for 64, 2.88 vs 3.09 ms for
+  128 at fp32, 1.77 vs 2.08 ms for 128 under bf16 autocast; batch 64, 9
+  layers). torch 2.13 traces the comparison and was not affected.
+
+  ``CheriBlock`` now skips the check under ``torch.compile`` and trusts
+  its cache, and ``Cherimoya.forward``, which runs outside the compiled
+  region, rebuilds the cache of any block whose weights moved before
+  dispatching. The EMA swap is still seen, now without falling back to
+  the inline cast. A ``CheriBlock`` compiled on its own, or a
+  ``Cherimoya`` wrapped in a user's own ``torch.compile``, no longer
+  detects in-place weight writes made after ``.eval()``; call
+  ``.eval()`` again after such a write.
+
 * A hand-written ``pipeline`` JSON that omitted ``motifs`` raised
   ``KeyError: 'motifs'`` at the seqlet annotation step — after the model
   had already been trained. ``pipeline.run`` reads

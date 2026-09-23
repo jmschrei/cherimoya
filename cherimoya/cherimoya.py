@@ -399,7 +399,18 @@ class Cherimoya(torch.nn.Module):
 		eager forward, set in ``__init__`` according to the ``compile``
 		kwarg). Kept as a class-level method so that subclasses overriding
 		``forward`` can still call ``super().forward(...)``.
+
+		Before dispatching, any block whose eval-time weight cache is
+		older than its weights (e.g. after an EMA swap in eval mode) has
+		the cache rebuilt. The check runs here, outside the compiled
+		region, because ``CheriBlock`` skips it under ``torch.compile``.
 		"""
+
+		if not torch.compiler.is_compiling():
+			for block in self.blocks:
+				if (not block.training and block._eval_cache_version
+					!= block._weight_versions()):
+					block.train(False)
 
 		return self._forward_fn(X, X_ctl)
 
