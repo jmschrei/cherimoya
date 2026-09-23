@@ -215,3 +215,86 @@ def test_calculate_performance_measures_validates_signal_groups():
 		calculate_performance_measures(
 			logits, true_counts, pred,
 			measures=['count_pearson'], signal_groups=[0, 3])
+
+
+# --------- labels branch and signal_groups ---------------------------------
+
+def test_within_peak_measures_use_the_same_count_target():
+	"""The `labels` branch recurses to score the in-peak subset, and
+	that recursion must carry `signal_groups` with it.
+
+	Without it the outer metrics pool counts per group while the
+	`within_peak_` metrics fall through to the legacy "sum every channel
+	into one total" target, so the two describe different quantities
+	under the same names. Here the prediction is perfect per group, so
+	the within-peak count MSE has to be ~0 exactly as the outer one is.
+	"""
+
+	g = torch.Generator().manual_seed(0)
+	logits = torch.randn(8, 3, 8, generator=g)
+	true_counts = torch.randint(0, 7, (8, 3, 8), generator=g).float()
+
+	per_channel = true_counts.sum(dim=-1)
+	per_group = torch.stack([
+		per_channel[:, 0],
+		per_channel[:, 1] + per_channel[:, 2],
+	], dim=-1)
+	perfect_pred = torch.log(per_group + 1)
+
+	labels = torch.tensor([1, 1, 1, 1, 0, 0, 0, 0])
+
+	measures = calculate_performance_measures(
+		logits, true_counts, perfect_pred, labels=labels,
+		measures=['count_pearson', 'count_mse'],
+		signal_groups=[1, 2],
+	)
+
+	assert torch.allclose(measures['within_peak_count_mse'],
+		torch.zeros(2), atol=1e-5)
+	assert measures['within_peak_count_mse'].shape == (2,)
+
+
+def test_within_peak_equals_scoring_the_peak_subset_directly():
+	"""`within_peak_x` is defined as `x` computed on the in-peak rows, so
+	it must equal what a direct call on that subset returns.
+
+	A shape check does not discriminate here: with `signal_groups`
+	dropped the target collapses to `(n, 1)` and `pearson_corr`
+	broadcasts it back up to one value per prediction column, so the
+	wrong numbers arrive in the right shape.
+	"""
+
+	g = torch.Generator().manual_seed(1)
+	logits = torch.randn(8, 3, 8, generator=g)
+	true_counts = torch.randint(0, 7, (8, 3, 8), generator=g).float()
+	pred = torch.randn(8, 2, generator=g)
+	labels = torch.tensor([1, 1, 1, 1, 0, 0, 0, 0])
+	in_peaks = labels == 1
+
+	measures = calculate_performance_measures(
+		logits, true_counts, pred, labels=labels,
+		measures=['count_pearson'], signal_groups=[1, 2])
+
+	direct = calculate_performance_measures(
+		logits[in_peaks], true_counts[in_peaks], pred[in_peaks],
+		measures=['count_pearson'], signal_groups=[1, 2])
+
+	assert torch.allclose(measures['within_peak_count_pearson'],
+		direct['count_pearson'], atol=1e-6)
+
+
+def test_within_peak_without_signal_groups_is_unchanged():
+	"""The no-grouping call still collapses to one target, so the
+	fall-through behaviour external callers may rely on is untouched."""
+
+	g = torch.Generator().manual_seed(2)
+	logits = torch.randn(8, 3, 8, generator=g)
+	true_counts = torch.randint(0, 7, (8, 3, 8), generator=g).float()
+	pred = torch.randn(8, 2, generator=g)
+	labels = torch.tensor([1, 1, 1, 1, 0, 0, 0, 0])
+
+	measures = calculate_performance_measures(
+		logits, true_counts, pred, labels=labels,
+		measures=['count_pearson'])
+
+	assert measures['within_peak_count_pearson'].shape == (2,)

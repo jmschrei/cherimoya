@@ -94,10 +94,13 @@ the overhead is ~1-2% because the per-call cast cost is a fixed
 ~15 μs while the megakernel runtime scales with the batch. Training
 is unaffected by the eval cache — it only fires under no_grad.
 
-All paths agree on the fp32 model output to ~1e-5 max-abs at
-unit-scale outputs, so existing trained checkpoints produce
-numerically equivalent predictions through training-fwd and the
-megakernel paths. Running the megakernel with bf16 or fp16 inputs
+On the default 9-layer, 128-filter model over a batch of 4 sequences
+of 2114 bp, the three paths differ by at most **2.5e-04 max-abs** on
+the profile logits at fp32, against a logit scale of 0.73 -- 5.9e-04
+under fp16 autocast and 5.0e-03 under bf16 autocast. A trained
+checkpoint runs through any path and gives predictions that agree to
+those bounds; they are not bitwise identical. :doc:`architecture` has
+the full table. Running the megakernel with bf16 or fp16 inputs
 (after ``model.to(dtype)``) drifts to ~3e-2 / ~4e-3 max-abs
 respectively, dominated by the reduced-precision MLP dot. The
 detailed breakdown of which path pairs agree to fp32 precision vs.

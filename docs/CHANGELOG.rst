@@ -4,8 +4,39 @@ Changelog
 Unreleased
 ----------
 
+Removed (**breaking**)
+~~~~~~~~~~~~~~~~~~~~~~
+
+* ``cherimoya batch`` is removed, along with
+  ``cherimoya_cli/commands/batch.py``, its subparser, its CLI reference
+  section and the "Batch mode" section of the pipeline tutorial. It fanned
+  one JSON out into several pipeline JSONs and ran them with
+  ``joblib.Parallel``, one per CUDA device.
+
+  **A script that invokes** ``cherimoya batch`` **will now fail with an
+  argparse error naming the valid subcommands.** The equivalent is to write
+  the per-experiment pipeline JSONs yourself and run ``cherimoya pipeline``
+  on each, which is what ``batch`` did internally — it assigned devices
+  round-robin by ``i % len(device)`` and shelled out to
+  ``cherimoya pipeline -p {name}.pipeline.json``.
+
+* ``joblib`` is dropped from ``dependencies``. ``batch.py`` was the only
+  thing in the package that imported it. It usually remains installed
+  anyway, as a transitive dependency of scikit-learn.
+
+
 Bug fixes
 ~~~~~~~~~
+
+* ``cherimoya seqlets`` raised ``IndexError: arrays used as indices must
+  be of integer or boolean type`` when no seqlets were found. An empty
+  result is a legitimate outcome — a weak model, or a strict
+  ``threshold`` — but the empty frame ``recursive_seqlets`` returns has
+  ``object`` dtype columns, and indexing the locus table with an object
+  array raises inside pandas rather than producing an empty result.
+  Inside ``cherimoya pipeline`` that ended the run after training had
+  already finished. An empty BED is now written; the annotation step
+  opens that path either way.
 
 * ``cherimoya seqlets`` emitted genomic coordinates shifted 857 bases to
   the left of the seqlets it found. ``cherimoya attribute`` scores a
@@ -31,6 +62,7 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+
 * A hand-written ``pipeline`` JSON that omitted ``motifs`` raised
   ``KeyError: 'motifs'`` at the seqlet annotation step — after the model
   had already been trained. ``pipeline.run`` reads
@@ -55,6 +87,122 @@ Bug fixes
   ``null``, which is most of the input paths. The "Common conventions"
   section now states which keys must be present and which are genuinely
   optional.
+* ``cherimoya attribute`` never passed ``in_window`` to ``extract_loci``,
+  so every run extracted ``tangermeme``'s own default of 2114bp no
+  matter what the JSON said. A model trained at a different input
+  window was therefore fed the wrong window — and the key was declared
+  in the schema and documented in the CLI reference the whole time. It
+  is now the window that is actually extracted.
+
+* The attributed slice was a hard-coded ``mid - 200, mid + 200`` with no
+  key controlling it. It is now ``attr_window``, defaulting to 400 so
+  existing runs produce byte-identical output, and validated against
+  ``in_window`` rather than silently producing an out-of-range slice.
+  ``cherimoya seqlets`` reads this width back off the saved arrays, so
+  changing it needs no matching setting there.
+
+* ``attribute_parameters.out_window`` is removed. The step extracts
+  sequence only, never signal, so there was no output window to size. A
+  JSON that still sets it is passed through and ignored.
+
+* ``cherimoya marginalize``'s ``shuffle`` did not sample. ``extract_loci``
+  stops as soon as it has ``n_loci`` usable sequences, i.e. it returns
+  the first ``n_loci`` rows of the file, and the shuffle ran *after*
+  that — so it permuted a set already chosen by file order and the
+  truncation that followed was a no-op. Every marginalization report was
+  built from the top of the background BED, in a seed-dependent order,
+  which is the one thing ``shuffle`` exists to avoid. The extraction is
+  no longer capped when shuffling, so the sample is drawn from the whole
+  file. **Reports produced with** ``shuffle: true`` **will now use
+  different background loci**; the unshuffled path is unchanged.
+
+  Drawing a sample means reading the population, so the shuffled path
+  now holds the full locus set in memory. The unshuffled path still
+  stops at ``n_loci``.
+
+* ``calculate_performance_measures`` dropped ``signal_groups`` when
+  recursing to compute the ``within_peak_`` measures, so for a
+  multi-group model those fell through to the legacy "sum every channel
+  into one total" count target while the outer measures pooled counts
+  per group. The two then described different quantities under names
+  that read as the same measure on different rows, and because
+  ``pearson_corr`` broadcasts the collapsed target back up to one value
+  per prediction column, the wrong numbers also arrived in the right
+  shape. No in-repo caller passes ``labels``, so no CLI output changes;
+  this affects external callers of the function.
+
+* ``labels`` was an undocumented parameter of
+  ``calculate_performance_measures``. It now has a ``Parameters`` entry,
+  including the detail that ``auprc`` and ``auroc`` are scored against
+  the first count output only and so describe group 0 rather than the
+  whole model when there is more than one group.
+
+* ``"dry_run": true`` crashed with ``FileNotFoundError`` on any pipeline
+  configured with a motif database. The seqlet annotation step guards
+  the ``ttl`` subprocess behind ``dry_run`` but read that subprocess's
+  output with ``pandas.read_csv`` outside the guard, so the dry run
+  looked for an annotation file it had deliberately not produced. Since
+  running with a motif database is the common case, the documented way
+  to check a config before committing GPU time to it did not work. The
+  tally is now inside the same guard.
+
+* ``ExpectedCountsWrapper(ControlWrapper(model))`` raised
+  ``AttributeError: 'ControlWrapper' object has no attribute
+  'signal_groups'``. :class:`~cherimoya.ControlWrapper` is documented as
+  the inner wrapper the output wrappers are layered on top of, and
+  ``cherimoya attribute`` builds exactly that stack, but
+  ``torch.nn.Module`` does not forward attribute lookups to submodules,
+  so the one output wrapper that reads the model's grouping could not be
+  used over it. ``ControlWrapper`` now exposes ``signal_groups`` from
+  the model it wraps. :class:`~cherimoya.ProfileWrapper` and
+  :class:`~cherimoya.LogCountWrapper` were unaffected — they read no
+  model configuration.
+
+Packaging
+~~~~~~~~~
+
+* The ``tangermeme`` floor was ``>=0.2.3``, which no release satisfying
+  it can actually run: Cherimoya uses ``extract_loci(return_mask=...)``,
+  ``io._interleave_loci``, ``predict``'s dtype/device handling,
+  ``seqlet.recursive_seqlets``, ``utils.example_to_fasta_coords``,
+  ``match.extract_matching_loci`` and ``saturation_mutagenesis``. A
+  fresh resolve that picked an old tangermeme failed with
+  ``TypeError``/``ImportError`` deep in a subcommand rather than with a
+  version error at install time. Raised to ``>=1.4.0``, the version the
+  test suite is run against, with a comment in ``pyproject.toml``
+  recording the policy so it does not drift again.
+
+Robustness
+~~~~~~~~~~
+
+* ``Cherimoya.fit`` now warns when an epoch produces no full batch. The
+  loop skips any batch whose size is not exactly ``batch_size``, so a
+  ``batch_size`` that disagrees with the DataLoader's own silently
+  skips *every* batch: the run completes for the full ``max_epochs``
+  having taken no optimizer step, saves a checkpoint and returns a best
+  correlation, with the only evidence a nan in two columns of the log.
+  A single empty epoch remains a supported outcome — a training set
+  smaller than one batch produces it — so this warns rather than
+  raising.
+
+* ``Cherimoya.fit`` rejects a missing ``X_valid`` or ``y_valid`` with a
+  message naming them. Validation is what selects the saved checkpoint
+  and what the returned correlation is computed from, so it is not
+  optional; passing None used to fail inside ``tangermeme.predict``
+  with an error mentioning neither argument. A vestigial
+  ``y_valid_counts`` computation, guarded on ``X_valid is not None``
+  and never read, is removed.
+
+* :class:`~cherimoya.io.PeakNegativeSampler` rejects
+  ``negative_ratio > 0`` with an empty negative set at construction.
+  Those slots can only be filled from the negative set, so the sampler
+  used to raise ``IndexError`` partway into the first epoch, naming
+  neither the ratio nor the set.
+
+* ``spearman_corr``'s docstring said it used a dense ordering. It uses
+  ``argsort().argsort()``, which is an ordinal ranking — every element
+  gets a distinct rank and ties are broken by position rather than
+  shared.
 
 Reproducibility
 ~~~~~~~~~~~~~~~
@@ -263,6 +411,46 @@ Documentation
   converted and every target verified to exist. No guidance changed.
   Re-run ``cherimoya install-skill --force`` to pick up the corrections.
 
+* The three forward paths were documented as agreeing to "~1e-5
+  max-abs" in the README, on the landing page, and in the architecture,
+  benchmarks and ``cherimoya.cheri`` pages. Measured on the default
+  9-layer, 128-filter model over a batch of 4 sequences of 2114 bp,
+  worst of three seeds, against a profile-logit scale of 0.73:
+
+  .. list-table::
+     :header-rows: 1
+
+     * - input dtype
+       - CPU vs training kernel
+       - CPU vs megakernel
+       - training kernel vs megakernel
+     * - fp32
+       - 2.5e-04
+       - 2.1e-04
+       - 1.4e-04
+     * - fp16 (autocast)
+       - 5.9e-04
+       - 5.9e-04
+       - 4.9e-04
+     * - bf16 (autocast)
+       - 5.0e-03
+       - 5.0e-03
+       - 3.9e-03
+
+  So the published figure was optimistic by roughly 20x at fp32 and
+  500x at bf16, and the test suite never enforced it — the tolerances
+  that exist are 1e-4 for a single block, 5e-3 for gradient parity and
+  5e-2 for the whole model. Every page now carries the measured numbers
+  and the configuration that produced them.
+
+  ``cheri.py`` also contradicted itself: the module and ``CheriBlock``
+  docstrings said ~1e-5 while two comments in the same file said ~1e-2.
+  All four now say the same measured thing.
+
+  The earlier figure remains in the v0.2.0 changelog entry below, which
+  is a record of what was claimed at the time rather than a current
+  statement.
+
 Tooling
 ~~~~~~~
 
@@ -280,6 +468,14 @@ Tooling
   module it covers, which the filename alone does not: ``test_fit.py``
   exercises parameter wiring and optimizer routing without training,
   and ``test_evaluate.py`` covers the TSV output shape.
+
+* Added tests for ``cherimoya negatives``, which had no coverage at all.
+  They pin the flag-to-kwarg forwarding — most flags are renamed on the
+  way into ``extract_matching_loci`` — the headerless BED output that
+  feeds straight into ``fit`` as a locus file, and the argparse
+  defaults, which live only in the parser and so can drift from the CLI
+  reference unchecked.
+
 
 v0.2.1
 ------

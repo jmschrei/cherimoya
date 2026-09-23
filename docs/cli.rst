@@ -399,9 +399,20 @@ attribute_parameters
    * - ``output``
      - ``"counts"``
      - Attribute to counts or profile (``"profile"``).
+   * - ``in_window``
+     - 2114
+     - Width of the sequence window extracted per locus. Must match the
+       window the model was trained at.
+   * - ``attr_window``
+     - 400
+     - Width of the centred slice that is actually attributed, and the
+       width of the arrays written to ``ohe_filename`` and
+       ``attr_filename``. Saturation mutagenesis is one forward pass
+       per alternate base per position, so this sets the cost of the
+       step. Must not exceed ``in_window``.
    * - ``ohe_filename``
      - ``"attributions.ohe.npz"``
-     - Output: one-hot encoded inputs.
+     - Output: one-hot encoded inputs, ``attr_window`` wide.
    * - ``attr_filename``
      - ``"attributions.attr.npz"``
      - Output: per-base hypothetical importance.
@@ -535,7 +546,11 @@ Skipped entirely when the top-level ``motifs`` is null.
      - Inference batch size.
    * - ``shuffle``
      - ``false``
-     - Shuffle the background loci before sampling.
+     - Draw the ``n_loci`` background loci at random from the whole
+       file rather than taking the first ``n_loci`` rows. Because a
+       sample cannot be drawn without seeing the population, this reads
+       every locus in ``loci`` into memory before selecting; the
+       unshuffled path stops at ``n_loci`` and does not.
    * - ``random_state``
      - 0
      - RNG seed for the locus shuffle. Left ``null`` here, the
@@ -642,8 +657,7 @@ CLI flags:
 * ``-p, --parameters`` (required) — path to an attribute JSON.
 
 JSON schema: the ``attribute_parameters`` table above, plus
-``model``, ``sequences``, ``loci``, ``exclusion_lists``, and
-``in_window`` / ``out_window``.
+``model``, ``sequences``, ``loci`` and ``exclusion_lists``.
 
 
 cherimoya seqlets
@@ -719,48 +733,6 @@ direct CLI arguments (no JSON):
    * - ``-v, --verbose``
      - flag
      - Print per-step progress.
-
-
-cherimoya batch
----------------
-
-Run multiple pipelines in parallel using joblib.
-
-CLI flags:
-
-* ``-p, --parameters`` (required) — path to a batch JSON.
-
-The batch JSON is the same shape as a pipeline JSON with two
-additions:
-
-* ``"device": "*"`` is expanded to all available CUDA devices.
-* ``"signals"`` may be a glob string (``"data/*.bam"``). When set,
-  it's expanded to a list of paths, and ``"name"`` is auto-derived
-  from filenames if it is ``null``.
-
-Other list-valued fields (``loci``, ``negatives``, ``controls``) must
-be either ``null`` or a same-length list as the expanded
-``signals``. Each job is written to ``{name}.pipeline.json`` and run
-via ``subprocess.run(["cherimoya", "pipeline", "-p", jname])``.
-
-.. note::
-
-   ``signals`` in a batch JSON is a *list of per-model signal
-   specs*: one entry per pipeline to run in parallel. With the new
-   grouped form each per-model entry is itself a flat-or-grouped
-   signals list. So a batch of two stranded BPNet models is::
-
-       "signals": [
-           [["expt1.+.bw", "expt1.-.bw"]],
-           [["expt2.+.bw", "expt2.-.bw"]]
-       ]
-
-   The outer list selects the model; each inner list is the
-   ``signals`` field of one pipeline JSON. Previously the
-   double-nesting was implicit (a flat two-element pair was a
-   stranded pair); under the grouped API a flat two-element list is
-   two *unstranded* tracks, so stranded batch jobs must use the
-   nested form above.
 
 
 cherimoya install-skill

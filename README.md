@@ -70,7 +70,7 @@ Per-call latency (ms) on an NVIDIA H200 for a single Cheri Block at `N=512, L=10
 | bf16 | 0.707 | **0.347** |
 | fp16 | 0.706 | **0.347** |
 
-All paths agree on the fp32 model output to within ~1e-5 max-abs, so existing trained checkpoints produce numerically equivalent predictions through training-fwd and the megakernel paths. A pure-PyTorch CPU fallback is also available for development and one-off evaluation on a laptop. See [the benchmarks page](https://cherimoya.readthedocs.io/en/latest/benchmarks.html) for small-batch breakdowns and full methodology.
+On the default model at fp32, the three paths agree on the profile logits to within 2.5e-4 max-abs against a logit scale of 0.73, so a trained checkpoint gives the same predictions to that bound through any of them — they are not bitwise identical. A pure-PyTorch CPU fallback is also available for development and one-off evaluation on a laptop. See [the benchmarks page](https://cherimoya.readthedocs.io/en/latest/benchmarks.html) for small-batch breakdowns and full methodology.
 
 ### End-to-end CLI pipeline
 

@@ -150,11 +150,39 @@ numerically equivalent output, dispatched automatically per-call:
   False`` and ``expansion * n_filters % 16 == 0`` (fuses
   conv + norm + MLP + residual; bf16 dot products in the MLP).
 
-All three agree on the model output to ~1e-5 max-abs at unit-scale
-outputs, so existing trained checkpoints are bit-compatible across
-paths. For the kernel-level implementation, the autotune config
-space, and the inference-megakernel weight-cache details, see
-:doc:`api/cheri`.
+All three compute the same function, and a trained checkpoint runs
+through any of them, but they do not agree bitwise -- the differences
+below are what a stack of nine blocks accumulates from a different
+reduction order and, at reduced precision, a different rounding.
+
+.. list-table:: Max-abs difference on the profile logits, default model
+   :header-rows: 1
+
+   * - input dtype
+     - CPU vs training kernel
+     - CPU vs megakernel
+     - training kernel vs megakernel
+   * - fp32
+     - 2.5e-04
+     - 2.1e-04
+     - 1.4e-04
+   * - fp16 (autocast)
+     - 5.9e-04
+     - 5.9e-04
+     - 4.9e-04
+   * - bf16 (autocast)
+     - 5.0e-03
+     - 5.0e-03
+     - 3.9e-03
+
+Measured on the default 9-layer, 128-filter model over a batch of 4
+sequences of 2114 bp, worst of three seeds, against a profile-logit
+scale of 0.73. Low precision is exercised with ``torch.autocast``
+rather than by casting the model, since the count head casts its input
+to fp32.
+
+For the kernel-level implementation, the autotune config space, and
+the inference-megakernel weight-cache details, see :doc:`api/cheri`.
 
 
 Customizing the backbone
