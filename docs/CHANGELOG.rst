@@ -239,6 +239,46 @@ Documentation
   converted and every target verified to exist. No guidance changed.
   Re-run ``cherimoya install-skill --force`` to pick up the corrections.
 
+* The three forward paths were documented as agreeing to "~1e-5
+  max-abs" in the README, on the landing page, and in the architecture,
+  benchmarks and ``cherimoya.cheri`` pages. Measured on the default
+  9-layer, 128-filter model over a batch of 4 sequences of 2114 bp,
+  worst of three seeds, against a profile-logit scale of 0.73:
+
+  .. list-table::
+     :header-rows: 1
+
+     * - input dtype
+       - CPU vs training kernel
+       - CPU vs megakernel
+       - training kernel vs megakernel
+     * - fp32
+       - 2.5e-04
+       - 2.1e-04
+       - 1.4e-04
+     * - fp16 (autocast)
+       - 5.9e-04
+       - 5.9e-04
+       - 4.9e-04
+     * - bf16 (autocast)
+       - 5.0e-03
+       - 5.0e-03
+       - 3.9e-03
+
+  So the published figure was optimistic by roughly 20x at fp32 and
+  500x at bf16, and the test suite never enforced it — the tolerances
+  that exist are 1e-4 for a single block, 5e-3 for gradient parity and
+  5e-2 for the whole model. Every page now carries the measured numbers
+  and the configuration that produced them.
+
+  ``cheri.py`` also contradicted itself: the module and ``CheriBlock``
+  docstrings said ~1e-5 while two comments in the same file said ~1e-2.
+  All four now say the same measured thing.
+
+  The earlier figure remains in the v0.2.0 changelog entry below, which
+  is a record of what was claimed at the time rather than a current
+  statement.
+
 Tooling
 ~~~~~~~
 
