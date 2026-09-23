@@ -357,6 +357,18 @@ def calculate_performance_measures(logps, true_counts, pred_log_counts,
 	pred_log_counts: torch.Tensor, shape=(n, n_outputs)
 		The predicted log counts for each example.
 
+	labels: torch.Tensor, shape=(n,) or None, optional
+		Whether each example is a peak (1) or a background locus (0).
+		When given, every requested measure is additionally computed on
+		the peak rows alone and returned under a ``within_peak_``
+		prefix, and ``auprc`` / ``auroc`` are added for separating the
+		two classes. Those two are scored against
+		``pred_log_counts[:, 0]`` — the first count output only — so for
+		a multi-group model they describe that group rather than the
+		model as a whole. ``signal_groups`` applies to the
+		``within_peak_`` measures exactly as it does to the others.
+		Default is None.
+
 	kernel_sigma: int, optional
 		If smoothing the observed profile, the sigma to use in the Gaussian
 		smoothing. Default is 7.
@@ -400,6 +412,8 @@ def calculate_performance_measures(logps, true_counts, pred_log_counts,
 	if labels is not None:
 		in_peaks = labels == 1
 		
+		# `signal_groups` has to come along, or the within-peak count
+		# target pools differently from the outer one.
 		measures_ = calculate_performance_measures(
 			logps[in_peaks],
 			true_counts[in_peaks],
@@ -408,13 +422,15 @@ def calculate_performance_measures(logps, true_counts, pred_log_counts,
 			kernel_width=kernel_width,
 			smooth_true=smooth_true,
 			smooth_predictions=smooth_predictions,
-			measures=measures
+			measures=measures,
+			signal_groups=signal_groups
 		)
 
 		measures_ = {
 			"within_peak_" + key: value for key, value in measures_.items()
 		}
 
+		# First count output only; see the `labels` docstring entry.
 		measures_['auprc'] = average_precision_score(labels, pred_log_counts[:, 0])
 		measures_['auroc'] = roc_auc_score(labels, pred_log_counts[:, 0])
 		
