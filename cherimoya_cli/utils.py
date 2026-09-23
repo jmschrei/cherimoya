@@ -49,12 +49,15 @@ def merge_parameters(parameters, default_parameters):
 		with open(parameters, "r") as infile:
 			parameters = json.load(infile)
 
+	# Keys whose default is None and which may simply be left out.
 	unset_parameters = ("controls", "warning_threshold", "early_stopping",
-		"count_loss_weight", "exclusion_lists", "loss_weights")
+		"exclusion_lists", "loss_weights", "model", "motifs")
 	for parameter, value in default_parameters.items():
 		if parameter not in parameters:
 			if value is None and parameter not in unset_parameters:
-				raise ValueError("Must provide value for '{}'".format(parameter))
+				raise ValueError("Must provide value for '{}'. Set it to "
+					"null if this step is supposed to produce it."
+					.format(parameter))
 
 			parameters[parameter] = value
 

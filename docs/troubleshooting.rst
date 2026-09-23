@@ -251,6 +251,14 @@ training. **If you don't immediately recognize a** ``torch.compile``
 sidesteps the entire class of compile/cudagraph foot-guns at the
 cost of that speedup.
 
+From the CLI the same two settings are the ``compile`` and
+``compile_mode`` JSON keys, accepted by ``evaluate``, ``attribute``,
+``marginalize`` and at the top level of a ``pipeline`` JSON, where one
+value reaches every step that loads a model::
+
+    {"compile": false}
+    {"compile_mode": "max-autotune-no-cudagraphs"}
+
 .. note::
 
    For the megakernel to hit its fast path (precomputed bf16 weight
