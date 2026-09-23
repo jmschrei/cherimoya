@@ -419,10 +419,6 @@ seqlet_parameters
    * - ``additional_flanks``
      - 3
      - Flanking bases retained on each side.
-   * - ``in_window``
-     - 2114
-     - Input window used during attribution; matches
-       ``fit_parameters.in_window``.
    * - ``ohe_filename`` / ``attr_filename`` / ``idx_filename``
      - inherit from ``attribute_parameters``
      - Inputs from the attribute step.
@@ -647,6 +643,11 @@ CLI flags:
 JSON schema: the ``seqlet_parameters`` table above, plus ``chroms``
 and ``loci`` (needed to convert example-relative seqlet coordinates
 back to genome coordinates) and ``exclusion_lists``.
+
+The emitted BED is in the same coordinate system as ``loci``. Seqlet
+positions are relative to the attribution array, which covers a slice
+centred on each locus rather than the full extraction window, so every
+seqlet falls inside the slice that ``attribute`` scored.
 
 
 cherimoya marginalize

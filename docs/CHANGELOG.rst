@@ -4,6 +4,34 @@ Changelog
 Unreleased
 ----------
 
+Bug fixes
+~~~~~~~~~
+
+* ``cherimoya seqlets`` emitted genomic coordinates shifted 857 bases to
+  the left of the seqlets it found. ``cherimoya attribute`` scores a
+  400bp slice centred inside the 2114bp extraction window and saves the
+  attributions over that slice only, so a seqlet position is an offset
+  into the slice; the conversion back to the genome centred a window of
+  ``in_window`` (2114) on each locus instead of one of the slice's own
+  width (400), which puts the reported start
+  ``(2114 - 400) / 2 = 857`` bases early. A seqlet at slice positions
+  100-110 of a peak at ``chr1:10000-11000`` was written as
+  ``chr1:9543-9553`` rather than ``chr1:10400-10410``, outside the peak
+  it came from. The window is now read from the width of the
+  attribution array, so it stays correct if a run attributes a
+  different slice. ``seqlet_parameters.in_window`` is removed; it was
+  only ever used for this conversion. A JSON that still sets it is
+  passed through and ignored.
+
+  This also affected the pipeline's motif annotation: ``ttl`` reads the
+  seqlet BED to pull sequence out of the FASTA, so
+  ``{name}.seqlets_annotated.bed`` and ``{name}.motif_seqlet_count.tsv``
+  were built from the wrong sequence. TF-MoDISco is unaffected — it
+  reads the attribution ``.npz`` files directly and never sees these
+  coordinates. Re-run ``cherimoya seqlets`` over the existing
+  ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
+  recomputing attributions.
+
 Reproducibility
 ~~~~~~~~~~~~~~~
 

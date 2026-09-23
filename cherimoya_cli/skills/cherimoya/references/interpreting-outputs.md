@@ -66,7 +66,11 @@ consume them.
 
 ### Seqlets — `{name}.seqlets.bed`
 Short, high-importance stretches pulled from the attributions, in genome
-coordinates — the candidate functional elements the model found.
+coordinates — the candidate functional elements the model found. Every seqlet
+falls inside the slice `attribute` scored (400bp centred on each locus by
+default), so a seqlet outside its peak means the file was produced before the
+coordinate fix and the run needs `cherimoya seqlets` re-run over the same
+attribution `.npz` files.
 
 ### Annotated seqlets — `{name}.seqlets_annotated.bed` + `{name}.motif_seqlet_count.tsv`
 Only with a motif database. tomtom-lite labels each seqlet with its closest
