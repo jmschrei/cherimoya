@@ -332,6 +332,14 @@ Tooling
   exercises parameter wiring and optimizer routing without training,
   and ``test_evaluate.py`` covers the TSV output shape.
 
+* Added tests for ``cherimoya negatives``, which had no coverage at all.
+  They pin the flag-to-kwarg forwarding — most flags are renamed on the
+  way into ``extract_matching_loci`` — the headerless BED output that
+  feeds straight into ``fit`` as a locus file, and the argparse
+  defaults, which live only in the parser and so can drift from the CLI
+  reference unchecked.
+
+
 v0.2.1
 ------
 
