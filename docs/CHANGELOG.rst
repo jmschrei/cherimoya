@@ -4,33 +4,6 @@ Changelog
 Unreleased
 ----------
 
-Tooling
-~~~~~~~
-
-* ``test_evaluate_single_group_value_equals_legacy_full_mean`` failed
-  intermittently, on one leg of the CI matrix at a time. It ran
-  ``evaluate`` — which predicts in batches through
-  ``tangermeme.predict`` — and then recomputed the same thing with a
-  single unbatched ``model(X)``, asserting the two agreed to ``1e-4``.
-  The paths agree only to within a few float32 ULPs, and
-  ``profile_spearman`` ranks with ``argsort().argsort()``: one swapped
-  pair moves the metric far more than the float difference that caused
-  it, so no tolerance was safe.
-
-  The test now predicts the way ``evaluate`` does, at the same batch
-  size, and pins ``compile`` on both sides — ``Cherimoya.load
-  (compile=True)`` and ``compile=False`` are not bit-identical even
-  under ``TORCH_COMPILE_DISABLE=1``, which was a second source of
-  divergence worth about 1.5e-08. With both matched the two sides see
-  bit-identical predictions, so every metric agrees by construction
-  rather than by luck, and the residual measures 0 across eight seeds.
-
-* The models in ``tests/commands/test_evaluate.py`` are seeded.
-  ``_build_and_save`` never passed ``random_state``, so every run drew
-  different weights and each assertion in the file passed or failed on
-  the draw.
-
-
 Removed (**breaking**)
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -50,7 +23,6 @@ Removed (**breaking**)
 * ``joblib`` is dropped from ``dependencies``. ``batch.py`` was the only
   thing in the package that imported it. It usually remains installed
   anyway, as a transitive dependency of scikit-learn.
-
 
 Bug fixes
 ~~~~~~~~~
@@ -89,6 +61,7 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+
 * The first backward at any new ``(C, L)`` shape returned a wrong
   gradient. ``_bwd_apply_kernel`` reads the convolution out of a
   scratch buffer and writes the normalization gradient back over it, so
@@ -188,6 +161,7 @@ Bug fixes
   ``null``, which is most of the input paths. The "Common conventions"
   section now states which keys must be present and which are genuinely
   optional.
+
 * ``cherimoya attribute`` never passed ``in_window`` to ``extract_loci``,
   so every run extracted ``tangermeme``'s own default of 2114bp no
   matter what the JSON said. A model trained at a different input
@@ -205,6 +179,38 @@ Bug fixes
 * ``attribute_parameters.out_window`` is removed. The step extracts
   sequence only, never signal, so there was no output window to size. A
   JSON that still sets it is passed through and ignored.
+
+Robustness
+~~~~~~~~~~
+
+* ``Cherimoya.fit`` now warns when an epoch produces no full batch. The
+  loop skips any batch whose size is not exactly ``batch_size``, so a
+  ``batch_size`` that disagrees with the DataLoader's own silently
+  skips *every* batch: the run completes for the full ``max_epochs``
+  having taken no optimizer step, saves a checkpoint and returns a best
+  correlation, with the only evidence a nan in two columns of the log.
+  A single empty epoch remains a supported outcome — a training set
+  smaller than one batch produces it — so this warns rather than
+  raising.
+
+* ``Cherimoya.fit`` rejects a missing ``X_valid`` or ``y_valid`` with a
+  message naming them. Validation is what selects the saved checkpoint
+  and what the returned correlation is computed from, so it is not
+  optional; passing None used to fail inside ``tangermeme.predict``
+  with an error mentioning neither argument. A vestigial
+  ``y_valid_counts`` computation, guarded on ``X_valid is not None``
+  and never read, is removed.
+
+* :class:`~cherimoya.io.PeakNegativeSampler` rejects
+  ``negative_ratio > 0`` with an empty negative set at construction.
+  Those slots can only be filled from the negative set, so the sampler
+  used to raise ``IndexError`` partway into the first epoch, naming
+  neither the ratio nor the set.
+
+* ``spearman_corr``'s docstring said it used a dense ordering. It uses
+  ``argsort().argsort()``, which is an ordinal ranking — every element
+  gets a distinct rank and ties are broken by position rather than
+  shared.
 
 CLI
 ~~~
@@ -227,6 +233,7 @@ CLI
   deepcopies its parameters into the evaluate JSON it generates when
   training finishes, and ``evaluate`` does read it.
   
+
 * ``cherimoya marginalize``'s ``shuffle`` did not sample. ``extract_loci``
   stops as soon as it has ``n_loci`` usable sequences, i.e. it returns
   the first ``n_loci`` rows of the file, and the shuffle ran *after*
@@ -280,55 +287,6 @@ CLI
   :class:`~cherimoya.LogCountWrapper` were unaffected — they read no
   model configuration.
 
-Packaging
-~~~~~~~~~
-
-* The ``tangermeme`` floor was ``>=0.2.3``, which no release satisfying
-  it can actually run: Cherimoya uses ``extract_loci(return_mask=...)``,
-  ``io._interleave_loci``, ``predict``'s dtype/device handling,
-  ``seqlet.recursive_seqlets``, ``utils.example_to_fasta_coords``,
-  ``match.extract_matching_loci`` and ``saturation_mutagenesis``. A
-  fresh resolve that picked an old tangermeme failed with
-  ``TypeError``/``ImportError`` deep in a subcommand rather than with a
-  version error at install time. Raised to ``>=1.4.0``, the version the
-  test suite is run against, with a comment in ``pyproject.toml``
-  recording the policy so it does not drift again.
-
-Robustness
-~~~~~~~~~~
-
-* ``Cherimoya.fit`` now warns when an epoch produces no full batch. The
-  loop skips any batch whose size is not exactly ``batch_size``, so a
-  ``batch_size`` that disagrees with the DataLoader's own silently
-  skips *every* batch: the run completes for the full ``max_epochs``
-  having taken no optimizer step, saves a checkpoint and returns a best
-  correlation, with the only evidence a nan in two columns of the log.
-  A single empty epoch remains a supported outcome — a training set
-  smaller than one batch produces it — so this warns rather than
-  raising.
-
-* ``Cherimoya.fit`` rejects a missing ``X_valid`` or ``y_valid`` with a
-  message naming them. Validation is what selects the saved checkpoint
-  and what the returned correlation is computed from, so it is not
-  optional; passing None used to fail inside ``tangermeme.predict``
-  with an error mentioning neither argument. A vestigial
-  ``y_valid_counts`` computation, guarded on ``X_valid is not None``
-  and never read, is removed.
-
-* :class:`~cherimoya.io.PeakNegativeSampler` rejects
-  ``negative_ratio > 0`` with an empty negative set at construction.
-  Those slots can only be filled from the negative set, so the sampler
-  used to raise ``IndexError`` partway into the first epoch, naming
-  neither the ratio nor the set.
-
-* ``spearman_corr``'s docstring said it used a dense ordering. It uses
-  ``argsort().argsort()``, which is an ordinal ranking — every element
-  gets a distinct rank and ties are broken by position rather than
-  shared.
-
-CLI
-~~~
-
 * ``evaluate``, ``attribute`` and ``marginalize`` accept ``compile`` and
   ``compile_mode``, passed through to :meth:`cherimoya.Cherimoya.load`.
   Both default to ``load``'s own values, so nothing changes for a JSON
@@ -342,9 +300,6 @@ CLI
   because Inductor cannot trace the backward hooks. None of that was
   reachable from the CLI, which always loaded with the default
   ``compile=True, compile_mode='max-autotune'``.
-
-CLI
-~~~
 
 * ``"skip": true`` ended the whole run rather than the step.
   ``cherimoya pipeline`` calls each subcommand's ``run(args)``
@@ -366,6 +321,68 @@ CLI
 * Removed a dead ``add_parser`` in ``commands/install_skill.py``. The
   real parser is built in ``__main__.py``; the duplicate was never
   called and could only drift.
+
+Training
+~~~~~~~~
+
+* **The Kendall loss weights can be replaced by constants.**
+  :meth:`cherimoya.Cherimoya.fit` takes a ``loss_weights`` tuple, exposed
+  as ``loss_weights`` in the fit and pipeline JSONs, which replaces the
+  learned ``lw0`` / ``lw1`` with fixed values and stops the ``lw_*``
+  optimizer receiving gradient. The default is ``None``, which keeps the
+  existing behaviour.
+
+  When set, the profile loss is first divided by **each signal group's own**
+  batch-mean read depth. That division is the point: ``lw0`` and ``lw1`` are
+  ``Parameter(torch.ones(n_groups))``, so on a multi-task model the Kendall
+  mechanism learns one weight per experiment, and the profile MNLL is a sum
+  of per-read log-likelihoods that scales with read depth. Dividing every
+  group by one pooled number would rescale them all equally and leave their
+  weights relative to each other untouched. The count MSE needs no such
+  division: it is computed on ``log1p`` counts, where depth is an additive
+  shift the model absorbs into its bias.
+
+  ``cherimoya fit`` reports which scheme is in force. With ``verbose``
+  set it printed ``SGD Optimizer (lw): lr=..., wd=..., momentum=...``
+  unconditionally, which describes an optimizer that takes no effective
+  step once ``loss_weights`` is given. It now prints ``Fixed Loss
+  Weights: profile=..., count=...`` instead when the weights are fixed.
+
+  ``(1.333, 0.274)`` reproduces the operating point the learned weights
+  reach. On single-experiment models this is free: +0.0001 median count
+  Pearson over 44 accessibility experiments (95% CI [-0.0012, +0.0011]) and
+  within 0.005 on two TF panels of 22 and 26. On 24 four-experiment
+  multi-task models it is +0.0021 per group over a pooled divisor
+  (68 of 92 groups) and +0.0014 over the learned weights (59 of 92).
+  ``lw0`` and ``lw1`` remain on the model, so checkpoints are unaffected.
+
+* **A minimum optimizer step count now overrides** ``max_epochs``.
+  ``min_total_steps`` is a new CLI parameter, ``20000`` by default in
+  ``default_fit_parameters`` and in the ``fit_parameters`` block of
+  ``default_pipeline_parameters``. An epoch is one pass over the peaks,
+  so ``max_epochs`` alone buys a number of optimizer steps proportional
+  to how many peaks an experiment has -- 20 epochs is 280 steps for an
+  experiment with 14 batches of peaks and 54,000 for one with 2,700.
+  ``cherimoya fit`` now raises ``max_epochs`` until the run reaches
+  ``min_total_steps``, and lays the warmup and cosine decay out over the
+  raised value so the schedule stretches with the run rather than
+  decaying inside the original budget. The new epoch count and total
+  step count are printed when ``verbose`` is set. Experiments that
+  already clear the floor are untouched, and ``min_total_steps: null``
+  disables it. :meth:`cherimoya.Cherimoya.fit` is unchanged.
+
+* **Early stopping is now off by default.** ``early_stopping`` is
+  ``None`` in ``default_fit_parameters`` and in the ``fit_parameters``
+  block of ``default_pipeline_parameters``; it was ``5``. A run with
+  the default parameters now trains all ``max_epochs`` and keeps the
+  epoch with the best validation count Pearson, rather than halting
+  after five epochs without an improvement. The learning rate
+  schedule is laid out over ``max_epochs`` and the validation metric
+  is measured on the EMA weights, so a patience counter over that
+  metric was ending runs partway through the cosine decay.
+  :meth:`cherimoya.Cherimoya.fit` already defaulted to ``None``; only
+  the CLI defaults disagreed. Set ``early_stopping`` to an integer in
+  the fit or pipeline JSON to get the old behavior.
 
 Reproducibility
 ~~~~~~~~~~~~~~~
@@ -435,68 +452,6 @@ Logging
   than one batch used to end the run with a ``NameError`` from the
   logging code rather than a row showing that nothing trained.
 
-Training
-~~~~~~~~
-
-* **The Kendall loss weights can be replaced by constants.**
-  :meth:`cherimoya.Cherimoya.fit` takes a ``loss_weights`` tuple, exposed
-  as ``loss_weights`` in the fit and pipeline JSONs, which replaces the
-  learned ``lw0`` / ``lw1`` with fixed values and stops the ``lw_*``
-  optimizer receiving gradient. The default is ``None``, which keeps the
-  existing behaviour.
-
-  When set, the profile loss is first divided by **each signal group's own**
-  batch-mean read depth. That division is the point: ``lw0`` and ``lw1`` are
-  ``Parameter(torch.ones(n_groups))``, so on a multi-task model the Kendall
-  mechanism learns one weight per experiment, and the profile MNLL is a sum
-  of per-read log-likelihoods that scales with read depth. Dividing every
-  group by one pooled number would rescale them all equally and leave their
-  weights relative to each other untouched. The count MSE needs no such
-  division: it is computed on ``log1p`` counts, where depth is an additive
-  shift the model absorbs into its bias.
-
-  ``cherimoya fit`` reports which scheme is in force. With ``verbose``
-  set it printed ``SGD Optimizer (lw): lr=..., wd=..., momentum=...``
-  unconditionally, which describes an optimizer that takes no effective
-  step once ``loss_weights`` is given. It now prints ``Fixed Loss
-  Weights: profile=..., count=...`` instead when the weights are fixed.
-
-  ``(1.333, 0.274)`` reproduces the operating point the learned weights
-  reach. On single-experiment models this is free: +0.0001 median count
-  Pearson over 44 accessibility experiments (95% CI [-0.0012, +0.0011]) and
-  within 0.005 on two TF panels of 22 and 26. On 24 four-experiment
-  multi-task models it is +0.0021 per group over a pooled divisor
-  (68 of 92 groups) and +0.0014 over the learned weights (59 of 92).
-  ``lw0`` and ``lw1`` remain on the model, so checkpoints are unaffected.
-
-* **A minimum optimizer step count now overrides** ``max_epochs``.
-  ``min_total_steps`` is a new CLI parameter, ``20000`` by default in
-  ``default_fit_parameters`` and in the ``fit_parameters`` block of
-  ``default_pipeline_parameters``. An epoch is one pass over the peaks,
-  so ``max_epochs`` alone buys a number of optimizer steps proportional
-  to how many peaks an experiment has -- 20 epochs is 280 steps for an
-  experiment with 14 batches of peaks and 54,000 for one with 2,700.
-  ``cherimoya fit`` now raises ``max_epochs`` until the run reaches
-  ``min_total_steps``, and lays the warmup and cosine decay out over the
-  raised value so the schedule stretches with the run rather than
-  decaying inside the original budget. The new epoch count and total
-  step count are printed when ``verbose`` is set. Experiments that
-  already clear the floor are untouched, and ``min_total_steps: null``
-  disables it. :meth:`cherimoya.Cherimoya.fit` is unchanged.
-
-* **Early stopping is now off by default.** ``early_stopping`` is
-  ``None`` in ``default_fit_parameters`` and in the ``fit_parameters``
-  block of ``default_pipeline_parameters``; it was ``5``. A run with
-  the default parameters now trains all ``max_epochs`` and keeps the
-  epoch with the best validation count Pearson, rather than halting
-  after five epochs without an improvement. The learning rate
-  schedule is laid out over ``max_epochs`` and the validation metric
-  is measured on the EMA weights, so a patience counter over that
-  metric was ending runs partway through the cosine decay.
-  :meth:`cherimoya.Cherimoya.fit` already defaulted to ``None``; only
-  the CLI defaults disagreed. Set ``early_stopping`` to an integer in
-  the fit or pipeline JSON to get the old behavior.
-
 Attribution
 ~~~~~~~~~~~
 
@@ -510,14 +465,17 @@ Attribution
   dispatches, and the numerics are all unchanged. The class is public;
   import it from ``cherimoya.cheri``, since registering a rule for it
   means naming the type.
+
 * Note that the inference megakernel calls the fused op directly rather
   than through ``block.conv``, so hooks on that submodule fire on the CPU
   and Triton training paths but not under ``no_grad`` on CUDA.
   Attribution is unaffected, since it runs with gradients enabled.
+
 * Nothing is registered against the new node by default. An attribution
   method only acts on a module it has been given a rule for, so runs that
   do not mention the class behave exactly as they did before — the node
   exists to be opted into, and adding it changes no existing result.
+
 * **The count head's control-track log stays an inline** ``torch.log``.
   An earlier revision of this work wrapped it in a module for symmetry
   with the convolution, and that module has been removed again: it could
@@ -541,6 +499,7 @@ Compatibility
   input gradients, and parameter gradients. Loading accepts either
   spelling, so a state dict assembled by hand or from a
   ``named_parameters()`` walk loads as well.
+
 * The parameter's *name* does change even though its checkpoint key does
   not. ``named_parameters()`` now reports ``blocks.N.conv.conv_weight``
   where it reported ``blocks.N.conv_weight``, and the module tree gains a
@@ -555,13 +514,29 @@ Compatibility
   decay, a hand-rolled EMA) built before the change and keyed by name.
   Attribute-path lookups are fine: ``model.get_parameter`` resolves
   through the alias property, so both spellings return the parameter.
+
 * Block initialization draws from the RNG in the same order as before, so
   a given seed still rebuilds an identical block.
+
 * ``CheriBlock.conv_weight`` remains available as a read-only property
   aliasing ``block.conv.conv_weight``, and reads return the same object.
   Assignment through it now raises instead of silently leaving the
   submodule holding the old parameter — assign to
   ``block.conv.conv_weight`` instead.
+
+Packaging
+~~~~~~~~~
+
+* The ``tangermeme`` floor was ``>=0.2.3``, which no release satisfying
+  it can actually run: Cherimoya uses ``extract_loci(return_mask=...)``,
+  ``io._interleave_loci``, ``predict``'s dtype/device handling,
+  ``seqlet.recursive_seqlets``, ``utils.example_to_fasta_coords``,
+  ``match.extract_matching_loci`` and ``saturation_mutagenesis``. A
+  fresh resolve that picked an old tangermeme failed with
+  ``TypeError``/``ImportError`` deep in a subcommand rather than with a
+  version error at install time. Raised to ``>=1.4.0``, the version the
+  test suite is run against, with a comment in ``pyproject.toml``
+  recording the policy so it does not drift again.
 
 Documentation
 ~~~~~~~~~~~~~
@@ -613,6 +588,7 @@ Documentation
   The earlier figure remains in the v0.2.0 changelog entry below, which
   is a record of what was claimed at the time rather than a current
   statement.
+
 * The receptive field was documented as 1115 bp. Measured, it is
   **1117 bp**: the 21-bp stem reaches 10 bases each side, the dilated
   stack 511, and the 75-bp profile head 37, for a half-width of 558.
@@ -640,6 +616,29 @@ Documentation
 
 Tooling
 ~~~~~~~
+
+* ``test_evaluate_single_group_value_equals_legacy_full_mean`` failed
+  intermittently, on one leg of the CI matrix at a time. It ran
+  ``evaluate`` — which predicts in batches through
+  ``tangermeme.predict`` — and then recomputed the same thing with a
+  single unbatched ``model(X)``, asserting the two agreed to ``1e-4``.
+  The paths agree only to within a few float32 ULPs, and
+  ``profile_spearman`` ranks with ``argsort().argsort()``: one swapped
+  pair moves the metric far more than the float difference that caused
+  it, so no tolerance was safe.
+
+  The test now predicts the way ``evaluate`` does, at the same batch
+  size, and pins ``compile`` on both sides — ``Cherimoya.load
+  (compile=True)`` and ``compile=False`` are not bit-identical even
+  under ``TORCH_COMPILE_DISABLE=1``, which was a second source of
+  divergence worth about 1.5e-08. With both matched the two sides see
+  bit-identical predictions, so every metric agrees by construction
+  rather than by luck, and the residual measures 0 across eight seeds.
+
+* The models in ``tests/commands/test_evaluate.py`` are seeded.
+  ``_build_and_save`` never passed ``random_state``, so every run drew
+  different weights and each assertion in the file passed or failed on
+  the draw.
 
 * The CLI tests are now named after the modules they cover, mirroring
   the package layout with the top-level package name elided the way
@@ -676,7 +675,6 @@ Tooling
   feeds straight into ``fit`` as a locus file, and the argparse
   defaults, which live only in the parser and so can drift from the CLI
   reference unchecked.
-
 
 v0.2.1
 ------
