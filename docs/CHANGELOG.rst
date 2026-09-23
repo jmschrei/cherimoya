@@ -62,6 +62,47 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+* The first backward at any new ``(C, L)`` shape returned a wrong
+  gradient. ``_bwd_apply_kernel`` reads the convolution out of a
+  scratch buffer and writes the normalization gradient back over it, so
+  it is not idempotent — and ``triton.autotune`` benchmarks a
+  configuration by running the kernel repeatedly, so every trial after
+  the first read the previous trial's output as though it were the
+  convolution, leaving the buffer garbage before the real launch. The
+  kernel now declares ``restore_value=['Conv_ptr']``, so Triton
+  snapshots that buffer and restores it before each trial.
+
+  Measured against CPU autograd on shapes tuned fresh in their own
+  process, the depthwise weight gradient:
+
+  .. list-table::
+     :header-rows: 1
+
+     * - shape
+       - before
+       - after
+     * - ``C=48, L=176``
+       - 1.60e-01
+       - 8.52e-04
+     * - ``C=80, L=208``
+       - 4.86e-01
+       - 2.43e-03
+     * - ``C=112, L=144``
+       - 3.90e-01
+       - 2.90e-03
+
+  The remaining difference is TF32 in the surrounding ``Linear``
+  layers, not the kernel: with ``torch.set_float32_matmul_precision
+  ('highest')`` it falls to 2.03e-06. The ``linear1`` and ``linear2``
+  gradients were never affected, since they do not pass through that
+  buffer.
+
+  This was documented as a known wart with "warm up the kernel before
+  reading gradients" as the workaround, and estimated at ~7e-2; it is
+  larger than that and it is now fixed. It mattered most for
+  attribution, which is gradient-based — a fresh process attributing
+  one shape hits this path exactly once, with nothing after it to
+  notice.
 
 * A hand-written ``pipeline`` JSON that omitted ``motifs`` raised
   ``KeyError: 'motifs'`` at the seqlet annotation step — after the model
