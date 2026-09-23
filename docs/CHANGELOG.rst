@@ -62,6 +62,31 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+
+* A hand-written ``pipeline`` JSON that omitted ``motifs`` raised
+  ``KeyError: 'motifs'`` at the seqlet annotation step — after the model
+  had already been trained. ``pipeline.run`` reads
+  ``parameters["motifs"]`` unguarded for the annotation, the MoDISco
+  report and the marginalization step, but ``motifs`` was not a declared
+  default, so only a JSON emitted by ``cherimoya pipeline-json`` (which
+  always writes the key) had it. ``motifs`` is now a top-level pipeline
+  default, documented in the CLI reference, and may be omitted.
+
+* A ``pipeline`` JSON that omitted ``model`` was rejected with ``Must
+  provide value for 'model'``, even though ``pipeline.run`` treats a
+  null model as "train one" and that is the only thing the key does.
+  ``model`` and ``motifs`` are now both omittable.
+
+* ``merge_parameters`` now says what to write when a required key is
+  missing. ``null`` is accepted and an absent key is not, which was not
+  guessable from ``Must provide value for 'x'``; the message now adds
+  "Set it to null if this step is supposed to produce it."
+
+* The CLI reference claimed that any key missing from a JSON falls back
+  to its default. That was false for every key whose default is
+  ``null``, which is most of the input paths. The "Common conventions"
+  section now states which keys must be present and which are genuinely
+  optional.
 * ``cherimoya attribute`` never passed ``in_window`` to ``extract_loci``,
   so every run extracted ``tangermeme``'s own default of 2114bp no
   matter what the JSON said. A model trained at a different input

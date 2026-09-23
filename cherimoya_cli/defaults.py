@@ -206,6 +206,8 @@ default_pipeline_parameters = {
 	'signals': None,
 	'controls': None,
 
+	'motifs': None,
+
 	'skip': False,
 	'dry_run': False,
 
