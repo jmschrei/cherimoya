@@ -254,8 +254,11 @@ def spearman_corr(arr1, arr2):
 	A x B x L arrays, then the correlation of corresponding L-arrays will be
 	computed and returned in an A x B array.
 
-	A dense ordering is used and ties are broken based on position in the
-	tensor.
+	Ranks are ordinal: ``argsort().argsort()`` assigns every element a
+	distinct rank, and ties are broken by position in the tensor rather
+	than shared as they would be under an average or dense ranking. For
+	the continuous values this is used on, ties are rare enough that the
+	difference does not show up; on heavily tied input it would.
 
 
 	Parameters

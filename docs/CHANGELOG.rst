@@ -32,6 +32,38 @@ Bug fixes
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
 
+Robustness
+~~~~~~~~~~
+
+* ``Cherimoya.fit`` now warns when an epoch produces no full batch. The
+  loop skips any batch whose size is not exactly ``batch_size``, so a
+  ``batch_size`` that disagrees with the DataLoader's own silently
+  skips *every* batch: the run completes for the full ``max_epochs``
+  having taken no optimizer step, saves a checkpoint and returns a best
+  correlation, with the only evidence a nan in two columns of the log.
+  A single empty epoch remains a supported outcome — a training set
+  smaller than one batch produces it — so this warns rather than
+  raising.
+
+* ``Cherimoya.fit`` rejects a missing ``X_valid`` or ``y_valid`` with a
+  message naming them. Validation is what selects the saved checkpoint
+  and what the returned correlation is computed from, so it is not
+  optional; passing None used to fail inside ``tangermeme.predict``
+  with an error mentioning neither argument. A vestigial
+  ``y_valid_counts`` computation, guarded on ``X_valid is not None``
+  and never read, is removed.
+
+* :class:`~cherimoya.io.PeakNegativeSampler` rejects
+  ``negative_ratio > 0`` with an empty negative set at construction.
+  Those slots can only be filled from the negative set, so the sampler
+  used to raise ``IndexError`` partway into the first epoch, naming
+  neither the ratio nor the set.
+
+* ``spearman_corr``'s docstring said it used a dense ordering. It uses
+  ``argsort().argsort()``, which is an ordinal ranking — every element
+  gets a distinct rank and ties are broken by position rather than
+  shared.
+
 Reproducibility
 ~~~~~~~~~~~~~~~
 
