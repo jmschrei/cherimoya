@@ -31,6 +31,14 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+* ``"dry_run": true`` crashed with ``FileNotFoundError`` on any pipeline
+  configured with a motif database. The seqlet annotation step guards
+  the ``ttl`` subprocess behind ``dry_run`` but read that subprocess's
+  output with ``pandas.read_csv`` outside the guard, so the dry run
+  looked for an annotation file it had deliberately not produced. Since
+  running with a motif database is the common case, the documented way
+  to check a config before committing GPU time to it did not work. The
+  tally is now inside the same guard.
 * ``ExpectedCountsWrapper(ControlWrapper(model))`` raised
   ``AttributeError: 'ControlWrapper' object has no attribute
   'signal_groups'``. :class:`~cherimoya.ControlWrapper` is documented as
