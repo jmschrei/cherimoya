@@ -712,48 +712,6 @@ direct CLI arguments (no JSON):
      - Print per-step progress.
 
 
-cherimoya batch
----------------
-
-Run multiple pipelines in parallel using joblib.
-
-CLI flags:
-
-* ``-p, --parameters`` (required) — path to a batch JSON.
-
-The batch JSON is the same shape as a pipeline JSON with two
-additions:
-
-* ``"device": "*"`` is expanded to all available CUDA devices.
-* ``"signals"`` may be a glob string (``"data/*.bam"``). When set,
-  it's expanded to a list of paths, and ``"name"`` is auto-derived
-  from filenames if it is ``null``.
-
-Other list-valued fields (``loci``, ``negatives``, ``controls``) must
-be either ``null`` or a same-length list as the expanded
-``signals``. Each job is written to ``{name}.pipeline.json`` and run
-via ``subprocess.run(["cherimoya", "pipeline", "-p", jname])``.
-
-.. note::
-
-   ``signals`` in a batch JSON is a *list of per-model signal
-   specs*: one entry per pipeline to run in parallel. With the new
-   grouped form each per-model entry is itself a flat-or-grouped
-   signals list. So a batch of two stranded BPNet models is::
-
-       "signals": [
-           [["expt1.+.bw", "expt1.-.bw"]],
-           [["expt2.+.bw", "expt2.-.bw"]]
-       ]
-
-   The outer list selects the model; each inner list is the
-   ``signals`` field of one pipeline JSON. Previously the
-   double-nesting was implicit (a flat two-element pair was a
-   stranded pair); under the grouped API a flat two-element list is
-   two *unstranded* tracks, so stranded batch jobs must use the
-   nested form above.
-
-
 cherimoya install-skill
 -----------------------
 

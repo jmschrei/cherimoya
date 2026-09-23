@@ -7,8 +7,9 @@ from importlib.metadata import version, PackageNotFoundError
 
 desc = """A command-line tool for the training and usage of Cherimoya models."""
 
-_help = """Must be either 'negatives', 'fit', 'evaluate',
-    'attribute', 'seqlets', 'marginalize', 'pipeline', or 'install-skill'."""
+_help = """Must be one of 'pipeline-json', 'pipeline', 'negatives',
+    'fit', 'evaluate', 'attribute', 'seqlets', 'marginalize', or
+    'install-skill'."""
 
 try:
 	__version__ = version("cherimoya")
@@ -229,18 +230,6 @@ def _setup_parsers() -> argparse.ArgumentParser:
 		help="A JSON file containing the parameters used for each step.",
 	)
 
-	# Batch
-	batch_parser = subparsers.add_parser(
-		"batch", help="Run the pipeline in parallel using multiple GPUs."
-	)
-	batch_parser.add_argument(
-		"-p",
-		"--parameters",
-		type=str,
-		required=True,
-		help="A JSON file containing the parameters for fitting the model.",
-	)
-
 	# Install skill
 	install_skill_parser = subparsers.add_parser(
 		"install-skill",
@@ -278,7 +267,6 @@ def main():
 	COMMANDS = {
 		"negatives": "negatives",
 		"pipeline-json": "pipeline_json",
-		"batch": "batch",
 		"fit": "fit",
 		"evaluate": "evaluate",
 		"attribute": "attribute",
