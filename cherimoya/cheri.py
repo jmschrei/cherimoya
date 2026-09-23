@@ -1092,14 +1092,24 @@ class CheriBlock(torch.nn.Module):
 		would otherwise put the MLP on one snapshot of the weights and
 		the depthwise convolution, read live, on another. Call
 		``.eval()`` again to rebuild the cache and get the fast path
-		back.
+		back; ``Cherimoya.forward`` does this for its blocks before
+		every call. Under ``torch.compile`` the check is skipped and
+		the cache is trusted, so a block compiled on its own does not
+		see in-place weight writes made after ``.eval()``.
 
 		For fp32 input we downcast to bf16: roughly 2x dot throughput on
 		Hopper at the cost of ~1.4e-04 max-abs on the default model's
 		profile logits versus the training path, against a logit scale
 		of 0.73."""
 
-		fresh = (self._eval_cache_version is not None
+		# Under torch.compile the version check is skipped: dynamo reads
+		# `_version` as a data-dependent value and breaks the graph on
+		# the comparison, which inside the block loop of
+		# `Cherimoya._forward_impl` sends the whole forward to eager.
+		# `Cherimoya.forward` rebuilds stale caches before entering the
+		# compiled region instead.
+		fresh = torch.compiler.is_compiling() or (
+			self._eval_cache_version is not None
 			and self._eval_cache_version == self._weight_versions())
 
 		if X.dtype == torch.float32 and self._w1_eval_bf16 is not None and fresh:
