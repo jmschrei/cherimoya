@@ -4,6 +4,27 @@ Changelog
 Unreleased
 ----------
 
+Removed (**breaking**)
+~~~~~~~~~~~~~~~~~~~~~~
+
+* ``cherimoya batch`` is removed, along with
+  ``cherimoya_cli/commands/batch.py``, its subparser, its CLI reference
+  section and the "Batch mode" section of the pipeline tutorial. It fanned
+  one JSON out into several pipeline JSONs and ran them with
+  ``joblib.Parallel``, one per CUDA device.
+
+  **A script that invokes** ``cherimoya batch`` **will now fail with an
+  argparse error naming the valid subcommands.** The equivalent is to write
+  the per-experiment pipeline JSONs yourself and run ``cherimoya pipeline``
+  on each, which is what ``batch`` did internally — it assigned devices
+  round-robin by ``i % len(device)`` and shelled out to
+  ``cherimoya pipeline -p {name}.pipeline.json``.
+
+* ``joblib`` is dropped from ``dependencies``. ``batch.py`` was the only
+  thing in the package that imported it. It usually remains installed
+  anyway, as a transitive dependency of scikit-learn.
+
+
 Bug fixes
 ~~~~~~~~~
 

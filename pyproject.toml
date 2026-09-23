@@ -34,7 +34,6 @@ dependencies = [
     "bam2bw>=0.4.1",
     "bpnet-lite>=1.0.0",
     "triton>=3.5.1",
-    "joblib>=1.0.0",
 ]
 
 [project.urls]

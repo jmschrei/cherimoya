@@ -106,8 +106,6 @@ Cherimoya checks.
        subcommand.
    * - ``seaborn`` (≥ 0.11.2)
      - Plotting used by the marginalization report.
-   * - ``joblib`` (≥ 1.0.0)
-     - Parallel execution backend for the ``batch`` subcommand.
 
 
 Optional dependencies
