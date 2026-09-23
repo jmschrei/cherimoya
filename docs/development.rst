@@ -18,11 +18,13 @@ Repository layout
    │   ├── cheri.py                # CheriBlock + Triton kernels + dispatcher
    │   ├── io.py                   # PeakGenerator + PeakNegativeSampler
    │   ├── losses.py               # Profile MNLL + log1pMSE mixture loss
+   │   ├── wrappers.py             # Control / profile / count output wrappers
    │   └── performance.py          # Evaluation metrics
    ├── cherimoya_cli/              # The CLI entry-point package
    │   ├── __main__.py             # Argparse driver and subcommand registry
    │   ├── defaults.py             # All default JSON parameter dicts
    │   ├── utils.py                # JSON merging and parameter helpers
+   │   ├── skills/                 # The bundled Claude Code agent skill
    │   └── commands/               # One file per subcommand
    │       ├── pipeline.py
    │       ├── pipeline_json.py
@@ -31,7 +33,8 @@ Repository layout
    │       ├── attribute.py
    │       ├── seqlets.py
    │       ├── marginalize.py
-   │       └── negatives.py
+   │       ├── negatives.py
+   │       └── install_skill.py
    ├── tests/                      # Pytest suite (see below)
    ├── docs/                       # Sphinx docs (this site)
    ├── imgs/                       # Architecture / pipeline diagrams
