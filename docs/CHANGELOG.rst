@@ -31,6 +31,17 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+* ``ExpectedCountsWrapper(ControlWrapper(model))`` raised
+  ``AttributeError: 'ControlWrapper' object has no attribute
+  'signal_groups'``. :class:`~cherimoya.ControlWrapper` is documented as
+  the inner wrapper the output wrappers are layered on top of, and
+  ``cherimoya attribute`` builds exactly that stack, but
+  ``torch.nn.Module`` does not forward attribute lookups to submodules,
+  so the one output wrapper that reads the model's grouping could not be
+  used over it. ``ControlWrapper`` now exposes ``signal_groups`` from
+  the model it wraps. :class:`~cherimoya.ProfileWrapper` and
+  :class:`~cherimoya.LogCountWrapper` were unaffected — they read no
+  model configuration.
 
 Reproducibility
 ~~~~~~~~~~~~~~~
