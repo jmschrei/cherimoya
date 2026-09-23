@@ -120,4 +120,7 @@ Caveats
   significant wall time. The warmup pass in ``bench_kernels.py``
   exists specifically to amortize this. If you call the model once
   and observe a slow first call, that is autotune — subsequent calls
-  use the cached configuration.
+  use the cached configuration. The first call is slower but not less
+  accurate: the backward kernel declares ``restore_value`` for the
+  buffer it overwrites, so autotune's benchmark trials cannot corrupt
+  the gradient it returns.

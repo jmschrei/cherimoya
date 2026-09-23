@@ -274,9 +274,14 @@ if HAS_TRITON:
 		tl.atomic_add(Sum_dy_xhat_ptr + pid_n, tl.sum(dy * x_hat), sem='relaxed')
 
 
+	# `restore_value` is required, not an optimization: this kernel
+	# writes `d_conv` back over the `conv` it reads, so it is not
+	# idempotent and autotune's repeated benchmark trials would each
+	# read the previous one's output.
 	@triton.autotune(
 		configs=_autotune_configs(),
-		key=['C', 'L']
+		key=['C', 'L'],
+		restore_value=['Conv_ptr']
 	)
 	@triton.jit
 	def _bwd_apply_kernel(
@@ -380,15 +385,12 @@ if HAS_TRITON:
 		reduction, and normalization steps into a small number of GPU
 		passes. Only callable on CUDA tensors.
 
-		Note: the first call on a given (C, L) shape triggers Triton
-		autotune, and the user-visible backward output from that very
-		first call is contaminated by atomic-add residue from the
-		benchmarking trials (we measured ~7e-2 vs CPU autograd on one
-		shape). Every subsequent call uses the locked-in best config and
-		agrees with CPU autograd at fp32 precision. Training is
-		unaffected in practice because iteration 2 onward is clean.
-		Single-batch debugging or short pipelines should warm up the
-		kernel before reading gradients.
+		The first call on a given (C, L) shape triggers Triton autotune,
+		which makes it slower than the calls after it but not less
+		accurate: the backward kernel declares ``restore_value`` for the
+		scratch buffer it overwrites, so the benchmark trials cannot
+		corrupt the gradient it returns. No warmup is needed before
+		reading gradients.
 		"""
 
 		@staticmethod
