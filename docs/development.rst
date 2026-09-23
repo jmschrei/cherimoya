@@ -26,7 +26,6 @@ Repository layout
    │   └── commands/               # One file per subcommand
    │       ├── pipeline.py
    │       ├── pipeline_json.py
-   │       ├── batch.py
    │       ├── fit.py
    │       ├── evaluate.py
    │       ├── attribute.py

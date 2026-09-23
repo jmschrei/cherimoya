@@ -35,6 +35,21 @@ class ControlWrapper(torch.nn.Module):
 		super().__init__()
 		self.model = model
 
+	@property
+	def signal_groups(self):
+		"""The wrapped model's signal groups.
+
+		``torch.nn.Module`` does not forward attribute lookups to
+		submodules, so an outer wrapper that needs to know how the
+		model's channels are grouped — :class:`ExpectedCountsWrapper`
+		does, to split the profile head — would otherwise find nothing
+		here and fail with ``AttributeError``. Forwarding it is what
+		makes this class the transparent inner wrapper its docstring
+		describes.
+		"""
+
+		return self.model.signal_groups
+
 	def forward(self, X, X_ctl=None):
 		if X_ctl is not None:
 			return self.model(X, X_ctl)
