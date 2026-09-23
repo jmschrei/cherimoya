@@ -15,7 +15,7 @@ ControlWrapper
 --------------
 
 .. autoclass:: ControlWrapper
-   :members: forward
+   :members: forward, signal_groups
    :undoc-members:
    :show-inheritance:
 
@@ -30,6 +30,11 @@ example ``LogCountWrapper(ControlWrapper(model))`` — and is what
 ``cherimoya attribute`` and ``cherimoya marginalize`` use so a model can be
 called with the sequence alone. A drop-in port of
 ``bpnetlite.bpnet.ControlWrapper``.
+
+It forwards ``signal_groups`` from the model it wraps, which is what lets
+:class:`ExpectedCountsWrapper` be layered on top of it —
+``torch.nn.Module`` does not forward attribute lookups to submodules, so
+without it that composition raised ``AttributeError``.
 
 
 ProfileWrapper

@@ -50,7 +50,7 @@ The two commands you actually run, in the order you run them:
   that JSON.
 
 Every other subcommand (``fit``, ``evaluate``, ``attribute``,
-``seqlets``, ``marginalize``, ``negatives``, ``batch``) corresponds
+``seqlets``, ``marginalize``, ``negatives``) corresponds
 to an individual pipeline stage and can be run on its own. Each is
 driven by its own JSON, which the pipeline writes alongside its
 outputs. See :doc:`../cli` for the full subcommand reference.
@@ -155,42 +155,6 @@ The defaults for each command are in
 snapshots written by ``pipeline`` make them concrete.
 
 Every step JSON also supports ``"skip": true`` to no-op that step.
-
-
-Batch mode
-----------
-
-For training the same configuration across many datasets in parallel
-on multiple GPUs:
-
-.. code-block:: bash
-
-   cherimoya batch -p batch.json
-
-Minimal ``batch.json``:
-
-.. code-block:: json
-
-   {
-       "name": null,
-       "device": "*",
-       "signals": "/path/to/data/*.bam",
-       "sequences": "/path/to/hg38.fa"
-   }
-
-Behavior:
-
-* ``"device": "*"`` is expanded to the full list of available CUDA
-  devices (``cuda:0``, ``cuda:1``, …).
-* When ``"signals"`` is a glob and ``"name"`` is ``null``, names are
-  derived from the signal filenames automatically.
-* Each derived job is written to its own ``{name}.pipeline.json`` and
-  run via ``cherimoya pipeline``. Joblib distributes jobs round-robin
-  across the device list.
-
-To use batch mode with custom names or paired-up controls/loci/negatives,
-provide same-length lists in those fields; element ``i`` is consumed by
-job ``i``.
 
 
 About bam2bw

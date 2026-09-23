@@ -7,6 +7,8 @@ architecture for predicting genomic modalities from sequence alone.
 """
 
 import time
+import warnings
+
 import numpy
 
 import torch
@@ -517,14 +519,17 @@ class Cherimoya(torch.nn.Module):
 
 		X_valid: torch.tensor, shape=(n, 4, length)
 			A block of sequences to validate on at the end of each epoch.
+			Required, for the same reason as ``y_valid``.
 
 		X_ctl_valid: torch.tensor or None, shape=(n, n_control_tracks, length)
 			A block of control sequences to use for making the validation set
 			predictions at the end of each epoch. If n_control_tracks is None, pass in
 			None. Default is None.
 
-		y_valid: torch.tensor or None, shape=(n, sum(signal_groups), output_length)
-			A block of signals to validate against at the end of each epochs.
+		y_valid: torch.tensor, shape=(n, sum(signal_groups), output_length)
+			A block of signals to validate against at the end of each epoch.
+			Required: validation is what selects the checkpoint that is
+			saved and what the returned correlation is computed from.
 
 		max_epochs: int
 			The maximum number of epochs to train for, as measured by the
@@ -565,8 +570,11 @@ class Cherimoya(torch.nn.Module):
 			self.lw0.requires_grad = False
 			self.lw1.requires_grad = False
 
-		if X_valid is not None:
-			y_valid_counts = y_valid.sum(dim=2)
+		if X_valid is None or y_valid is None:
+			raise ValueError(
+				"fit requires X_valid and y_valid; validation is what "
+				"selects the checkpoint that gets saved and what the "
+				"returned correlation is computed from.")
 
 		if X_ctl_valid is not None:
 			X_ctl_valid = (X_ctl_valid,)
@@ -713,6 +721,18 @@ class Cherimoya(torch.nn.Module):
 				else:
 					train_profile_loss = float("nan")
 					train_count_loss = float("nan")
+
+				# Legal on its own -- a training set smaller than one
+				# batch does it -- but if it repeats every epoch the run
+				# is not training at all.
+				if n_batches == 0:
+					warnings.warn(
+						"epoch {} produced no full batch of size {}, so no "
+						"optimizer step was taken and the training losses "
+						"are nan. If this repeats every epoch, `batch_size` "
+						"does not match the DataLoader's batch size and the "
+						"run is not training."
+						.format(epoch, batch_size), RuntimeWarning)
 
 				summary_row = [epoch,
 					iteration,
