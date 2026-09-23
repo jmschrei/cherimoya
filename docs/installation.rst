@@ -62,7 +62,10 @@ Dependencies
 ------------
 
 The following packages are installed automatically. Pinned lower-bounds
-are taken from ``pyproject.toml``.
+are taken from ``pyproject.toml``. They record the versions the test
+suite is run against rather than the oldest release that happens to
+work, so an older pin may still function — it is simply not something
+Cherimoya checks.
 
 .. list-table::
    :header-rows: 1
@@ -81,9 +84,14 @@ are taken from ``pyproject.toml``.
      - HDF5 I/O (TF-MoDISco results, attribution arrays).
    * - ``tqdm`` (≥ 4.64.1)
      - Progress bars for data loading and training.
-   * - ``tangermeme`` (≥ 0.2.3)
+   * - ``tangermeme`` (≥ 1.4.0)
      - Sequence loading, attribution (saturation mutagenesis), and
-       seqlet extraction primitives.
+       seqlet extraction primitives. The floor is tight because
+       Cherimoya uses a wide slice of this package:
+       ``extract_loci(return_mask=...)``, ``io._interleave_loci``,
+       ``predict``'s dtype/device handling,
+       ``seqlet.recursive_seqlets``, ``utils.example_to_fasta_coords``
+       and ``match.extract_matching_loci``.
    * - ``bpnet-lite`` (≥ 1.0.0)
      - The multinomial NLL profile loss (``MNLLLoss``) and training
        ``Logger`` used during fitting, and ``marginalization_report``

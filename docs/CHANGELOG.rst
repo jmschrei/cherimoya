@@ -32,6 +32,20 @@ Bug fixes
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
 
+Packaging
+~~~~~~~~~
+
+* The ``tangermeme`` floor was ``>=0.2.3``, which no release satisfying
+  it can actually run: Cherimoya uses ``extract_loci(return_mask=...)``,
+  ``io._interleave_loci``, ``predict``'s dtype/device handling,
+  ``seqlet.recursive_seqlets``, ``utils.example_to_fasta_coords``,
+  ``match.extract_matching_loci`` and ``saturation_mutagenesis``. A
+  fresh resolve that picked an old tangermeme failed with
+  ``TypeError``/``ImportError`` deep in a subcommand rather than with a
+  version error at install time. Raised to ``>=1.4.0``, the version the
+  test suite is run against, with a comment in ``pyproject.toml``
+  recording the policy so it does not drift again.
+
 Reproducibility
 ~~~~~~~~~~~~~~~
 
