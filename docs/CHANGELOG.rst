@@ -32,6 +32,23 @@ Bug fixes
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
 
+CLI
+~~~
+
+* ``evaluate``, ``attribute`` and ``marginalize`` accept ``compile`` and
+  ``compile_mode``, passed through to :meth:`cherimoya.Cherimoya.load`.
+  Both default to ``load``'s own values, so nothing changes for a JSON
+  that does not set them. Setting either at the top level of a
+  ``pipeline`` JSON reaches every step that loads a model, the same way
+  ``dtype`` and ``device`` do.
+
+  The troubleshooting page and the bundled skill both recommend
+  ``compile=False`` when a run hits a ``torch.compile`` or CUDA-graph
+  error, and the DeepLIFT documentation recommends it for attribution
+  because Inductor cannot trace the backward hooks. None of that was
+  reachable from the CLI, which always loaded with the default
+  ``compile=True, compile_mode='max-autotune'``.
+
 Reproducibility
 ~~~~~~~~~~~~~~~
 

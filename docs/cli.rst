@@ -131,6 +131,19 @@ JSON schema (top-level keys, with defaults from
    * - ``device``
      - ``"cuda"``
      - Torch device for inference and training.
+   * - ``compile``
+     - ``true``
+     - Whether every step that loads a model wraps its forward in
+       ``torch.compile``. Set to ``false`` for an eager forward — the
+       fix for a ``torch.compile`` or CUDA-graph error, and what
+       attribution wants, since DeepLIFT's backward hooks cannot be
+       traced by Inductor.
+   * - ``compile_mode``
+     - ``"max-autotune"``
+     - The ``mode`` passed to ``torch.compile``. Useful alternatives are
+       ``"max-autotune-no-cudagraphs"`` (same kernel autotuning, no
+       CUDA-graph capture) and ``"reduce-overhead"``. Ignored when
+       ``compile`` is ``false``.
    * - ``batch_size``
      - 512
      - Batch size for inference stages (attribution, evaluation).
@@ -600,6 +613,11 @@ JSON schema:
    * - ``device`` / ``dtype``
      - ``"cuda"`` / ``"float32"``
      - Inference device and dtype.
+   * - ``compile`` / ``compile_mode``
+     - ``true`` / ``"max-autotune"``
+     - Passed through to :meth:`cherimoya.Cherimoya.load`. Also
+       accepted by ``attribute`` and ``marginalize``. See the
+       pipeline table above.
    * - ``exclusion_lists``
      - ``null``
      - Optional regions to exclude.

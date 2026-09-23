@@ -24,7 +24,9 @@ def run(args):
 
 	###
 
-	model = Cherimoya.load(parameters["model"], device=parameters["device"])
+	model = Cherimoya.load(parameters["model"], device=parameters["device"],
+		compile=parameters["compile"],
+		compile_mode=parameters["compile_mode"])
 
 	X, idxs = extract_loci(
 		sequences=parameters["sequences"],
