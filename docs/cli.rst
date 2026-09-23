@@ -522,7 +522,11 @@ Skipped entirely when the top-level ``motifs`` is null.
      - Inference batch size.
    * - ``shuffle``
      - ``false``
-     - Shuffle the background loci before sampling.
+     - Draw the ``n_loci`` background loci at random from the whole
+       file rather than taking the first ``n_loci`` rows. Because a
+       sample cannot be drawn without seeing the population, this reads
+       every locus in ``loci`` into memory before selecting; the
+       unshuffled path stops at ``n_loci`` and does not.
    * - ``random_state``
      - 0
      - RNG seed for the locus shuffle. Left ``null`` here, the

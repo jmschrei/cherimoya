@@ -31,6 +31,20 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+* ``cherimoya marginalize``'s ``shuffle`` did not sample. ``extract_loci``
+  stops as soon as it has ``n_loci`` usable sequences, i.e. it returns
+  the first ``n_loci`` rows of the file, and the shuffle ran *after*
+  that — so it permuted a set already chosen by file order and the
+  truncation that followed was a no-op. Every marginalization report was
+  built from the top of the background BED, in a seed-dependent order,
+  which is the one thing ``shuffle`` exists to avoid. The extraction is
+  no longer capped when shuffling, so the sample is drawn from the whole
+  file. **Reports produced with** ``shuffle: true`` **will now use
+  different background loci**; the unshuffled path is unchanged.
+
+  Drawing a sample means reading the population, so the shuffled path
+  now holds the full locus set in memory. The unshuffled path still
+  stops at ``n_loci``.
 
 Reproducibility
 ~~~~~~~~~~~~~~~
