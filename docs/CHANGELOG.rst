@@ -62,6 +62,22 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+* ``calculate_performance_measures`` dropped ``signal_groups`` when
+  recursing to compute the ``within_peak_`` measures, so for a
+  multi-group model those fell through to the legacy "sum every channel
+  into one total" count target while the outer measures pooled counts
+  per group. The two then described different quantities under names
+  that read as the same measure on different rows, and because
+  ``pearson_corr`` broadcasts the collapsed target back up to one value
+  per prediction column, the wrong numbers also arrived in the right
+  shape. No in-repo caller passes ``labels``, so no CLI output changes;
+  this affects external callers of the function.
+
+* ``labels`` was an undocumented parameter of
+  ``calculate_performance_measures``. It now has a ``Parameters`` entry,
+  including the detail that ``auprc`` and ``auroc`` are scored against
+  the first count output only and so describe group 0 rather than the
+  whole model when there is more than one group.
 * ``"dry_run": true`` crashed with ``FileNotFoundError`` on any pipeline
   configured with a motif database. The seqlet annotation step guards
   the ``ttl`` subprocess behind ``dry_run`` but read that subprocess's
