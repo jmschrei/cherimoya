@@ -167,3 +167,37 @@ def test_seqlet_coords_for_a_second_locus(tmp_path):
 	locus_mid = (LOCUS_START + 5000 + LOCUS_END + 5000) // 2
 	slice_start = locus_mid - IN_WINDOW // 2 + ATTR_START
 	assert out.iloc[0, 1] == slice_start + 100
+
+
+def test_no_seqlets_writes_an_empty_bed(tmp_path):
+	"""Finding nothing is a legitimate outcome -- a weak model or a
+	strict threshold -- and must produce an empty BED rather than an
+	exception.
+
+	`recursive_seqlets` returns an empty frame whose columns are
+	`object` dtype, and indexing the locus table with an object array
+	raises `IndexError: arrays used as indices must be of integer or
+	boolean type` from deep inside pandas. Inside `cherimoya pipeline`
+	that takes the whole run down after training.
+	"""
+
+	empty = pandas.DataFrame(
+		{"example_idx": [], "start": [], "end": [], "attribution": [],
+			"p-value": []}, dtype=object)
+
+	out = _run_seqlets(tmp_path, empty)
+
+	assert len(out) == 0
+
+
+def test_no_seqlets_still_writes_the_output_file(tmp_path):
+	"""The pipeline's next step opens this path, so it has to exist even
+	when it is empty."""
+
+	empty = pandas.DataFrame(
+		{"example_idx": [], "start": [], "end": [], "attribution": [],
+			"p-value": []}, dtype=object)
+
+	_run_seqlets(tmp_path, empty)
+
+	assert (tmp_path / "seqlets.bed").exists()
