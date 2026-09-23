@@ -41,5 +41,9 @@ def run(args):
 		additional_flanks=parameters["additional_flanks"],
 	).sort_values("attribution", ascending=False)
 
-	seqlets = example_to_fasta_coords(seqlets, loci, parameters["in_window"])
+	# The attributed slice is centred inside the extraction window and
+	# narrower than it, so the window to convert against is the slice's
+	# own width, read off the array rather than from a parameter.
+	attr_window = X.shape[-1]
+	seqlets = example_to_fasta_coords(seqlets, loci, attr_window)
 	seqlets.to_csv(parameters["output_filename"], sep="\t", index=False, header=False)
