@@ -786,10 +786,13 @@ def test_cherimoya_backward_matches_cpu_autograd():
 	~5e-3 absolute or relative. This is the realistic precision floor
 	of fp32-with-TF32 training on GPU vs a fp32 CPU reference.
 
-	The first GPU call to each block shape triggers Triton autotune,
-	whose benchmark trials can contaminate the user-visible output via
-	atomic_add residue in the bwd. We warm up to lock the configs
-	before measuring."""
+	The first GPU call to each block shape triggers Triton autotune. Its
+	benchmark trials used to corrupt the backward's scratch buffer, so
+	the first backward at a new shape came back wrong; the kernel now
+	declares `restore_value` and that is fixed, with
+	`tests/test_cheri_autotune.py` pinning it. The warmup below is kept
+	anyway: it takes autotune's variable cost out of the measurement,
+	which is worth having in a tolerance-bounded comparison."""
 
 	torch.manual_seed(0)
 	cpu_model = Cherimoya(n_filters=16, n_layers=3, signal_groups=[1],

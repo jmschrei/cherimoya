@@ -16,7 +16,15 @@ Common conventions
 * Every subcommand except ``pipeline-json`` and ``negatives`` is
   driven by a JSON file passed with ``-p``. Keys missing from the JSON
   fall back to the corresponding default in
-  ``cherimoya_cli.defaults``.
+  ``cherimoya_cli.defaults``, **except** for keys whose default is
+  ``null``. Those must be present in the JSON, and writing ``null`` is
+  how you say "a later step produces this" — so a ``pipeline`` JSON
+  names ``sequences``, ``loci``, ``negatives``, ``signals`` and
+  ``name``, setting to ``null`` any that MACS3 or the negatives step
+  will produce. The exceptions are the keys that are optional by
+  design, which may simply be left out: ``controls``, ``model``,
+  ``motifs``, ``exclusion_lists``, ``early_stopping``,
+  ``loss_weights``, ``count_loss_weight`` and ``warning_threshold``.
 * Most JSON schemas accept ``"skip": true`` to no-op the step. The
   ``pipeline`` JSON accepts ``"dry_run": true`` to print/emit the
   per-step JSONs without running any subprocess.
@@ -168,6 +176,11 @@ JSON schema (top-level keys, with defaults from
    * - ``controls``
      - ``null``
      - Optional list of control files. Same grouping rule as ``signals``.
+   * - ``motifs``
+     - ``null``
+     - Optional MEME motif database. Inherited by the seqlet annotation,
+       the MoDISco report and the marginalization step; ``null`` skips
+       annotation and marginalization entirely. May be omitted.
    * - ``skip``
      - ``false``
      - If ``true``, the whole pipeline is a no-op.
@@ -386,9 +399,20 @@ attribute_parameters
    * - ``output``
      - ``"counts"``
      - Attribute to counts or profile (``"profile"``).
+   * - ``in_window``
+     - 2114
+     - Width of the sequence window extracted per locus. Must match the
+       window the model was trained at.
+   * - ``attr_window``
+     - 400
+     - Width of the centred slice that is actually attributed, and the
+       width of the arrays written to ``ohe_filename`` and
+       ``attr_filename``. Saturation mutagenesis is one forward pass
+       per alternate base per position, so this sets the cost of the
+       step. Must not exceed ``in_window``.
    * - ``ohe_filename``
      - ``"attributions.ohe.npz"``
-     - Output: one-hot encoded inputs.
+     - Output: one-hot encoded inputs, ``attr_window`` wide.
    * - ``attr_filename``
      - ``"attributions.attr.npz"``
      - Output: per-base hypothetical importance.
@@ -633,8 +657,7 @@ CLI flags:
 * ``-p, --parameters`` (required) — path to an attribute JSON.
 
 JSON schema: the ``attribute_parameters`` table above, plus
-``model``, ``sequences``, ``loci``, ``exclusion_lists``, and
-``in_window`` / ``out_window``.
+``model``, ``sequences``, ``loci`` and ``exclusion_lists``.
 
 
 cherimoya seqlets

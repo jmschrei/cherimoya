@@ -62,6 +62,89 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+* The first backward at any new ``(C, L)`` shape returned a wrong
+  gradient. ``_bwd_apply_kernel`` reads the convolution out of a
+  scratch buffer and writes the normalization gradient back over it, so
+  it is not idempotent — and ``triton.autotune`` benchmarks a
+  configuration by running the kernel repeatedly, so every trial after
+  the first read the previous trial's output as though it were the
+  convolution, leaving the buffer garbage before the real launch. The
+  kernel now declares ``restore_value=['Conv_ptr']``, so Triton
+  snapshots that buffer and restores it before each trial.
+
+  Measured against CPU autograd on shapes tuned fresh in their own
+  process, the depthwise weight gradient:
+
+  .. list-table::
+     :header-rows: 1
+
+     * - shape
+       - before
+       - after
+     * - ``C=48, L=176``
+       - 1.60e-01
+       - 8.52e-04
+     * - ``C=80, L=208``
+       - 4.86e-01
+       - 2.43e-03
+     * - ``C=112, L=144``
+       - 3.90e-01
+       - 2.90e-03
+
+  The remaining difference is TF32 in the surrounding ``Linear``
+  layers, not the kernel: with ``torch.set_float32_matmul_precision
+  ('highest')`` it falls to 2.03e-06. The ``linear1`` and ``linear2``
+  gradients were never affected, since they do not pass through that
+  buffer.
+
+  This was documented as a known wart with "warm up the kernel before
+  reading gradients" as the workaround, and estimated at ~7e-2; it is
+  larger than that and it is now fixed. It mattered most for
+  attribution, which is gradient-based — a fresh process attributing
+  one shape hits this path exactly once, with nothing after it to
+  notice.
+
+* A hand-written ``pipeline`` JSON that omitted ``motifs`` raised
+  ``KeyError: 'motifs'`` at the seqlet annotation step — after the model
+  had already been trained. ``pipeline.run`` reads
+  ``parameters["motifs"]`` unguarded for the annotation, the MoDISco
+  report and the marginalization step, but ``motifs`` was not a declared
+  default, so only a JSON emitted by ``cherimoya pipeline-json`` (which
+  always writes the key) had it. ``motifs`` is now a top-level pipeline
+  default, documented in the CLI reference, and may be omitted.
+
+* A ``pipeline`` JSON that omitted ``model`` was rejected with ``Must
+  provide value for 'model'``, even though ``pipeline.run`` treats a
+  null model as "train one" and that is the only thing the key does.
+  ``model`` and ``motifs`` are now both omittable.
+
+* ``merge_parameters`` now says what to write when a required key is
+  missing. ``null`` is accepted and an absent key is not, which was not
+  guessable from ``Must provide value for 'x'``; the message now adds
+  "Set it to null if this step is supposed to produce it."
+
+* The CLI reference claimed that any key missing from a JSON falls back
+  to its default. That was false for every key whose default is
+  ``null``, which is most of the input paths. The "Common conventions"
+  section now states which keys must be present and which are genuinely
+  optional.
+* ``cherimoya attribute`` never passed ``in_window`` to ``extract_loci``,
+  so every run extracted ``tangermeme``'s own default of 2114bp no
+  matter what the JSON said. A model trained at a different input
+  window was therefore fed the wrong window — and the key was declared
+  in the schema and documented in the CLI reference the whole time. It
+  is now the window that is actually extracted.
+
+* The attributed slice was a hard-coded ``mid - 200, mid + 200`` with no
+  key controlling it. It is now ``attr_window``, defaulting to 400 so
+  existing runs produce byte-identical output, and validated against
+  ``in_window`` rather than silently producing an out-of-range slice.
+  ``cherimoya seqlets`` reads this width back off the saved arrays, so
+  changing it needs no matching setting there.
+
+* ``attribute_parameters.out_window`` is removed. The step extracts
+  sequence only, never signal, so there was no output window to size. A
+  JSON that still sets it is passed through and ignored.
 
 CLI
 ~~~
