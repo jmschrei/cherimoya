@@ -16,7 +16,15 @@ Common conventions
 * Every subcommand except ``pipeline-json`` and ``negatives`` is
   driven by a JSON file passed with ``-p``. Keys missing from the JSON
   fall back to the corresponding default in
-  ``cherimoya_cli.defaults``.
+  ``cherimoya_cli.defaults``, **except** for keys whose default is
+  ``null``. Those must be present in the JSON, and writing ``null`` is
+  how you say "a later step produces this" — so a ``pipeline`` JSON
+  names ``sequences``, ``loci``, ``negatives``, ``signals`` and
+  ``name``, setting to ``null`` any that MACS3 or the negatives step
+  will produce. The exceptions are the keys that are optional by
+  design, which may simply be left out: ``controls``, ``model``,
+  ``motifs``, ``exclusion_lists``, ``early_stopping``,
+  ``loss_weights``, ``count_loss_weight`` and ``warning_threshold``.
 * Most JSON schemas accept ``"skip": true`` to no-op the step. The
   ``pipeline`` JSON accepts ``"dry_run": true`` to print/emit the
   per-step JSONs without running any subprocess.
@@ -168,6 +176,11 @@ JSON schema (top-level keys, with defaults from
    * - ``controls``
      - ``null``
      - Optional list of control files. Same grouping rule as ``signals``.
+   * - ``motifs``
+     - ``null``
+     - Optional MEME motif database. Inherited by the seqlet annotation,
+       the MoDISco report and the marginalization step; ``null`` skips
+       annotation and marginalization entirely. May be omitted.
    * - ``skip``
      - ``false``
      - If ``true``, the whole pipeline is a no-op.
