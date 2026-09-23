@@ -62,6 +62,22 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+
+* ``cherimoya marginalize``'s ``shuffle`` did not sample. ``extract_loci``
+  stops as soon as it has ``n_loci`` usable sequences, i.e. it returns
+  the first ``n_loci`` rows of the file, and the shuffle ran *after*
+  that — so it permuted a set already chosen by file order and the
+  truncation that followed was a no-op. Every marginalization report was
+  built from the top of the background BED, in a seed-dependent order,
+  which is the one thing ``shuffle`` exists to avoid. The extraction is
+  no longer capped when shuffling, so the sample is drawn from the whole
+  file. **Reports produced with** ``shuffle: true`` **will now use
+  different background loci**; the unshuffled path is unchanged.
+
+  Drawing a sample means reading the population, so the shuffled path
+  now holds the full locus set in memory. The unshuffled path still
+  stops at ``n_loci``.
+
 * ``calculate_performance_measures`` dropped ``signal_groups`` when
   recursing to compute the ``within_peak_`` measures, so for a
   multi-group model those fell through to the legacy "sum every channel
@@ -78,6 +94,7 @@ Bug fixes
   including the detail that ``auprc`` and ``auroc`` are scored against
   the first count output only and so describe group 0 rather than the
   whole model when there is more than one group.
+
 * ``"dry_run": true`` crashed with ``FileNotFoundError`` on any pipeline
   configured with a motif database. The seqlet annotation step guards
   the ``ttl`` subprocess behind ``dry_run`` but read that subprocess's
@@ -86,6 +103,7 @@ Bug fixes
   running with a motif database is the common case, the documented way
   to check a config before committing GPU time to it did not work. The
   tally is now inside the same guard.
+
 * ``ExpectedCountsWrapper(ControlWrapper(model))`` raised
   ``AttributeError: 'ControlWrapper' object has no attribute
   'signal_groups'``. :class:`~cherimoya.ControlWrapper` is documented as
