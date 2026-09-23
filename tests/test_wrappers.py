@@ -441,34 +441,25 @@ def controlled_model():
 	ExpectedCountsWrapper])
 def test_wrappers_compose_over_control_wrapper(wrapper, controlled_model):
 	"""Every output wrapper must run when layered over ControlWrapper,
-	which is the documented arrangement and the one the CLI builds."""
+	which is the documented arrangement and the one the CLI builds, and
+	must give the same answer as passing the zero control tracks it
+	synthesizes explicitly.
 
-	model = wrapper(ControlWrapper(controlled_model))
-	X = torch.randn(2, 4, _input_window_for(controlled_model))
-
-	with torch.no_grad():
-		y = model(X)
-
-	assert y.shape[0] == 2
-
-
-def test_expected_counts_over_control_wrapper_matches_direct(
-		controlled_model):
-	"""Layering over ControlWrapper must not change the answer: the
-	control tracks it synthesizes are zeros, which is what passing them
-	explicitly would do."""
+	Running without raising is what the composition bug broke, but it is
+	not enough on its own: a wrapper that looked through ControlWrapper
+	to the wrong attribute could still return a well-shaped wrong
+	number.
+	"""
 
 	X = torch.randn(2, 4, _input_window_for(controlled_model))
 	X_ctl = torch.zeros(2, 2, X.shape[-1])
 
-	wrapped = ExpectedCountsWrapper(ControlWrapper(controlled_model))
-	direct = ExpectedCountsWrapper(controlled_model)
-
 	with torch.no_grad():
-		a = wrapped(X)
-		b = direct(X, X_ctl=X_ctl)
+		wrapped = wrapper(ControlWrapper(controlled_model))(X)
+		direct = wrapper(controlled_model)(X, X_ctl=X_ctl)
 
-	assert_array_almost_equal(a.numpy(), b.numpy(), 5)
+	assert wrapped.shape == direct.shape
+	assert_array_almost_equal(wrapped.numpy(), direct.numpy(), 5)
 
 
 def test_expected_counts_group_structure_through_control_wrapper(

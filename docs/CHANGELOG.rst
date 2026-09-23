@@ -676,6 +676,42 @@ Tooling
   defaults, which live only in the parser and so can drift from the CLI
   reference unchecked.
 
+* ``cherimoya attribute`` and ``cherimoya seqlets`` are now tested
+  across the seam between them, in
+  ``tests/commands/test_attribute_to_seqlets.py``. ``attribute`` saves
+  a slice centred on the locus midpoint and ``seqlets`` converts a
+  position in that saved array back to a genomic coordinate by assuming
+  exactly that; nothing checked the two against each other. Each
+  command's own tests pin the arithmetic against literal offsets, so
+  editing those offsets to match a changed ``attribute`` leaves them
+  green — the 857bp shift is the bug this class produces. The new tests
+  run both commands for real and recover the slice offset by locating
+  the saved array inside the extracted window, so neither side
+  re-derives the other's arithmetic.
+
+* The ``compile`` and ``compile_mode`` keys are now tested as reaching
+  ``Cherimoya.load`` from all three subcommands that load a model.
+  Previously only ``evaluate`` had a forwarding test, while the
+  key-declaration test was parametrized over all three, which read as
+  three-way coverage. All three already forwarded the keys correctly.
+
+* Tests that assert only that a removed key is still removed are gone,
+  along with the four near-identical pipeline-JSON builders the CLI
+  tests each carried; shared fixtures now live in
+  ``tests/commands/conftest.py``. The dead-key checks for
+  ``marginalize_parameters.output_folder`` and
+  ``fit_parameters.count_loss_weight`` are replaced by one invariant
+  over every step the pipeline forwards — each declared key must be one
+  the receiving subcommand reads — which covers both of those and
+  ``annotation_parameters``, which nothing checked. Two assertions that
+  could not fail for the reason they were written were strengthened to
+  compare values rather than shapes.
+
+* ``docs/development.rst`` listed ``tests/test_fit_wiring.py`` and
+  ``tests/test_cli_utils.py``, which were renamed away in v0.2.1, and
+  omitted ``tests/commands/`` entirely. The table now matches the
+  tree.
+
 v0.2.1
 ------
 

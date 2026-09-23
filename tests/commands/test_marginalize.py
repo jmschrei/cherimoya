@@ -146,35 +146,18 @@ def test_shuffle_samples_across_the_whole_locus_file(tmp_path):
 
 	`extract_loci` returns the *first* `n_loci` rows it can use, so
 	capping it and then shuffling permutes a set already chosen by file
-	order — the report is built from the top of the BED every time,
-	which is what `shuffle` exists to avoid.
+	order -- the report is built from the top of the BED every time,
+	which is what `shuffle` exists to avoid. The three assertions are
+	the uncapped extraction, the sample still being `n_loci` wide, and
+	the observable consequence that it is not the first `n_loci`.
 	"""
 
 	captured = _extracted_n_loci(
 		_marginalize_json(tmp_path, shuffle=True, n_loci=4))
 
 	assert captured['n_loci'] is None
-
-
-def test_shuffle_still_truncates_to_n_loci(tmp_path):
-	"""Extracting everything is how the sample is drawn, not what the
-	report is given: the report still sees exactly `n_loci`."""
-
-	captured = _extracted_n_loci(
-		_marginalize_json(tmp_path, shuffle=True, n_loci=4))
-
 	assert captured['X'].shape[0] == 4
-
-
-def test_shuffle_picks_loci_from_beyond_the_first_n(tmp_path):
-	"""The observable consequence: the sampled loci are not the first
-	`n_loci` of the file."""
-
-	captured = _extracted_n_loci(
-		_marginalize_json(tmp_path, shuffle=True, n_loci=4))
-
-	chosen = sorted(captured['X'][:, 0, 0].tolist())
-	assert chosen != [0.0, 1.0, 2.0, 3.0]
+	assert sorted(captured['X'][:, 0, 0].tolist()) != [0.0, 1.0, 2.0, 3.0]
 
 
 def test_no_shuffle_still_caps_the_extraction(tmp_path):

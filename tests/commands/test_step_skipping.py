@@ -53,26 +53,10 @@ def test_skip_returns_rather_than_exiting(tmp_path, command):
 	assert mod.run(argparse.Namespace(parameters=path)) is None
 
 
-def test_pipeline_without_motifs_returns(tmp_path, monkeypatch):
+def test_pipeline_without_motifs_returns(run_pipeline):
 	"""The marginalization guard skips a stage, not the interpreter."""
 
-	from cherimoya_cli.commands import pipeline
-
-	for name in ("g.fa", "x.bed", "n.bed", "s.bw"):
-		(tmp_path / name).write_text("")
-
-	cfg = {
-		"name": "demo", "sequences": str(tmp_path / "g.fa"),
-		"loci": [str(tmp_path / "x.bed")],
-		"negatives": [str(tmp_path / "n.bed")],
-		"signals": [str(tmp_path / "s.bw")],
-		"controls": None, "model": None, "motifs": None,
-		"dry_run": True, "verbose": False, "random_state": 0,
-	}
-	monkeypatch.chdir(tmp_path)
-
-	assert pipeline.run(argparse.Namespace(
-		parameters=_write(tmp_path, "p", cfg))) is None
+	assert run_pipeline(motifs=None) is None
 
 
 def test_pipeline_json_returns(tmp_path):
