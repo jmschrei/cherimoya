@@ -4,6 +4,33 @@ Changelog
 Unreleased
 ----------
 
+Tooling
+~~~~~~~
+
+* ``test_evaluate_single_group_value_equals_legacy_full_mean`` failed
+  intermittently, on one leg of the CI matrix at a time. It ran
+  ``evaluate`` — which predicts in batches through
+  ``tangermeme.predict`` — and then recomputed the same thing with a
+  single unbatched ``model(X)``, asserting the two agreed to ``1e-4``.
+  The paths agree only to within a few float32 ULPs, and
+  ``profile_spearman`` ranks with ``argsort().argsort()``: one swapped
+  pair moves the metric far more than the float difference that caused
+  it, so no tolerance was safe.
+
+  The test now predicts the way ``evaluate`` does, at the same batch
+  size, and pins ``compile`` on both sides — ``Cherimoya.load
+  (compile=True)`` and ``compile=False`` are not bit-identical even
+  under ``TORCH_COMPILE_DISABLE=1``, which was a second source of
+  divergence worth about 1.5e-08. With both matched the two sides see
+  bit-identical predictions, so every metric agrees by construction
+  rather than by luck, and the residual measures 0 across eight seeds.
+
+* The models in ``tests/commands/test_evaluate.py`` are seeded.
+  ``_build_and_save`` never passed ``random_state``, so every run drew
+  different weights and each assertion in the file passed or failed on
+  the draw.
+
+
 Removed (**breaking**)
 ~~~~~~~~~~~~~~~~~~~~~~
 
