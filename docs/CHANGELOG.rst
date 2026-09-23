@@ -7,6 +7,16 @@ Unreleased
 Bug fixes
 ~~~~~~~~~
 
+* ``cherimoya seqlets`` raised ``IndexError: arrays used as indices must
+  be of integer or boolean type`` when no seqlets were found. An empty
+  result is a legitimate outcome — a weak model, or a strict
+  ``threshold`` — but the empty frame ``recursive_seqlets`` returns has
+  ``object`` dtype columns, and indexing the locus table with an object
+  array raises inside pandas rather than producing an empty result.
+  Inside ``cherimoya pipeline`` that ended the run after training had
+  already finished. An empty BED is now written; the annotation step
+  opens that path either way.
+
 * ``cherimoya seqlets`` emitted genomic coordinates shifted 857 bases to
   the left of the seqlets it found. ``cherimoya attribute`` scores a
   400bp slice centred inside the 2114bp extraction window and saves the
