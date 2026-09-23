@@ -109,6 +109,12 @@ Rules of thumb:
   back to `max-autotune-no-cudagraphs` on a CUDA-graph error, and to
   `compile=False` only if that still fails.
 
+The same two settings are JSON keys on `evaluate`, `attribute` and
+`marginalize`, and at the top level of a `pipeline` JSON where one value reaches
+every step that loads a model: `{"compile": false}`,
+`{"compile_mode": "max-autotune-no-cudagraphs"}`. Reach for them when a CLI run
+hits a compile or CUDA-graph traceback.
+
 ### Things to tell users about checkpoints
 
 - **Saved weights are the EMA shadow.** `model.fit(...)` applies the EMA average

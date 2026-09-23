@@ -106,6 +106,8 @@ default_evaluate_parameters = {
 	'loci': None,
 	'controls': None,
 	'model': None,
+	'compile': True,
+	'compile_mode': 'max-autotune',
 	'performance_filename': 'performance.tsv',
 	'skip': False,
 }
@@ -120,6 +122,8 @@ default_attribute_parameters = {
 	'sequences': None,
 	'loci': None,
 	'model': None,
+	'compile': True,
+	'compile_mode': 'max-autotune',
 	'output': 'counts',
 	'attr_window': 400,
 	'ohe_filename': 'attributions.ohe.npz',
@@ -177,6 +181,8 @@ default_marginalize_parameters = {
 	'n_loci': 100,
 	'shuffle': False,
 	'model': None,
+	'compile': True,
+	'compile_mode': 'max-autotune',
 	'output_filename':'marginalize/',
 	'random_state':0,
 	'minimal': True,
@@ -193,6 +199,9 @@ default_pipeline_parameters = {
 	'model': None,
 	'dtype': 'float32',
 	'device': 'cuda',
+
+	'compile': True,
+	'compile_mode': 'max-autotune',
 
 	# Data parameters
 	'batch_size': 512,
