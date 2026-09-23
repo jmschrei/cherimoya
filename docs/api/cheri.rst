@@ -181,6 +181,14 @@ behavior is observable:
   ``load_state_dict`` while in eval mode refreshes it via a post-hook.
 * The buffers are registered with ``persistent=False`` and so are
   **not** part of the state dict.
+* Writing a weight in place while the block is in eval mode — an
+  optimizer step, a hand-edited tensor, an :class:`~cherimoya.EMA`
+  swap — leaves those buffers holding the previous weights. The block
+  detects this by comparing the weights' ``Tensor._version`` against
+  the values recorded when the cache was built, and falls back to an
+  inline cast, so the kernel is always given the weights the module
+  currently holds. Calling ``.eval()`` again rebuilds the cache and
+  restores the fast path.
 * If the inference path is reached under ``no_grad`` *without* a
   prior ``.eval()`` call, the megakernel still fires correctly; it
   just recomputes the bf16 cast inline per call. See
