@@ -34,9 +34,9 @@ other subcommand it means the **parameters JSON**. Don't carry the meaning
 across.
 
 You need `-s` (genome), `-i` (signal), `-n` (name), and `-o` (output JSON);
-`-c`/`-p`/`-neg`/`-m` are optional. `pipeline-json` enforces *none* at parse
-time, so a missing one fails later or silently produces `None_*` filenames —
-stop and ask the user for any of the four that's absent.
+`-c`/`-p`/`-neg`/`-m` are optional. All four are enforced by argparse, so a
+missing one is a clear error rather than a `None_*` filename — but still ask
+the user for any that's absent rather than inventing one.
 
 ## Step 2 — (optional) edit the JSON
 

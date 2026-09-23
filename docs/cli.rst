@@ -52,10 +52,10 @@ pointers.
      - Type
      - Description
    * - ``-s, --sequences``
-     - path
+     - path (required)
      - Reference genome FASTA.
    * - ``-i, --inputs``
-     - path (repeatable)
+     - path (repeatable, required)
      - Signal file (BAM/SAM/fragment file/bigWig). Repeat for multiple
        replicates.
    * - ``-c, --controls``
@@ -70,7 +70,7 @@ pointers.
      - Optional BED of GC-matched negatives. If omitted, the pipeline
        samples them.
    * - ``-n, --name``
-     - str
+     - str (required)
      - Suffix used in intermediate filenames.
    * - ``-u, --unstranded``
      - flag
@@ -89,7 +89,7 @@ pointers.
      - MEME-format motif database. When set, TF-MoDISco report,
        tomtom-lite annotation, and marginalization are run.
    * - ``-o, --output``
-     - path
+     - path (required)
      - Output JSON path.
    * - ``-pe, --paired_end``
      - flag

@@ -12,7 +12,6 @@ import json
 from unittest import mock
 
 import pytest
-import torch
 
 from cherimoya_cli.defaults import default_attribute_parameters
 from cherimoya_cli.defaults import default_evaluate_parameters
@@ -133,11 +132,10 @@ def test_pipeline_shares_the_compile_setting(tmp_path, monkeypatch):
 		json.dump(cfg, f)
 
 	# `dry_run` writes each step's JSON relative to the working
-	# directory, and exits at the marginalization guard because `motifs`
+	# directory, and stops at the marginalization guard because `motifs`
 	# is None.
 	monkeypatch.chdir(tmp_path)
-	with pytest.raises(SystemExit):
-		pipeline.run(argparse.Namespace(parameters=str(path)))
+	pipeline.run(argparse.Namespace(parameters=str(path)))
 
 	with open(tmp_path / "demo.attribute.json") as f:
 		emitted = json.load(f)

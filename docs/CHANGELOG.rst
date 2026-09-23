@@ -343,6 +343,30 @@ CLI
   reachable from the CLI, which always loaded with the default
   ``compile=True, compile_mode='max-autotune'``.
 
+CLI
+~~~
+
+* ``"skip": true`` ended the whole run rather than the step.
+  ``cherimoya pipeline`` calls each subcommand's ``run(args)``
+  in-process, and ``fit``, ``evaluate``, ``attribute``, ``seqlets`` and
+  ``marginalize`` all honoured ``skip`` with ``sys.exit()``, which
+  terminates the interpreter. They now return, so the pipeline moves on
+  to the next step — which is what the key is documented to do. The
+  marginalization guard in ``pipeline`` and the tail of
+  ``pipeline-json`` returned the same way.
+
+* ``cherimoya pipeline-json`` now requires ``-s``, ``-i``, ``-n`` and
+  ``-o``. None were enforced, so omitting one either wrote a JSON full
+  of nulls, produced ``None_*`` filenames several steps later, or
+  failed with ``TypeError: expected str, bytes or os.PathLike object,
+  not NoneType`` from ``open(None)``. **A script that relied on
+  omitting one of these will now fail at parse time** with a message
+  naming the missing flag.
+
+* Removed a dead ``add_parser`` in ``commands/install_skill.py``. The
+  real parser is built in ``__main__.py``; the duplicate was never
+  called and could only drift.
+
 Reproducibility
 ~~~~~~~~~~~~~~~
 

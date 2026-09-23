@@ -3,7 +3,6 @@
 
 
 def run(args):
-	import sys
 	import json
 	import copy
 
@@ -27,5 +26,3 @@ def run(args):
 
 	with open(args.output, "w") as outfile:
 		outfile.write(json.dumps(parameters, indent=4))
-
-	sys.exit()

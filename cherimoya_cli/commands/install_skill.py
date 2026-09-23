@@ -2,20 +2,6 @@
 # Author: Jacob Schreiber <jmschreiber91@gmail.com>
 
 
-def add_parser(subparsers):
-	parser = subparsers.add_parser("install-skill",
-		help="Install the bundled Cherimoya agent skill for Claude Code.")
-	parser.add_argument("-d", "--directory", type=str, default=None,
-		help="Skills directory to install into. Default is "
-		"~/.claude/skills.")
-	parser.add_argument("--symlink", action='store_true', default=False,
-		help="Symlink the packaged skill instead of copying it. Reflects "
-		"in-place edits, but breaks if the install location moves.")
-	parser.add_argument("-f", "--force", action='store_true', default=False,
-		help="Overwrite an existing installation at the destination.")
-	return parser
-
-
 def run(args):
 	import os
 	import shutil
