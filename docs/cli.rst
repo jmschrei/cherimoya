@@ -386,9 +386,20 @@ attribute_parameters
    * - ``output``
      - ``"counts"``
      - Attribute to counts or profile (``"profile"``).
+   * - ``in_window``
+     - 2114
+     - Width of the sequence window extracted per locus. Must match the
+       window the model was trained at.
+   * - ``attr_window``
+     - 400
+     - Width of the centred slice that is actually attributed, and the
+       width of the arrays written to ``ohe_filename`` and
+       ``attr_filename``. Saturation mutagenesis is one forward pass
+       per alternate base per position, so this sets the cost of the
+       step. Must not exceed ``in_window``.
    * - ``ohe_filename``
      - ``"attributions.ohe.npz"``
-     - Output: one-hot encoded inputs.
+     - Output: one-hot encoded inputs, ``attr_window`` wide.
    * - ``attr_filename``
      - ``"attributions.attr.npz"``
      - Output: per-base hypothetical importance.
@@ -633,8 +644,7 @@ CLI flags:
 * ``-p, --parameters`` (required) — path to an attribute JSON.
 
 JSON schema: the ``attribute_parameters`` table above, plus
-``model``, ``sequences``, ``loci``, ``exclusion_lists``, and
-``in_window`` / ``out_window``.
+``model``, ``sequences``, ``loci`` and ``exclusion_lists``.
 
 
 cherimoya seqlets
