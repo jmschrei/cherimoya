@@ -285,16 +285,28 @@ def test_within_peak_equals_scoring_the_peak_subset_directly():
 
 def test_within_peak_without_signal_groups_is_unchanged():
 	"""The no-grouping call still collapses to one target, so the
-	fall-through behaviour external callers may rely on is untouched."""
+	fall-through behaviour external callers may rely on is untouched.
+
+	Compared against a direct call on the in-peak rows rather than by
+	shape: the test above notes that a shape check does not discriminate
+	here, because `pearson_corr` broadcasts a collapsed target back up
+	to one value per prediction column."""
 
 	g = torch.Generator().manual_seed(2)
 	logits = torch.randn(8, 3, 8, generator=g)
 	true_counts = torch.randint(0, 7, (8, 3, 8), generator=g).float()
 	pred = torch.randn(8, 2, generator=g)
 	labels = torch.tensor([1, 1, 1, 1, 0, 0, 0, 0])
+	in_peaks = labels == 1
 
 	measures = calculate_performance_measures(
 		logits, true_counts, pred, labels=labels,
 		measures=['count_pearson'])
 
+	direct = calculate_performance_measures(
+		logits[in_peaks], true_counts[in_peaks], pred[in_peaks],
+		measures=['count_pearson'])
+
 	assert measures['within_peak_count_pearson'].shape == (2,)
+	assert torch.allclose(measures['within_peak_count_pearson'],
+		direct['count_pearson'], atol=1e-6)

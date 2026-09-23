@@ -14,7 +14,6 @@ from unittest import mock
 
 import numpy
 import pandas
-import pytest
 
 
 # The window `attribute` extracts, and the centred slice it actually
@@ -188,16 +187,3 @@ def test_no_seqlets_writes_an_empty_bed(tmp_path):
 	out = _run_seqlets(tmp_path, empty)
 
 	assert len(out) == 0
-
-
-def test_no_seqlets_still_writes_the_output_file(tmp_path):
-	"""The pipeline's next step opens this path, so it has to exist even
-	when it is empty."""
-
-	empty = pandas.DataFrame(
-		{"example_idx": [], "start": [], "end": [], "attribution": [],
-			"p-value": []}, dtype=object)
-
-	_run_seqlets(tmp_path, empty)
-
-	assert (tmp_path / "seqlets.bed").exists()

@@ -122,11 +122,12 @@ The test suite lives in ``tests/`` and uses pytest.
 
    pytest tests/
 
-Test files:
+Test files. ``tests/`` covers the library, ``tests/commands/`` covers
+the ``cherimoya`` CLI:
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 70
+   :widths: 34 66
 
    * - File
      - Covers
@@ -134,23 +135,60 @@ Test files:
      - Cheri Block forward parity (CPU vs training Triton vs
        inference megakernel), backward parity against CPU
        autograd, weight-cache invalidation, dtype matrix.
+   * - ``tests/test_cheri_autotune.py``
+     - The first backward at a shape no earlier test has used, which
+       is the only way the autotune path can be exercised.
    * - ``tests/test_model.py``
      - Full Cherimoya forward/backward parity, no_grad ==
-       grad-enabled equivalence, EMA-applied save/load round trip.
+       grad-enabled equivalence, EMA-applied save/load round trip,
+       and the ``fit`` guards against a run that trains nothing.
+   * - ``tests/test_compile.py``
+     - ``compile`` / ``compile_mode`` semantics, and that neither
+       leaks into a saved checkpoint's config.
    * - ``tests/test_io.py``
      - ``PeakGenerator`` and ``PeakNegativeSampler`` reproducibility,
        per-epoch determinism, multi-worker equivalence.
    * - ``tests/test_ema.py``
-     - EMA update/apply/restore semantics.
+     - EMA update/apply/restore semantics, including the interaction
+       with the Cheri Block eval-time weight cache.
    * - ``tests/test_losses.py``
      - ``_mixture_loss`` shapes and edge cases.
    * - ``tests/test_performance.py``
-     - Evaluation-metric correctness.
-   * - ``tests/test_fit_wiring.py``
+     - Evaluation-metric correctness, including the grouped and
+       ``within_peak_`` variants.
+   * - ``tests/test_wrappers.py``
+     - The output wrappers on their own and composed over
+       ``ControlWrapper``.
+   * - ``tests/test_utils.py``
+     - JSON merge and default-handling helpers.
+   * - ``tests/commands/test_fit.py``
      - End-to-end fit step on tiny data: confirms optimizers,
        schedulers, EMA, and checkpoint paths are wired correctly.
-   * - ``tests/test_cli_utils.py``
-     - JSON merge and default-handling helpers.
+   * - ``tests/commands/test_pipeline.py``
+     - Which keys a hand-written pipeline JSON may leave out.
+   * - ``tests/commands/test_pipeline_dry_run.py``
+     - ``dry_run`` emitting the per-step JSONs and nothing else.
+   * - ``tests/commands/test_step_skipping.py``
+     - ``skip`` and the marginalization guard returning rather than
+       ending the interpreter.
+   * - ``tests/commands/test_config_keys.py``
+     - Every key the pipeline declares for a step is one that step's
+       subcommand reads.
+   * - ``tests/commands/test_compile_knob.py``
+     - The ``compile`` keys reaching ``Cherimoya.load`` from each
+       subcommand that loads a model.
+   * - ``tests/commands/test_attribute_to_seqlets.py``
+     - The seam between the two: the coordinate ``seqlets`` reports
+       is the genome position of the base ``attribute`` scored.
+   * - ``tests/commands/test_attribute.py``,
+       ``test_seqlets.py``, ``test_evaluate.py``,
+       ``test_marginalize.py``, ``test_negatives.py``,
+       ``test_install_skill.py``
+     - The remaining subcommands, one file each.
+
+Fixtures shared across the CLI tests — a pipeline JSON naming real
+input files, and a runner for it — live in
+``tests/commands/conftest.py``.
 
 Markers:
 

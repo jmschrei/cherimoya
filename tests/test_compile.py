@@ -178,45 +178,36 @@ def test_load_accepts_compile_mode_kwarg(tmp_path):
 		assert torch.equal(p1, p2)
 
 
-def test_compile_mode_not_in_init_kwargs():
-	"""compile_mode is a runtime knob, not architecture. It must not
-	leak into checkpoints — otherwise newly-trained checkpoints would
-	pin a mode and conflict with the load-time kwarg."""
-	m = Cherimoya(**_tiny_kwargs(),
-		compile_mode='max-autotune-no-cudagraphs')
-	assert 'compile_mode' not in m._init_kwargs()
-
-
-def test_compile_mode_not_in_saved_checkpoint(tmp_path):
-	"""Same invariant as above, observed at the on-disk format level."""
-	m = Cherimoya(**_tiny_kwargs(),
-		compile_mode='max-autotune-no-cudagraphs')
-	p = tmp_path / 'm.torch'
-	m.save(str(p))
-	payload = torch.load(str(p), weights_only=True)
-	assert 'compile_mode' not in payload['config']
-
-
 # ---------------------------------------------------------------------------
-# 3. Checkpoint back-compat: `compile` must not leak into saved configs
+# 3. Checkpoint back-compat: neither runtime knob may leak into a config
 # ---------------------------------------------------------------------------
 
-def test_compile_not_in_init_kwargs():
-	"""`_init_kwargs` is the explicit serializer used by `save`. It must
-	not contain `compile` — otherwise newly-trained checkpoints would
-	pin a compile choice into their config and conflict with the
+# The two knobs, and the non-default value to set each to.
+RUNTIME_KNOBS = [("compile", False),
+	("compile_mode", "max-autotune-no-cudagraphs")]
+
+
+@pytest.mark.parametrize("knob,value", RUNTIME_KNOBS)
+def test_runtime_knob_not_in_init_kwargs(knob, value):
+	"""`_init_kwargs` is the explicit serializer used by `save`. Neither
+	knob is architecture, so neither may leak into it -- otherwise a
+	newly-trained checkpoint pins the choice and conflicts with the
 	load-time kwarg."""
-	model = Cherimoya(**_tiny_kwargs(), compile=False)
-	assert 'compile' not in model._init_kwargs()
+
+	model = Cherimoya(**_tiny_kwargs(), **{knob: value})
+	assert knob not in model._init_kwargs()
 
 
-def test_saved_checkpoint_has_no_compile_key(tmp_path):
-	"""Same invariant as above, observed at the on-disk format level."""
-	m = Cherimoya(**_tiny_kwargs(), compile=False)
+@pytest.mark.parametrize("knob,value", RUNTIME_KNOBS)
+def test_runtime_knob_not_in_saved_checkpoint(tmp_path, knob, value):
+	"""The same invariant, observed at the on-disk format level."""
+
+	m = Cherimoya(**_tiny_kwargs(), **{knob: value})
 	p = tmp_path / 'm.torch'
 	m.save(str(p))
 	payload = torch.load(str(p), weights_only=True)
-	assert 'compile' not in payload['config']
+
+	assert knob not in payload['config']
 
 
 def test_load_old_style_config_without_compile_key():

@@ -5,7 +5,6 @@ exercises what happens when one is missing. A hand-written JSON does,
 and the README tells users to write and edit these by hand.
 """
 
-import argparse
 import json
 
 import pytest
@@ -14,79 +13,37 @@ from cherimoya_cli.defaults import default_pipeline_parameters
 from cherimoya_cli.utils import merge_parameters
 
 
-def _minimal_json(tmp_path, **overrides):
-	"""The smallest pipeline JSON that names real inputs, written to
-	disk along with the files it points at so the pre-flight check
-	passes."""
-
-	for name in ("g.fa", "x.bed", "n.bed", "s.bw", "m.meme"):
-		(tmp_path / name).write_text("")
-
-	cfg = {
-		"name": "demo",
-		"sequences": str(tmp_path / "g.fa"),
-		"loci": [str(tmp_path / "x.bed")],
-		"negatives": [str(tmp_path / "n.bed")],
-		"signals": [str(tmp_path / "s.bw")],
-		"dry_run": True,
-		"verbose": False,
-	}
-	cfg.update(overrides)
-
-	path = tmp_path / "p.json"
-	with open(path, "w") as f:
-		json.dump(cfg, f)
-	return path
+# The keys a generated JSON always carries and a hand-written one may
+# not. Each has a default, so merging has to fill it in rather than
+# leaving the key absent for `pipeline.run` to trip over.
+OPTIONAL_KEYS = ("motifs", "model", "controls")
 
 
 ##
 
 
-def test_motifs_is_a_pipeline_default():
-	"""`pipeline.run` reads `parameters["motifs"]` unguarded in four
-	places, so it has to be a declared default or a JSON that omits it
-	raises KeyError partway through the run."""
+@pytest.mark.parametrize("key", OPTIONAL_KEYS)
+def test_pipeline_json_may_omit_an_optional_key(key, pipeline_json):
+	"""`pipeline.run` reads each of these unguarded, so a JSON that
+	omits one has to come out of the merge with it set to None rather
+	than raising KeyError partway through the run."""
 
-	assert "motifs" in default_pipeline_parameters
-	assert default_pipeline_parameters["motifs"] is None
-
-
-def test_pipeline_json_may_omit_motifs(tmp_path):
-	"""Merging a JSON without `motifs` fills it in rather than leaving
-	the key absent."""
-
-	merged = merge_parameters(str(_minimal_json(tmp_path)),
+	merged = merge_parameters(str(pipeline_json(omit=OPTIONAL_KEYS)),
 		default_pipeline_parameters)
-	assert merged["motifs"] is None
+
+	assert merged[key] is None
 
 
-def test_pipeline_json_may_omit_model(tmp_path):
-	"""`model` defaults to None and `pipeline.run` treats None as 'train
-	one', so requiring it in the JSON contradicts how it is used."""
-
-	merged = merge_parameters(str(_minimal_json(tmp_path)),
-		default_pipeline_parameters)
-	assert merged["model"] is None
-
-
-def test_pipeline_dry_run_without_motifs_or_model(tmp_path, monkeypatch):
-	"""The end-to-end symptom: a hand-written JSON that omits both keys
+def test_pipeline_dry_run_without_the_optional_keys(run_pipeline):
+	"""The end-to-end symptom: a hand-written JSON that omits all three
 	must get through the run rather than dying on a missing key.
 
 	The run stops at the marginalization step because `motifs` is None,
 	which is `pipeline.run`'s own control flow and not an error, so it
 	returns rather than raising.
-
-	`dry_run` still writes each step's JSON, and it writes them relative
-	to the working directory, so the test runs from `tmp_path`.
 	"""
 
-	from cherimoya_cli.commands import pipeline
-
-	cfg = _minimal_json(tmp_path)
-	monkeypatch.chdir(tmp_path)
-
-	assert pipeline.run(argparse.Namespace(parameters=str(cfg))) is None
+	assert run_pipeline(omit=OPTIONAL_KEYS) is None
 
 
 def test_merge_parameters_error_names_the_null_fix(tmp_path):
