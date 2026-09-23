@@ -71,7 +71,8 @@ Design highlights
   parameters with a 1115 bp receptive field.
 * **Three forward paths, one set of weights**. A CPU fallback, a
   Triton fwd+bwd kernel for training, and a fwd-only megakernel for
-  inference, all numerically equivalent up to ~1e-5 max-abs.
+  inference, agreeing to ~2.5e-04 max-abs at fp32 on the default
+  model (logit scale 0.73).
 * **Three-optimizer training**. Muon for 2D projection weights, SGD
   for the Kendall uncertainty weights, AdamW for everything else,
   with hyperparameters tuned via large-scale sweeps.

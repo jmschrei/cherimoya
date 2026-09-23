@@ -30,6 +30,7 @@ def run(args):
 		sequences=parameters["sequences"],
 		loci=parameters["loci"],
 		chroms=parameters["chroms"],
+		in_window=parameters["in_window"],
 		max_jitter=0,
 		ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
 		return_mask=True,
@@ -48,8 +49,18 @@ def run(args):
 	else:
 		raise ValueError("output must be either `counts` or `profile`.")
 
+	# Saturation mutagenesis is one forward pass per alternate base per
+	# position, so this width sets the cost of the step.
+	attr_window = parameters["attr_window"]
+	if attr_window > X.shape[-1]:
+		raise ValueError(
+			"attr_window ({}) is wider than the extracted sequence ({}); "
+			"lower attr_window or raise in_window"
+			.format(attr_window, X.shape[-1]))
+
 	mid = X.shape[-1] // 2
-	start, end = mid - 200, mid + 200
+	start = mid - attr_window // 2
+	end = start + attr_window
 
 	X_attr = saturation_mutagenesis(
 		wrapper,

@@ -62,6 +62,7 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+
 * Applying an EMA snapshot to a model already in eval mode left the
   Cheri Block's cached MLP weights holding the *previous* weights, so on
   CUDA the depthwise convolution ran on the EMA snapshot while the MLP
@@ -94,6 +95,64 @@ Bug fixes
   Only the fp32 cache branch was affected. Under ``torch.autocast`` the
   block's input dtype does not match the cached cast, so the inline path
   was already being taken and fp16/bf16 results were correct.
+
+* A hand-written ``pipeline`` JSON that omitted ``motifs`` raised
+  ``KeyError: 'motifs'`` at the seqlet annotation step — after the model
+  had already been trained. ``pipeline.run`` reads
+  ``parameters["motifs"]`` unguarded for the annotation, the MoDISco
+  report and the marginalization step, but ``motifs`` was not a declared
+  default, so only a JSON emitted by ``cherimoya pipeline-json`` (which
+  always writes the key) had it. ``motifs`` is now a top-level pipeline
+  default, documented in the CLI reference, and may be omitted.
+
+* A ``pipeline`` JSON that omitted ``model`` was rejected with ``Must
+  provide value for 'model'``, even though ``pipeline.run`` treats a
+  null model as "train one" and that is the only thing the key does.
+  ``model`` and ``motifs`` are now both omittable.
+
+* ``merge_parameters`` now says what to write when a required key is
+  missing. ``null`` is accepted and an absent key is not, which was not
+  guessable from ``Must provide value for 'x'``; the message now adds
+  "Set it to null if this step is supposed to produce it."
+
+* The CLI reference claimed that any key missing from a JSON falls back
+  to its default. That was false for every key whose default is
+  ``null``, which is most of the input paths. The "Common conventions"
+  section now states which keys must be present and which are genuinely
+  optional.
+* ``cherimoya attribute`` never passed ``in_window`` to ``extract_loci``,
+  so every run extracted ``tangermeme``'s own default of 2114bp no
+  matter what the JSON said. A model trained at a different input
+  window was therefore fed the wrong window — and the key was declared
+  in the schema and documented in the CLI reference the whole time. It
+  is now the window that is actually extracted.
+
+* The attributed slice was a hard-coded ``mid - 200, mid + 200`` with no
+  key controlling it. It is now ``attr_window``, defaulting to 400 so
+  existing runs produce byte-identical output, and validated against
+  ``in_window`` rather than silently producing an out-of-range slice.
+  ``cherimoya seqlets`` reads this width back off the saved arrays, so
+  changing it needs no matching setting there.
+
+* ``attribute_parameters.out_window`` is removed. The step extracts
+  sequence only, never signal, so there was no output window to size. A
+  JSON that still sets it is passed through and ignored.
+
+* ``cherimoya marginalize``'s ``shuffle`` did not sample. ``extract_loci``
+  stops as soon as it has ``n_loci`` usable sequences, i.e. it returns
+  the first ``n_loci`` rows of the file, and the shuffle ran *after*
+  that — so it permuted a set already chosen by file order and the
+  truncation that followed was a no-op. Every marginalization report was
+  built from the top of the background BED, in a seed-dependent order,
+  which is the one thing ``shuffle`` exists to avoid. The extraction is
+  no longer capped when shuffling, so the sample is drawn from the whole
+  file. **Reports produced with** ``shuffle: true`` **will now use
+  different background loci**; the unshuffled path is unchanged.
+
+  Drawing a sample means reading the population, so the shuffled path
+  now holds the full locus set in memory. The unshuffled path still
+  stops at ``n_loci``.
+
 * ``calculate_performance_measures`` dropped ``signal_groups`` when
   recursing to compute the ``within_peak_`` measures, so for a
   multi-group model those fell through to the legacy "sum every channel
@@ -110,6 +169,7 @@ Bug fixes
   including the detail that ``auprc`` and ``auroc`` are scored against
   the first count output only and so describe group 0 rather than the
   whole model when there is more than one group.
+
 * ``"dry_run": true`` crashed with ``FileNotFoundError`` on any pipeline
   configured with a motif database. The seqlet annotation step guards
   the ``ttl`` subprocess behind ``dry_run`` but read that subprocess's
@@ -118,6 +178,7 @@ Bug fixes
   running with a motif database is the common case, the documented way
   to check a config before committing GPU time to it did not work. The
   tally is now inside the same guard.
+
 * ``ExpectedCountsWrapper(ControlWrapper(model))`` raised
   ``AttributeError: 'ControlWrapper' object has no attribute
   'signal_groups'``. :class:`~cherimoya.ControlWrapper` is documented as
@@ -382,6 +443,46 @@ Documentation
   target first. All 26 mentions across the nine reference files were
   converted and every target verified to exist. No guidance changed.
   Re-run ``cherimoya install-skill --force`` to pick up the corrections.
+
+* The three forward paths were documented as agreeing to "~1e-5
+  max-abs" in the README, on the landing page, and in the architecture,
+  benchmarks and ``cherimoya.cheri`` pages. Measured on the default
+  9-layer, 128-filter model over a batch of 4 sequences of 2114 bp,
+  worst of three seeds, against a profile-logit scale of 0.73:
+
+  .. list-table::
+     :header-rows: 1
+
+     * - input dtype
+       - CPU vs training kernel
+       - CPU vs megakernel
+       - training kernel vs megakernel
+     * - fp32
+       - 2.5e-04
+       - 2.1e-04
+       - 1.4e-04
+     * - fp16 (autocast)
+       - 5.9e-04
+       - 5.9e-04
+       - 4.9e-04
+     * - bf16 (autocast)
+       - 5.0e-03
+       - 5.0e-03
+       - 3.9e-03
+
+  So the published figure was optimistic by roughly 20x at fp32 and
+  500x at bf16, and the test suite never enforced it — the tolerances
+  that exist are 1e-4 for a single block, 5e-3 for gradient parity and
+  5e-2 for the whole model. Every page now carries the measured numbers
+  and the configuration that produced them.
+
+  ``cheri.py`` also contradicted itself: the module and ``CheriBlock``
+  docstrings said ~1e-5 while two comments in the same file said ~1e-2.
+  All four now say the same measured thing.
+
+  The earlier figure remains in the v0.2.0 changelog entry below, which
+  is a record of what was claimed at the time rather than a current
+  statement.
 
 Tooling
 ~~~~~~~

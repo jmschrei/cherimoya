@@ -23,12 +23,15 @@ selected automatically based on input device and grad state:
      passes (no separate per-op launches). Used on CUDA when
      `torch.is_grad_enabled() == False` and `hidden % 16 == 0`. Casts
      the MLP weights to bf16 for fp32 input as a precision/speed tradeoff
-     (~2x faster, ~1e-5 max-abs precision loss at unit-scale outputs).
+     (~2x faster; see below for the measured difference).
      Falls back to the training path when its shape constraints don't
      hold so that any existing model configuration keeps working.
 
-All three paths agree on the model output to fp32 precision (paths 1 and
-2) or to ~1e-5 max-abs (path 3 vs the others).
+The three paths compute the same function but do not agree bitwise. On
+the default 9-layer, 128-filter model over 2114bp, the largest max-abs
+difference on the profile logits is 2.5e-04 at fp32 against a logit
+scale of 0.73, 5.9e-04 under fp16 autocast and 5.0e-03 under bf16
+autocast. `docs/architecture.rst` carries the full table.
 """
 
 import itertools
@@ -481,8 +484,9 @@ if HAS_TRITON:
 	# norm, MLP expansion + GELU + contraction, residual add — fuses
 	# into two GPU passes instead of the five separate ops the training
 	# path uses. Linear weights are cast to bf16 for fp32 inputs (the
-	# typical training/inference setup): this trades ~1e-2 max-abs
-	# precision for ~2x throughput on Hopper. If tight fp32-input
+	# typical training/inference setup): this trades ~1.4e-04 max-abs
+	# on the default model's profile logits for ~2x throughput on
+	# Hopper. If tight fp32-input
 	# parity is required, change `_cast_weights` to keep dt=X.dtype
 	# unconditionally and verify that tl.dot compiles with fp32
 	# operands on the target hardware.
@@ -896,9 +900,10 @@ class CheriBlock(torch.nn.Module):
 	depthwise weight is read and written under its historical
 	``conv_weight`` key even though it now lives on the ``conv``
 	submodule. The inference megakernel produces outputs that differ
-	from the training path by at most ~1e-5 max-abs at unit-scale
-	outputs; this drift comes from bf16 weight casts in the MLP and is
-	the precision/speed tradeoff documented in ``_cast_weights``.
+	from the training path by at most ~1.4e-04 max-abs on the default
+	model's profile logits at fp32; this drift comes from bf16 weight
+	casts in the MLP and is the precision/speed tradeoff documented in
+	``_cast_weights``.
 
 	Parameters
 	----------
@@ -1088,8 +1093,9 @@ class CheriBlock(torch.nn.Module):
 		back.
 
 		For fp32 input we downcast to bf16: roughly 2x dot throughput on
-		Hopper at the cost of ~1e-2 max-abs precision loss vs the
-		training path."""
+		Hopper at the cost of ~1.4e-04 max-abs on the default model's
+		profile logits versus the training path, against a logit scale
+		of 0.73."""
 
 		fresh = (self._eval_cache_version is not None
 			and self._eval_cache_version == self._weight_versions())

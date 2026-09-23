@@ -114,7 +114,6 @@ default_evaluate_parameters = {
 default_attribute_parameters = {
 	'batch_size': 512,
 	'in_window': 2114,
-	'out_window': 1000,
 	'verbose': False,
 	'chroms': training_chroms + validation_chroms,
 	'exclusion_lists': None,
@@ -122,6 +121,7 @@ default_attribute_parameters = {
 	'loci': None,
 	'model': None,
 	'output': 'counts',
+	'attr_window': 400,
 	'ohe_filename': 'attributions.ohe.npz',
 	'attr_filename': 'attributions.attr.npz',
 	'idx_filename': 'attributions.idx.npy',
@@ -206,6 +206,8 @@ default_pipeline_parameters = {
 	'signals': None,
 	'controls': None,
 
+	'motifs': None,
+
 	'skip': False,
 	'dry_run': False,
 
@@ -267,6 +269,7 @@ default_pipeline_parameters = {
 		'batch_size': None,
 		'chroms': training_chroms + validation_chroms,
 		'output': 'counts',
+		'attr_window': None,
 		'loci': None,
 		'dtype': None,
 		'device': None,
