@@ -73,9 +73,9 @@ def test_pipeline_dry_run_without_motifs_or_model(tmp_path, monkeypatch):
 	"""The end-to-end symptom: a hand-written JSON that omits both keys
 	must get through the run rather than dying on a missing key.
 
-	The run still exits at the marginalization step because `motifs` is
-	None, which is `pipeline.run`'s own control flow and not an error,
-	so SystemExit is the expected outcome here.
+	The run stops at the marginalization step because `motifs` is None,
+	which is `pipeline.run`'s own control flow and not an error, so it
+	returns rather than raising.
 
 	`dry_run` still writes each step's JSON, and it writes them relative
 	to the working directory, so the test runs from `tmp_path`.
@@ -86,8 +86,7 @@ def test_pipeline_dry_run_without_motifs_or_model(tmp_path, monkeypatch):
 	cfg = _minimal_json(tmp_path)
 	monkeypatch.chdir(tmp_path)
 
-	with pytest.raises(SystemExit):
-		pipeline.run(argparse.Namespace(parameters=str(cfg)))
+	assert pipeline.run(argparse.Namespace(parameters=str(cfg))) is None
 
 
 def test_merge_parameters_error_names_the_null_fix(tmp_path):

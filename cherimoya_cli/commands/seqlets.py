@@ -3,7 +3,6 @@
 
 
 def run(args):
-	import sys
 
 	import numpy
 	import torch
@@ -17,7 +16,7 @@ def run(args):
 
 	parameters = merge_parameters(args.parameters, default_seqlet_parameters)
 	if parameters["skip"]:
-		sys.exit()
+		return
 
 	###
 

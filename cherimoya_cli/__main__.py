@@ -75,13 +75,15 @@ def _setup_parsers() -> argparse.ArgumentParser:
 		help="Make a pipeline JSON file given the provided information.",
 	)
 	pipeline_json_parser.add_argument(
-		"-s", "--sequences", type=str, help="The FASTA file of sequences."
+		"-s", "--sequences", type=str, required=True,
+		help="The FASTA file of sequences."
 	)
 	pipeline_json_parser.add_argument(
 		"-i",
 		"--inputs",
 		type=str,
 		action="append",
+		required=True,
 		help="A BAM or bigwig file. Repeatable.",
 	)
 	pipeline_json_parser.add_argument(
@@ -106,7 +108,8 @@ def _setup_parsers() -> argparse.ArgumentParser:
 		help="A BED-formatted file of negative loci to use. Repeatable.",
 	)
 	pipeline_json_parser.add_argument(
-		"-n", "--name", type=str, help="Name to use as a suffix in intermediary files."
+		"-n", "--name", type=str, required=True,
+		help="Name to use as a suffix in intermediary files."
 	)
 	pipeline_json_parser.add_argument(
 		"-u",
@@ -144,7 +147,8 @@ def _setup_parsers() -> argparse.ArgumentParser:
 		help="A motif database for marginalization and TF-MoDISco.",
 	)
 	pipeline_json_parser.add_argument(
-		"-o", "--output", type=str, help="The filename for the pipeline JSON."
+		"-o", "--output", type=str, required=True,
+		help="The filename for the pipeline JSON."
 	)
 	pipeline_json_parser.add_argument(
 		"-pe",

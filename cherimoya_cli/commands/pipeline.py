@@ -52,7 +52,6 @@ def run(args):
 	import json
 	import os
 	import subprocess
-	import sys
 
 	import pandas
 
@@ -457,7 +456,7 @@ def run(args):
 	###
 
 	if parameters["motifs"] is None:
-		sys.exit()
+		return
 
 	if parameters["verbose"]:
 		print("\nStep 5: Run marginalizations")
