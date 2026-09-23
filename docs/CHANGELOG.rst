@@ -32,6 +32,27 @@ Bug fixes
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
 
+CLI
+~~~
+
+* ``default_pipeline_parameters['marginalize_parameters']`` declared
+  ``output_folder`` while ``cherimoya marginalize`` reads
+  ``output_filename``, so setting it in a pipeline JSON was a silent
+  no-op and the report landed in the default location anyway. The
+  declared key is now ``output_filename``, which is what the CLI
+  reference already documented. ``modisco_report_parameters`` keeps its
+  ``output_folder``; that one is read.
+
+* Removed ``count_loss_weight`` from the pipeline's ``fit_parameters``
+  and from ``merge_parameters``'s omittable list. Nothing read it —
+  not ``fit``, not the model, not the loss. ``loss_weights`` is the key
+  that sets fixed profile and count weights.
+
+* Documented why ``default_fit_parameters['reverse_complement_average']``
+  is not dead, since it reads that way: ``fit`` never uses it, but
+  deepcopies its parameters into the evaluate JSON it generates when
+  training finishes, and ``evaluate`` does read it.
+
 Reproducibility
 ~~~~~~~~~~~~~~~
 
