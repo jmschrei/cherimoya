@@ -976,3 +976,38 @@ def test_no_perm_falls_back_to_length_only_flip():
 	# Channels in their original order, length reversed.
 	expected = peak_signals[src].flip(-1)
 	assert torch.equal(y, expected)
+
+
+def test_sampler_rejects_a_negative_draw_with_no_negatives():
+	"""`negative_ratio > 0` with an empty negative set reserves slots it
+	cannot fill: `__getitem__` indexes an empty array and dies with an
+	IndexError naming neither the ratio nor the set. Say which it is."""
+
+	peaks = torch.zeros(4, 4, 20)
+	peaks[:, 0, :] = 1.0
+	peak_signals = torch.zeros(4, 1, 10)
+
+	with pytest.raises(ValueError, match="negative"):
+		PeakNegativeSampler(
+			peak_sequences=peaks, peak_signals=peak_signals,
+			negative_sequences=torch.zeros(0, 4, 20),
+			negative_signals=torch.zeros(0, 1, 10),
+			negative_ratio=0.5, in_window=20, out_window=10,
+			random_state=0)
+
+
+def test_sampler_allows_no_negatives_when_the_ratio_is_zero():
+	"""The control: an empty negative set is fine when none are drawn,
+	which is how the grouped fit smoke test is set up."""
+
+	peaks = torch.zeros(4, 4, 20)
+	peaks[:, 0, :] = 1.0
+	peak_signals = torch.zeros(4, 1, 10)
+
+	sampler = PeakNegativeSampler(
+		peak_sequences=peaks, peak_signals=peak_signals,
+		negative_sequences=torch.zeros(0, 4, 20),
+		negative_signals=torch.zeros(0, 1, 10),
+		negative_ratio=0, in_window=20, out_window=10, random_state=0)
+
+	assert len(sampler) == 4
