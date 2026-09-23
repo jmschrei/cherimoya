@@ -31,6 +31,23 @@ Bug fixes
   coordinates. Re-run ``cherimoya seqlets`` over the existing
   ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
   recomputing attributions.
+* ``cherimoya attribute`` never passed ``in_window`` to ``extract_loci``,
+  so every run extracted ``tangermeme``'s own default of 2114bp no
+  matter what the JSON said. A model trained at a different input
+  window was therefore fed the wrong window — and the key was declared
+  in the schema and documented in the CLI reference the whole time. It
+  is now the window that is actually extracted.
+
+* The attributed slice was a hard-coded ``mid - 200, mid + 200`` with no
+  key controlling it. It is now ``attr_window``, defaulting to 400 so
+  existing runs produce byte-identical output, and validated against
+  ``in_window`` rather than silently producing an out-of-range slice.
+  ``cherimoya seqlets`` reads this width back off the saved arrays, so
+  changing it needs no matching setting there.
+
+* ``attribute_parameters.out_window`` is removed. The step extracts
+  sequence only, never signal, so there was no output window to size. A
+  JSON that still sets it is passed through and ignored.
 
 Reproducibility
 ~~~~~~~~~~~~~~~
