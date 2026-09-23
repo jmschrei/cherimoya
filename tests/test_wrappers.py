@@ -414,3 +414,79 @@ def test_expected_counts_missing_control_raises(control_model):
 
 	with pytest.raises(RuntimeError):
 		ExpectedCountsWrapper(control_model)(X)
+
+
+##
+# Composition with ControlWrapper.
+#
+# `ControlWrapper`'s docstring calls it "the inner wrapper that
+# ProfileWrapper, LogCountWrapper, or ExpectedCountsWrapper are layered
+# on top of", and the attribute CLI builds exactly that stack. A wrapper
+# that reads configuration off the model therefore has to look through
+# it.
+##
+
+
+@pytest.fixture
+def controlled_model():
+	"""A grouped model that takes control tracks, so `ControlWrapper`
+	actually has something to synthesize."""
+
+	torch.manual_seed(0)
+	return Cherimoya(n_filters=8, n_layers=2, signal_groups=[1, 2],
+		n_control_tracks=2, verbose=False, compile=False).eval()
+
+
+@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountWrapper,
+	ExpectedCountsWrapper])
+def test_wrappers_compose_over_control_wrapper(wrapper, controlled_model):
+	"""Every output wrapper must run when layered over ControlWrapper,
+	which is the documented arrangement and the one the CLI builds."""
+
+	model = wrapper(ControlWrapper(controlled_model))
+	X = torch.randn(2, 4, _input_window_for(controlled_model))
+
+	with torch.no_grad():
+		y = model(X)
+
+	assert y.shape[0] == 2
+
+
+def test_expected_counts_over_control_wrapper_matches_direct(
+		controlled_model):
+	"""Layering over ControlWrapper must not change the answer: the
+	control tracks it synthesizes are zeros, which is what passing them
+	explicitly would do."""
+
+	X = torch.randn(2, 4, _input_window_for(controlled_model))
+	X_ctl = torch.zeros(2, 2, X.shape[-1])
+
+	wrapped = ExpectedCountsWrapper(ControlWrapper(controlled_model))
+	direct = ExpectedCountsWrapper(controlled_model)
+
+	with torch.no_grad():
+		a = wrapped(X)
+		b = direct(X, X_ctl=X_ctl)
+
+	assert_array_almost_equal(a.numpy(), b.numpy(), 5)
+
+
+def test_expected_counts_group_structure_through_control_wrapper(
+		controlled_model):
+	"""The grouping the wrapper needs is the model's, not the
+	ControlWrapper's, so each group's expected counts must still sum to
+	that group's predicted count."""
+
+	X = torch.randn(2, 4, _input_window_for(controlled_model))
+	model = ExpectedCountsWrapper(ControlWrapper(controlled_model))
+
+	with torch.no_grad():
+		y = model(X)
+		_, logcounts = ControlWrapper(controlled_model)(X)
+
+	counts = torch.expm1(logcounts)
+	offset = 0
+	for i, g in enumerate(controlled_model.signal_groups):
+		total = y[:, offset:offset + g].sum(dim=(1, 2))
+		assert_array_almost_equal(total.numpy(), counts[:, i].numpy(), 4)
+		offset += g
