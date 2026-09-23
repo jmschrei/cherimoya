@@ -173,6 +173,36 @@ To run only the GPU parity tests:
    pytest tests/ -m "cuda or triton"
 
 
+What continuous integration does and does not cover
+---------------------------------------------------
+
+Three jobs run on every pull request and every push to ``main``:
+
+* ``pytest`` — the CPU suite on Python 3.10 through 3.13.
+* ``docs`` — the Sphinx build with ``-W``, so a broken ``:doc:`` or
+  ``:ref:`` link fails the build. ``conf.py`` mocks every heavy
+  import, so this job does not check that the package imports; the
+  ``pytest`` job does.
+* ``lint`` — ``ruff`` restricted to syntax errors, undefined names and
+  broken comparisons. The full default rule set reports findings on
+  this tree that are worth fixing but are a separate change from
+  adding the gate.
+
+**No hosted runner has a GPU, so nothing in CI exercises the CUDA or
+Triton paths.** That includes the three-way forward parity between the
+CPU fallback, the training Triton kernel and the inference megakernel,
+which is the invariant most worth protecting. Before merging anything
+that touches a kernel, a ``state_dict``, module structure or the
+count/profile heads, run both of these on a machine with a GPU:
+
+.. code-block:: bash
+
+   pytest tests/ -m "cuda or triton"
+   python compat/run.py --a origin/main --b HEAD --preset full
+
+``compat/`` is gitignored local tooling; see its README first.
+
+
 Benchmarking
 ------------
 

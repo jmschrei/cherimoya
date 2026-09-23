@@ -548,6 +548,20 @@ Tooling
   exercises parameter wiring and optimizer routing without training,
   and ``test_evaluate.py`` covers the TSV output shape.
 
+* Continuous integration gained two jobs. ``docs`` runs the Sphinx
+  build with ``-W``, so a broken ``:doc:`` or ``:ref:`` link fails the
+  build rather than shipping; nothing checked the documentation before.
+  ``lint`` runs ``ruff`` restricted to syntax errors, undefined names
+  and broken comparisons — deliberately narrow, because the full rule
+  set reports findings on this tree that are worth fixing separately
+  from adding the gate.
+
+* ``docs/development.rst`` now states what CI does not cover: no hosted
+  runner has a GPU, so the CUDA and Triton paths — including the
+  three-way forward parity that is the repository's central numerical
+  invariant — are verified only by running ``pytest -m "cuda or
+  triton"`` and the ``compat`` sweep by hand before merging.
+
 * Added tests for ``cherimoya negatives``, which had no coverage at all.
   They pin the flag-to-kwarg forwarding — most flags are renamed on the
   way into ``extract_matching_loci`` — the headerless BED output that
