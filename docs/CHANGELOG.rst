@@ -527,8 +527,9 @@ Attribution
   the result back through the convolution with autograd, which is exact
   because the convolution is linear. It reproduces the attributions of a
   model rewritten as ``F.conv1d`` plus ``torch.nn.LayerNorm`` to 1.5e-08
-  on CPU and 7.5e-09 on CUDA, and costs 6.45 ms per sequence against that
-  rewrite's 10.24 ms, since the rewrite gives up the kernel for the whole
+  on CPU and 7.5e-09 on CUDA, and is faster than that rewrite -- 4.85
+  against 5.78 ms per sequence for a 9-layer, 128-filter model at 2114bp
+  on an H200 -- since the rewrite gives up the kernel for the whole
   forward and backward. ``integrated_gradients_op`` also converges but is
   a path integral rather than the closed form, and lands 2.78% away from
   it on both devices.
@@ -539,17 +540,16 @@ Attribution
   reference, which is a property of the model and the inputs rather than
   of the layer. A 9-layer model over 2114bp reduces over 270,000 elements
   per statistic and barely moves them; one block over a short window
-  leaves a convergence delta a third of the size of the prediction.
+  leaves a convergence delta a quarter of the size of the prediction.
 
-* On CUDA the convergence delta is not a usable check for this op. Which
-  Triton config autotune settles on varies between processes, and the two
-  it picks from move the delta between 1.0e-07 and 3.3e-04 on the test
-  fixture -- two discrete values, 2 runs in 8 on a fixed GPU, and warming
-  the kernel first does not change it. The attributions are unaffected,
-  matching the decomposed model to 7.5e-09 or better under either config,
-  because what differs cancels in the channel-wise projection. Check
-  agreement against a decomposed model rather than the delta when
-  validating on GPU.
+* On CUDA the convergence delta of the test fixture is not a stable
+  check. It lands at 1.0e-07 in most processes and at 3.3e-04 in a few
+  (1 in 8 and 1 in 16 in two runs), and the same happens to the fixture
+  rewritten as ``F.conv1d`` plus ``torch.nn.LayerNorm``, which launches
+  no Triton kernel -- so it comes from PyTorch's CUDA path, not from
+  ``conv_norm_op`` or the fused kernel. The attributions still match the
+  decomposed model in every process. Check agreement against a
+  decomposed model rather than the delta when validating on GPU.
 
 * ``attribution_ops`` also registers the profile head's
   ``_ProfileLogitScaling`` with tangermeme's elementwise rescale rule.

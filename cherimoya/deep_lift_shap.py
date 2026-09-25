@@ -91,14 +91,15 @@ def conv_norm_op(module, grad_input, grad_output):
 	and backward passes.
 
 	Registering nothing is the alternative, and it is not safe in general.
-	The op is genuinely non-linear -- scaling its input by two moves the
-	output 60% away from twice the output -- so whether it can be treated
+	The op is genuinely non-linear -- the normalization divides out the
+	scale of its input, so doubling the input leaves the output nearly
+	unchanged rather than doubling it -- so whether it can be treated
 	as linear depends on how far the normalization's statistics move
 	between an example and its reference, which is a property of the model
 	and the inputs rather than of the layer. A 9-layer model over 2114bp
 	reduces over 270,000 elements per statistic and barely moves them; a
 	single block over a short window does not, and leaves a convergence
-	delta a third of the size of the prediction.
+	delta a quarter of the size of the prediction.
 
 	The cost over registering nothing is one extra convolution forward and
 	one backward per call, against `integrated_gradients_op`'s K of each.

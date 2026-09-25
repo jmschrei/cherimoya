@@ -307,17 +307,16 @@ def test_conv_norm_op_matches_the_decomposed_model_on_cuda(X, references):
 	stronger of the two: a rule can converge and still be a different
 	attribution.
 
-	The convergence delta is deliberately not asserted here. Which Triton
-	config autotune settles on varies between processes, and the two it
-	picks from move the delta between 1.0e-07 and 3.3e-04 on this fixture
-	-- two discrete values, 2 runs in 8 on a fixed GPU, unaffected by
-	warming the kernel first. The attributions are not affected: they
-	match the decomposed model to 7.5e-09 or better under either config,
-	because what differs cancels in the channel-wise projection. So the
-	delta is not a usable assertion on CUDA for this op, while agreement
-	is, and agreement is the stronger claim anyway.
+	The convergence delta is deliberately not asserted here. On this
+	fixture it lands at 1.0e-07 in most processes and at 3.3e-04 in a
+	few, and `_Decomposed`, which launches no Triton kernel, does the
+	same, so the variation comes from PyTorch's CUDA path rather than
+	from the rule or the fused kernel. The attributions match the
+	decomposed model in every process. So the delta is not a usable
+	assertion on CUDA, while agreement is, and agreement is the stronger
+	claim anyway.
 
-	Runs over two seconds, almost entirely CUDA context creation and the
+	Takes several seconds, almost entirely CUDA context creation and the
 	one-time Triton autotune; the work itself is the same size as its CPU
 	counterpart above.
 	"""

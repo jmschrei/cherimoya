@@ -119,7 +119,7 @@ Everything above uses saturation mutagenesis, which makes forward passes
 only and needs nothing registered. ``deep_lift_shap`` is the gradient-based
 alternative: it costs a handful of forward and backward passes per sequence
 rather than three per position, which on a 9-layer model over a 2114 bp
-window is about 6 ms against 65 ms for the central-400 bp ISM the CLI runs,
+window is about 5 ms against 73 ms for the central-400 bp ISM the CLI runs,
 both measured on one H200 at batch 8.
 
 It does need two rules registered. ``FusedDilatedConvNorm`` and the profile

@@ -68,16 +68,16 @@ X_attr = deep_lift_shap(wrapper, X, references=references,
 
 Two more things it needs. Load the model with `compile=False` — DeepLIFT's
 backward hooks replace gradients, which Inductor cannot trace, so a compiled
-model graph-breaks and runs several times slower for the same answer. And
+model graph-breaks and runs slightly slower for the same answer. And
 `attribution_ops()` requires `tangermeme >= 1.5.0`.
 
-Two GPU caveats. The first backward per `(n_filters, length)` in a process is
-5-10% wrong (jmschrei/cherimoya#50), so warm the model up with a throwaway
-backward before reading any single-shot gradient. And the convergence delta is
-not a reliable check there — which Triton config autotune picks varies between
-processes and moves the delta by three orders of magnitude without touching the
-attributions. Validate on CPU, or against a model rewritten with
-`torch.nn.LayerNorm`, rather than trusting a GPU delta.
+One GPU caveat: the convergence delta is not a reliable check there. On a
+small model it can land three orders of magnitude higher in some processes than
+in others without the attributions moving, and a model with no Cherimoya
+kernel in it does the same. Validate on CPU, or against a model rewritten with
+`torch.nn.LayerNorm`, rather than trusting a GPU delta. The wrong first
+backward per `(n_filters, length)` (jmschrei/cherimoya#50) is fixed, so no
+warm-up backward is needed.
 
 ## What lives where
 
