@@ -112,6 +112,35 @@ across the channel axis:
    importance = (X_attr * X[:, :, mid - 200:mid + 200]).sum(dim=1)
 
 
+DeepLIFT/SHAP instead of saturation mutagenesis
+-----------------------------------------------
+
+Everything above uses saturation mutagenesis, which makes forward passes
+only and needs nothing registered. ``deep_lift_shap`` is the gradient-based
+alternative: it costs a handful of forward and backward passes per sequence
+rather than three per position, which on a 9-layer model over a 2114 bp
+window is about 5 ms against 73 ms for the central-400 bp ISM the CLI runs,
+both measured on one H200 at batch 8.
+
+It does need two rules registered. ``FusedDilatedConvNorm`` and the profile
+head's logit scaling are neither linear nor in tangermeme's table, so
+without them the attributions carry no guarantee that they sum to the
+change in the prediction — and for the profile head the error exceeds the
+prediction itself. :func:`cherimoya.deep_lift_shap.attribution_ops` returns
+both:
+
+.. code-block:: python
+
+   from tangermeme.deep_lift_shap import deep_lift_shap
+   from cherimoya.deep_lift_shap import attribution_ops
+
+   X_attr = deep_lift_shap(wrapper, X, references=references,
+       additional_nonlinear_ops=attribution_ops())
+
+Load the model with ``compile=False`` when attributing it. See
+:doc:`../api/deep_lift_shap` for what each rule does and why.
+
+
 Identifying seqlets
 -------------------
 

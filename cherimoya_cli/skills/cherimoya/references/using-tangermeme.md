@@ -3,8 +3,9 @@
 Post-training analysis — attributions via saturation mutagenesis (ISM, the
 method Cherimoya uses), marginalization, variant-effect scoring, and sequence
 design — lives in **tangermeme**, not Cherimoya. (DeepLIFT/SHAP via
-`deep_lift_shap` is an alternative on a wrapped model.) Cherimoya's only job is
-to expose the right single tensor from its `(profile, log-count)` output.
+`deep_lift_shap` is an alternative on a wrapped model, and needs two rules
+registered — see below.) Cherimoya's only job is to expose the right single
+tensor from its `(profile, log-count)` output.
 
 **If a `tangermeme` skill is available, invoke it for the actual analysis.**
 This file covers only the Cherimoya-specific step — choosing and applying the
@@ -48,6 +49,35 @@ wrapper = LogCountWrapper(ControlWrapper(model))
 # Hand `wrapper` to tangermeme (saturation_mutagenesis, deep_lift_shap,
 # variant effect, ledidi design, ...).
 ```
+
+## DeepLIFT/SHAP needs two rules registered
+
+ISM needs nothing. `deep_lift_shap` does: it corrects the module types it knows
+and silently treats the rest as linear, and two of Cherimoya's layers are
+neither known nor linear. Without them the attributions carry no guarantee that
+they sum to the change in the prediction, and for the profile head the error
+exceeds the prediction itself. Always pass `attribution_ops()`:
+
+```python
+from tangermeme.deep_lift_shap import deep_lift_shap
+from cherimoya.deep_lift_shap import attribution_ops
+
+X_attr = deep_lift_shap(wrapper, X, references=references,
+    additional_nonlinear_ops=attribution_ops())
+```
+
+Two more things it needs. Load the model with `compile=False` — DeepLIFT's
+backward hooks replace gradients, which Inductor cannot trace, so a compiled
+model graph-breaks and runs slightly slower for the same answer. And
+`attribution_ops()` requires `tangermeme >= 1.5.0`.
+
+One GPU caveat: the convergence delta is not a reliable check there. On a
+small model it can land three orders of magnitude higher in some processes than
+in others without the attributions moving, and a model with no Cherimoya
+kernel in it does the same. Validate on CPU, or against a model rewritten with
+`torch.nn.LayerNorm`, rather than trusting a GPU delta. The wrong first
+backward per `(n_filters, length)` (jmschrei/cherimoya#50) is fixed, so no
+warm-up backward is needed.
 
 ## What lives where
 

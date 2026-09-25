@@ -52,6 +52,42 @@ except ImportError:
 CONV_NORM_EPS = 1e-3
 
 
+def _cheri_conv(x, w, dilation):
+	"""The 3-tap depthwise dilated convolution, without the normalization.
+
+	The convolution half of the fused op, split out so that the Triton
+	path's CPU reference and anything that has to reconstruct the conv
+	output -- the DeepLIFT rule in `cherimoya.deep_lift_shap` does -- share
+	one definition of the weight layout and the padding rather than two
+	that can drift apart.
+
+	Parameters
+	----------
+	x: torch.Tensor, shape=(N, L, C)
+		The input tensor, channels last.
+
+	w: torch.Tensor, shape=(3, C)
+		Depthwise convolution weights for the left, center, and right taps.
+
+	dilation: int
+		Spacing between the three taps. The kernel reads from positions
+		(i - dilation, i, i + dilation) for each output position i, with
+		zero padding outside the sequence.
+
+	Returns
+	-------
+	y: torch.Tensor, shape=(N, L, C)
+		The convolved tensor, in the same dtype as `x`.
+	"""
+
+	# F.conv1d expects (N, C, L) input and (C, 1, 3) weight for depthwise.
+	weight = w.t().unsqueeze(1).contiguous()
+	x_t = x.transpose(1, 2).contiguous()
+	y_t = F.conv1d(x_t, weight, padding=dilation, dilation=dilation,
+		groups=x.shape[-1])
+	return y_t.transpose(1, 2).contiguous()
+
+
 def _cheri_conv_norm_cpu(x, w, dilation, eps=CONV_NORM_EPS):
 	"""Pure PyTorch implementation of the fused dilated conv + norm.
 
@@ -86,11 +122,7 @@ def _cheri_conv_norm_cpu(x, w, dilation, eps=CONV_NORM_EPS):
 
 	N, L, C = x.shape
 
-	# F.conv1d expects (N, C, L) input and (C, 1, 3) weight for depthwise.
-	weight = w.t().unsqueeze(1).contiguous()
-	x_t = x.transpose(1, 2).contiguous()
-	y_t = F.conv1d(x_t, weight, padding=dilation, dilation=dilation, groups=C)
-	y = y_t.transpose(1, 2).contiguous()
+	y = _cheri_conv(x, w, dilation)
 
 	# Per-example layer norm across all (L, C) positions.
 	flat = y.reshape(N, -1).float()

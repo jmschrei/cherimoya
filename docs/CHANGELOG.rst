@@ -508,6 +508,63 @@ Attribution
   become a useful hook point for attributions taken with respect to the
   control tracks themselves, which is not a supported path.
 
+* Adds :mod:`cherimoya.deep_lift_shap`, the DeepLIFT rules a Cherimoya
+  model needs before ``tangermeme.deep_lift_shap.deep_lift_shap`` can
+  attribute it correctly. ``deep_lift_shap`` corrects the module types
+  it knows and treats the rest as linear, and two of Cherimoya's layers
+  are neither known nor linear, so this is a correctness question rather
+  than a performance one. ``attribution_ops()`` returns both rules for
+  ``additional_nonlinear_ops``. Requires ``tangermeme >= 1.5.0``, where
+  the closed-form normalization rule it reuses was added.
+
+* ``conv_norm_op`` gives :class:`~cherimoya.cheri.FusedDilatedConvNorm` a
+  closed-form rule without giving up the Triton kernel. The fused op is a
+  normalization applied to a depthwise convolution; the convolution is
+  linear, so only the normalization needs a rule, and the closed form for
+  that already exists for ``torch.nn.LayerNorm`` — the same operation the
+  kernel performs. The rule recomputes the convolution from the cached
+  input, evaluates the normalization multiplier at its output, and pushes
+  the result back through the convolution with autograd, which is exact
+  because the convolution is linear. It reproduces the attributions of a
+  model rewritten as ``F.conv1d`` plus ``torch.nn.LayerNorm`` to 1.5e-08
+  on CPU and 7.5e-09 on CUDA, and is faster than that rewrite -- 4.85
+  against 5.78 ms per sequence for a 9-layer, 128-filter model at 2114bp
+  on an H200 -- since the rewrite gives up the kernel for the whole
+  forward and backward. ``integrated_gradients_op`` also converges but is
+  a path integral rather than the closed form, and lands 2.78% away from
+  it on both devices.
+
+  Registering nothing is not safe in general. The op is genuinely
+  non-linear, and whether it can be treated as linear depends on how far
+  the normalization's statistics move between a sequence and its
+  reference, which is a property of the model and the inputs rather than
+  of the layer. A 9-layer model over 2114bp reduces over 270,000 elements
+  per statistic and barely moves them; one block over a short window
+  leaves a convergence delta a quarter of the size of the prediction.
+
+* On CUDA the convergence delta of the test fixture is not a stable
+  check. It lands at 1.0e-07 in most processes and at 3.3e-04 in a few
+  (1 in 8 and 1 in 16 in two runs), and the same happens to the fixture
+  rewritten as ``F.conv1d`` plus ``torch.nn.LayerNorm``, which launches
+  no Triton kernel -- so it comes from PyTorch's CUDA path, not from
+  ``conv_norm_op`` or the fused kernel. The attributions still match the
+  decomposed model in every process. Check agreement against a
+  decomposed model rather than the delta when validating on GPU.
+
+* ``attribution_ops`` also registers the profile head's
+  ``_ProfileLogitScaling`` with tangermeme's elementwise rescale rule.
+  Left unregistered it is treated as linear, which on a 2-layer model
+  leaves a convergence delta of 8.0e-04 against a prediction of 3.7e-04
+  — the error exceeds the signal, so the attributions carry no
+  information about their own scale. Registering it brings the delta to
+  1.3e-09. ``conv_norm_op`` alone does not reach this; the count head is
+  unaffected.
+
+* ``_cheri_conv`` splits the 3-tap depthwise dilated convolution out of
+  ``_cheri_conv_norm_cpu``, so the CPU reference and ``conv_norm_op``
+  share one definition of the weight layout and the padding instead of
+  two that can drift. No behavior change.
+
 Compatibility
 ~~~~~~~~~~~~~
 
@@ -558,6 +615,12 @@ Packaging
   version error at install time. Raised to ``>=1.4.0``, the version the
   test suite is run against, with a comment in ``pyproject.toml``
   recording the policy so it does not drift again.
+
+* Removed the one-week ``exclude-newer`` window from ``[tool.uv]`` in
+  ``pyproject.toml``. It hid every release younger than a week from the
+  resolver, so ``uv sync`` could not satisfy a floor on a just-released
+  dependency such as ``tangermeme>=1.5.0``. ``uv.lock`` now pins
+  tangermeme 1.5.0.
 
 Documentation
 ~~~~~~~~~~~~~
