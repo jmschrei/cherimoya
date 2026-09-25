@@ -141,7 +141,6 @@ def run(args):
 	import copy
 	import os
 	import random
-	import sys
 	import json
 
 	os.environ["TORCH_CUDNN_V8_API_ENABLED"] = "1"
@@ -171,7 +170,7 @@ def run(args):
 
 	parameters = merge_parameters(args.parameters, default_fit_parameters)
 	if parameters["skip"]:
-		sys.exit()
+		return
 
 	# Resolve the seed before anything draws from an RNG. A null
 	# `random_state` means "pick one and tell me" rather than "stay

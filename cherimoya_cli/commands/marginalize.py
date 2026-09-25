@@ -3,7 +3,6 @@
 
 
 def run(args):
-	import sys
 
 	import numpy
 	import torch
@@ -18,14 +17,22 @@ def run(args):
 
 	parameters = merge_parameters(args.parameters, default_marginalize_parameters)
 	if parameters["skip"]:
-		sys.exit()
+		return
 
 	###
 
-	model = Cherimoya.load(parameters["model"], device=parameters["device"])
+	model = Cherimoya.load(parameters["model"], device=parameters["device"],
+		compile=parameters["compile"],
+		compile_mode=parameters["compile_mode"])
 
 	if model.n_control_tracks > 0:
 		model = ControlWrapper(model)
+
+	# `extract_loci` stops at `n_loci`, i.e. returns the first `n_loci`
+	# rows, so capping it here would leave the shuffle below permuting a
+	# set already chosen by file order. Costs the whole file in memory,
+	# which is why the unshuffled path still caps.
+	extract_n_loci = None if parameters["shuffle"] else parameters["n_loci"]
 
 	X = extract_loci(
 		sequences=parameters["sequences"],
@@ -33,7 +40,7 @@ def run(args):
 		chroms=parameters["chroms"],
 		max_jitter=0,
 		ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
-		n_loci=parameters["n_loci"],
+		n_loci=extract_n_loci,
 		verbose=parameters["verbose"],
 	).float()
 

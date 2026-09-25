@@ -11,7 +11,14 @@ sys.path.insert(0, os.path.abspath('..'))
 project = 'Cherimoya'
 copyright = '2026, Jacob Schreiber'
 author = 'Jacob Schreiber'
-release = '0.2.0'
+
+# In an editable install this reports whatever was last pip-installed,
+# which can lag the source tree. That is the environment, not the repo.
+try:
+	from importlib.metadata import version as _version
+	release = _version('cherimoya')
+except Exception:
+	release = 'unknown'
 
 # -- General configuration ---------------------------------------------------
 
@@ -41,7 +48,7 @@ autodoc_typehints = 'description'
 autodoc_mock_imports = [
     'torch', 'triton', 'numpy', 'scipy', 'pandas', 'h5py',
     'tqdm', 'seaborn', 'tangermeme', 'bpnetlite', 'modisco',
-    'macs3', 'bam2bw', 'sklearn', 'joblib',
+    'macs3', 'bam2bw', 'sklearn',
 ]
 
 # Intersphinx mapping

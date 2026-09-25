@@ -3,7 +3,6 @@
 
 
 def run(args):
-	import sys
 
 	import torch
 
@@ -19,7 +18,7 @@ def run(args):
 
 	parameters = merge_parameters(args.parameters, default_evaluate_parameters)
 	if parameters["skip"]:
-		sys.exit()
+		return
 
 	# Flatten any structured (list-of-lists) signals/controls so they
 	# can be handed to extract_loci. The model's own signal_groups
@@ -42,7 +41,9 @@ def run(args):
 
 	###
 
-	model = Cherimoya.load(parameters["model"], device=parameters["device"])
+	model = Cherimoya.load(parameters["model"], device=parameters["device"],
+		compile=parameters["compile"],
+		compile_mode=parameters["compile_mode"])
 
 	examples = extract_loci(
 		sequences=parameters["sequences"],

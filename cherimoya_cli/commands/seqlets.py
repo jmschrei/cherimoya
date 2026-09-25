@@ -3,7 +3,6 @@
 
 
 def run(args):
-	import sys
 
 	import numpy
 	import torch
@@ -17,7 +16,7 @@ def run(args):
 
 	parameters = merge_parameters(args.parameters, default_seqlet_parameters)
 	if parameters["skip"]:
-		sys.exit()
+		return
 
 	###
 
@@ -41,5 +40,15 @@ def run(args):
 		additional_flanks=parameters["additional_flanks"],
 	).sort_values("attribution", ascending=False)
 
-	seqlets = example_to_fasta_coords(seqlets, loci, parameters["in_window"])
+	# The attributed slice is centred inside the extraction window and
+	# narrower than it, so the window to convert against is the slice's
+	# own width, read off the array rather than from a parameter.
+	attr_window = X.shape[-1]
+
+	# An empty result has `object` dtype columns, which
+	# `example_to_fasta_coords` cannot index the locus table with. The
+	# empty BED is still written; the annotation step opens it either way.
+	if len(seqlets) > 0:
+		seqlets = example_to_fasta_coords(seqlets, loci, attr_window)
+
 	seqlets.to_csv(parameters["output_filename"], sep="\t", index=False, header=False)

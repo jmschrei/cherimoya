@@ -16,7 +16,15 @@ Common conventions
 * Every subcommand except ``pipeline-json`` and ``negatives`` is
   driven by a JSON file passed with ``-p``. Keys missing from the JSON
   fall back to the corresponding default in
-  ``cherimoya_cli.defaults``.
+  ``cherimoya_cli.defaults``, **except** for keys whose default is
+  ``null``. Those must be present in the JSON, and writing ``null`` is
+  how you say "a later step produces this" — so a ``pipeline`` JSON
+  names ``sequences``, ``loci``, ``negatives``, ``signals`` and
+  ``name``, setting to ``null`` any that MACS3 or the negatives step
+  will produce. The exceptions are the keys that are optional by
+  design, which may simply be left out: ``controls``, ``model``,
+  ``motifs``, ``exclusion_lists``, ``early_stopping``,
+  ``loss_weights``, ``count_loss_weight`` and ``warning_threshold``.
 * Most JSON schemas accept ``"skip": true`` to no-op the step. The
   ``pipeline`` JSON accepts ``"dry_run": true`` to print/emit the
   per-step JSONs without running any subprocess.
@@ -44,10 +52,10 @@ pointers.
      - Type
      - Description
    * - ``-s, --sequences``
-     - path
+     - path (required)
      - Reference genome FASTA.
    * - ``-i, --inputs``
-     - path (repeatable)
+     - path (repeatable, required)
      - Signal file (BAM/SAM/fragment file/bigWig). Repeat for multiple
        replicates.
    * - ``-c, --controls``
@@ -62,7 +70,7 @@ pointers.
      - Optional BED of GC-matched negatives. If omitted, the pipeline
        samples them.
    * - ``-n, --name``
-     - str
+     - str (required)
      - Suffix used in intermediate filenames.
    * - ``-u, --unstranded``
      - flag
@@ -81,7 +89,7 @@ pointers.
      - MEME-format motif database. When set, TF-MoDISco report,
        tomtom-lite annotation, and marginalization are run.
    * - ``-o, --output``
-     - path
+     - path (required)
      - Output JSON path.
    * - ``-pe, --paired_end``
      - flag
@@ -131,6 +139,19 @@ JSON schema (top-level keys, with defaults from
    * - ``device``
      - ``"cuda"``
      - Torch device for inference and training.
+   * - ``compile``
+     - ``true``
+     - Whether every step that loads a model wraps its forward in
+       ``torch.compile``. Set to ``false`` for an eager forward — the
+       fix for a ``torch.compile`` or CUDA-graph error, and what
+       attribution wants, since DeepLIFT's backward hooks cannot be
+       traced by Inductor.
+   * - ``compile_mode``
+     - ``"max-autotune"``
+     - The ``mode`` passed to ``torch.compile``. Useful alternatives are
+       ``"max-autotune-no-cudagraphs"`` (same kernel autotuning, no
+       CUDA-graph capture) and ``"reduce-overhead"``. Ignored when
+       ``compile`` is ``false``.
    * - ``batch_size``
      - 512
      - Batch size for inference stages (attribution, evaluation).
@@ -168,6 +189,11 @@ JSON schema (top-level keys, with defaults from
    * - ``controls``
      - ``null``
      - Optional list of control files. Same grouping rule as ``signals``.
+   * - ``motifs``
+     - ``null``
+     - Optional MEME motif database. Inherited by the seqlet annotation,
+       the MoDISco report and the marginalization step; ``null`` skips
+       annotation and marginalization entirely. May be omitted.
    * - ``skip``
      - ``false``
      - If ``true``, the whole pipeline is a no-op.
@@ -386,9 +412,20 @@ attribute_parameters
    * - ``output``
      - ``"counts"``
      - Attribute to counts or profile (``"profile"``).
+   * - ``in_window``
+     - 2114
+     - Width of the sequence window extracted per locus. Must match the
+       window the model was trained at.
+   * - ``attr_window``
+     - 400
+     - Width of the centred slice that is actually attributed, and the
+       width of the arrays written to ``ohe_filename`` and
+       ``attr_filename``. Saturation mutagenesis is one forward pass
+       per alternate base per position, so this sets the cost of the
+       step. Must not exceed ``in_window``.
    * - ``ohe_filename``
      - ``"attributions.ohe.npz"``
-     - Output: one-hot encoded inputs.
+     - Output: one-hot encoded inputs, ``attr_window`` wide.
    * - ``attr_filename``
      - ``"attributions.attr.npz"``
      - Output: per-base hypothetical importance.
@@ -419,10 +456,6 @@ seqlet_parameters
    * - ``additional_flanks``
      - 3
      - Flanking bases retained on each side.
-   * - ``in_window``
-     - 2114
-     - Input window used during attribution; matches
-       ``fit_parameters.in_window``.
    * - ``ohe_filename`` / ``attr_filename`` / ``idx_filename``
      - inherit from ``attribute_parameters``
      - Inputs from the attribute step.
@@ -526,7 +559,11 @@ Skipped entirely when the top-level ``motifs`` is null.
      - Inference batch size.
    * - ``shuffle``
      - ``false``
-     - Shuffle the background loci before sampling.
+     - Draw the ``n_loci`` background loci at random from the whole
+       file rather than taking the first ``n_loci`` rows. Because a
+       sample cannot be drawn without seeing the population, this reads
+       every locus in ``loci`` into memory before selecting; the
+       unshuffled path stops at ``n_loci`` and does not.
    * - ``random_state``
      - 0
      - RNG seed for the locus shuffle. Left ``null`` here, the
@@ -604,6 +641,11 @@ JSON schema:
    * - ``device`` / ``dtype``
      - ``"cuda"`` / ``"float32"``
      - Inference device and dtype.
+   * - ``compile`` / ``compile_mode``
+     - ``true`` / ``"max-autotune"``
+     - Passed through to :meth:`cherimoya.Cherimoya.load`. Also
+       accepted by ``attribute`` and ``marginalize``. See the
+       pipeline table above.
    * - ``exclusion_lists``
      - ``null``
      - Optional regions to exclude.
@@ -633,8 +675,7 @@ CLI flags:
 * ``-p, --parameters`` (required) — path to an attribute JSON.
 
 JSON schema: the ``attribute_parameters`` table above, plus
-``model``, ``sequences``, ``loci``, ``exclusion_lists``, and
-``in_window`` / ``out_window``.
+``model``, ``sequences``, ``loci`` and ``exclusion_lists``.
 
 
 cherimoya seqlets
@@ -647,6 +688,11 @@ CLI flags:
 JSON schema: the ``seqlet_parameters`` table above, plus ``chroms``
 and ``loci`` (needed to convert example-relative seqlet coordinates
 back to genome coordinates) and ``exclusion_lists``.
+
+The emitted BED is in the same coordinate system as ``loci``. Seqlet
+positions are relative to the attribution array, which covers a slice
+centred on each locus rather than the full extraction window, so every
+seqlet falls inside the slice that ``attribute`` scored.
 
 
 cherimoya marginalize
@@ -705,48 +751,6 @@ direct CLI arguments (no JSON):
    * - ``-v, --verbose``
      - flag
      - Print per-step progress.
-
-
-cherimoya batch
----------------
-
-Run multiple pipelines in parallel using joblib.
-
-CLI flags:
-
-* ``-p, --parameters`` (required) — path to a batch JSON.
-
-The batch JSON is the same shape as a pipeline JSON with two
-additions:
-
-* ``"device": "*"`` is expanded to all available CUDA devices.
-* ``"signals"`` may be a glob string (``"data/*.bam"``). When set,
-  it's expanded to a list of paths, and ``"name"`` is auto-derived
-  from filenames if it is ``null``.
-
-Other list-valued fields (``loci``, ``negatives``, ``controls``) must
-be either ``null`` or a same-length list as the expanded
-``signals``. Each job is written to ``{name}.pipeline.json`` and run
-via ``subprocess.run(["cherimoya", "pipeline", "-p", jname])``.
-
-.. note::
-
-   ``signals`` in a batch JSON is a *list of per-model signal
-   specs*: one entry per pipeline to run in parallel. With the new
-   grouped form each per-model entry is itself a flat-or-grouped
-   signals list. So a batch of two stranded BPNet models is::
-
-       "signals": [
-           [["expt1.+.bw", "expt1.-.bw"]],
-           [["expt2.+.bw", "expt2.-.bw"]]
-       ]
-
-   The outer list selects the model; each inner list is the
-   ``signals`` field of one pipeline JSON. Previously the
-   double-nesting was implicit (a flat two-element pair was a
-   stranded pair); under the grouped API a flat two-element list is
-   two *unstranded* tracks, so stranded batch jobs must use the
-   nested form above.
 
 
 cherimoya install-skill

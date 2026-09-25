@@ -34,14 +34,21 @@ other subcommand it means the **parameters JSON**. Don't carry the meaning
 across.
 
 You need `-s` (genome), `-i` (signal), `-n` (name), and `-o` (output JSON);
-`-c`/`-p`/`-neg`/`-m` are optional. `pipeline-json` enforces *none* at parse
-time, so a missing one fails later or silently produces `None_*` filenames —
-stop and ask the user for any of the four that's absent.
+`-c`/`-p`/`-neg`/`-m` are optional. All four are enforced by argparse, so a
+missing one is a clear error rather than a `None_*` filename — but still ask
+the user for any that's absent rather than inventing one.
 
 ## Step 2 — (optional) edit the JSON
 
-The JSON is both the run config and a permanent record. Common novice edits —
-always explain the change you make:
+The JSON is both the run config and a permanent record. Edit the file
+`pipeline-json` emitted rather than writing one from scratch: keys whose
+default is `null` must be *present*, so a from-scratch JSON fails with
+`Must provide value for 'x'. Set it to null if this step is supposed to
+produce it.` Writing `null` is how you say "MACS3 / the negatives step makes
+this later". Only `controls`, `model`, `motifs`, `exclusion_lists`,
+`early_stopping` and `loss_weights` may be left out entirely.
+
+Common novice edits — always explain the change you make:
 
 - **Not hg38?** The default `fit_parameters.training_chroms` /
   `fit_parameters.validation_chroms` are hg38 names. Update them to the user's

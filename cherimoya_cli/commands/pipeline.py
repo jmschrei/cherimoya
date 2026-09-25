@@ -52,7 +52,6 @@ def run(args):
 	import json
 	import os
 	import subprocess
-	import sys
 
 	import pandas
 
@@ -366,16 +365,16 @@ def run(args):
 			with open(annotation_parameters["output_filename"], "w") as f:
 				subprocess.run(cmd, check=True, stdout=f)
 
-		annotated_seqlets = pandas.read_csv(
-			annotation_parameters["output_filename"],
-			sep="\t",
-			header=None,
-			usecols=(3,),
-			names=["motifs"],
-		)
+			annotated_seqlets = pandas.read_csv(
+				annotation_parameters["output_filename"],
+				sep="\t",
+				header=None,
+				usecols=(3,),
+				names=["motifs"],
+			)
 
-		seqlet_count = annotated_seqlets.value_counts()
-		seqlet_count.to_csv(pname + ".motif_seqlet_count.tsv", sep="\t")
+			seqlet_count = annotated_seqlets.value_counts()
+			seqlet_count.to_csv(pname + ".motif_seqlet_count.tsv", sep="\t")
 
 	###
 	# Step 4.1: Run TF-MoDISco
@@ -457,7 +456,7 @@ def run(args):
 	###
 
 	if parameters["motifs"] is None:
-		sys.exit()
+		return
 
 	if parameters["verbose"]:
 		print("\nStep 5: Run marginalizations")

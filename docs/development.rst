@@ -18,21 +18,23 @@ Repository layout
    │   ├── cheri.py                # CheriBlock + Triton kernels + dispatcher
    │   ├── io.py                   # PeakGenerator + PeakNegativeSampler
    │   ├── losses.py               # Profile MNLL + log1pMSE mixture loss
+   │   ├── wrappers.py             # Control / profile / count output wrappers
    │   └── performance.py          # Evaluation metrics
    ├── cherimoya_cli/              # The CLI entry-point package
    │   ├── __main__.py             # Argparse driver and subcommand registry
    │   ├── defaults.py             # All default JSON parameter dicts
    │   ├── utils.py                # JSON merging and parameter helpers
+   │   ├── skills/                 # The bundled Claude Code agent skill
    │   └── commands/               # One file per subcommand
    │       ├── pipeline.py
    │       ├── pipeline_json.py
-   │       ├── batch.py
    │       ├── fit.py
    │       ├── evaluate.py
    │       ├── attribute.py
    │       ├── seqlets.py
    │       ├── marginalize.py
-   │       └── negatives.py
+   │       ├── negatives.py
+   │       └── install_skill.py
    ├── tests/                      # Pytest suite (see below)
    ├── docs/                       # Sphinx docs (this site)
    ├── imgs/                       # Architecture / pipeline diagrams
@@ -120,11 +122,12 @@ The test suite lives in ``tests/`` and uses pytest.
 
    pytest tests/
 
-Test files:
+Test files. ``tests/`` covers the library, ``tests/commands/`` covers
+the ``cherimoya`` CLI:
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 70
+   :widths: 34 66
 
    * - File
      - Covers
@@ -132,23 +135,60 @@ Test files:
      - Cheri Block forward parity (CPU vs training Triton vs
        inference megakernel), backward parity against CPU
        autograd, weight-cache invalidation, dtype matrix.
+   * - ``tests/test_cheri_autotune.py``
+     - The first backward at a shape no earlier test has used, which
+       is the only way the autotune path can be exercised.
    * - ``tests/test_model.py``
      - Full Cherimoya forward/backward parity, no_grad ==
-       grad-enabled equivalence, EMA-applied save/load round trip.
+       grad-enabled equivalence, EMA-applied save/load round trip,
+       and the ``fit`` guards against a run that trains nothing.
+   * - ``tests/test_compile.py``
+     - ``compile`` / ``compile_mode`` semantics, and that neither
+       leaks into a saved checkpoint's config.
    * - ``tests/test_io.py``
      - ``PeakGenerator`` and ``PeakNegativeSampler`` reproducibility,
        per-epoch determinism, multi-worker equivalence.
    * - ``tests/test_ema.py``
-     - EMA update/apply/restore semantics.
+     - EMA update/apply/restore semantics, including the interaction
+       with the Cheri Block eval-time weight cache.
    * - ``tests/test_losses.py``
      - ``_mixture_loss`` shapes and edge cases.
    * - ``tests/test_performance.py``
-     - Evaluation-metric correctness.
-   * - ``tests/test_fit_wiring.py``
+     - Evaluation-metric correctness, including the grouped and
+       ``within_peak_`` variants.
+   * - ``tests/test_wrappers.py``
+     - The output wrappers on their own and composed over
+       ``ControlWrapper``.
+   * - ``tests/test_utils.py``
+     - JSON merge and default-handling helpers.
+   * - ``tests/commands/test_fit.py``
      - End-to-end fit step on tiny data: confirms optimizers,
        schedulers, EMA, and checkpoint paths are wired correctly.
-   * - ``tests/test_cli_utils.py``
-     - JSON merge and default-handling helpers.
+   * - ``tests/commands/test_pipeline.py``
+     - Which keys a hand-written pipeline JSON may leave out.
+   * - ``tests/commands/test_pipeline_dry_run.py``
+     - ``dry_run`` emitting the per-step JSONs and nothing else.
+   * - ``tests/commands/test_step_skipping.py``
+     - ``skip`` and the marginalization guard returning rather than
+       ending the interpreter.
+   * - ``tests/commands/test_config_keys.py``
+     - Every key the pipeline declares for a step is one that step's
+       subcommand reads.
+   * - ``tests/commands/test_compile_knob.py``
+     - The ``compile`` keys reaching ``Cherimoya.load`` from each
+       subcommand that loads a model.
+   * - ``tests/commands/test_attribute_to_seqlets.py``
+     - The seam between the two: the coordinate ``seqlets`` reports
+       is the genome position of the base ``attribute`` scored.
+   * - ``tests/commands/test_attribute.py``,
+       ``test_seqlets.py``, ``test_evaluate.py``,
+       ``test_marginalize.py``, ``test_negatives.py``,
+       ``test_install_skill.py``
+     - The remaining subcommands, one file each.
+
+Fixtures shared across the CLI tests — a pipeline JSON naming real
+input files, and a runner for it — live in
+``tests/commands/conftest.py``.
 
 Markers:
 
@@ -172,6 +212,36 @@ To run only the GPU parity tests:
 .. code-block:: bash
 
    pytest tests/ -m "cuda or triton"
+
+
+What continuous integration does and does not cover
+---------------------------------------------------
+
+Three jobs run on every pull request and every push to ``main``:
+
+* ``pytest`` — the CPU suite on Python 3.10 through 3.13.
+* ``docs`` — the Sphinx build with ``-W``, so a broken ``:doc:`` or
+  ``:ref:`` link fails the build. ``conf.py`` mocks every heavy
+  import, so this job does not check that the package imports; the
+  ``pytest`` job does.
+* ``lint`` — ``ruff`` restricted to syntax errors, undefined names and
+  broken comparisons. The full default rule set reports findings on
+  this tree that are worth fixing but are a separate change from
+  adding the gate.
+
+**No hosted runner has a GPU, so nothing in CI exercises the CUDA or
+Triton paths.** That includes the three-way forward parity between the
+CPU fallback, the training Triton kernel and the inference megakernel,
+which is the invariant most worth protecting. Before merging anything
+that touches a kernel, a ``state_dict``, module structure or the
+count/profile heads, run both of these on a machine with a GPU:
+
+.. code-block:: bash
+
+   pytest tests/ -m "cuda or triton"
+   python compat/run.py --a origin/main --b HEAD --preset full
+
+``compat/`` is gitignored local tooling; see its README first.
 
 
 Benchmarking

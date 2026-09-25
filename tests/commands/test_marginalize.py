@@ -106,3 +106,65 @@ def test_marginalize_without_shuffle_keeps_the_input_order(tmp_path):
 	order = _shuffled_order(_marginalize_json(tmp_path, shuffle=False))
 
 	assert order == list(range(16))
+
+
+def _extracted_n_loci(path, n=16):
+	"""Run marginalize.run and return the `n_loci` that reached
+	`extract_loci`, plus the locus order the report saw."""
+
+	from cherimoya_cli.commands import marginalize as marginalize_cmd
+
+	X = torch.arange(n).reshape(n, 1, 1).expand(n, 4, 8).float()
+	captured = {}
+
+	def fake_extract(**kwargs):
+		# `extract_loci` stops once it has `n_loci` usable sequences, so
+		# it returns the *first* n_loci rows. Modelling that is what
+		# makes these tests able to tell the two behaviours apart -- a
+		# mock that returns everything regardless hides the bug.
+		captured['n_loci'] = kwargs['n_loci']
+		if kwargs['n_loci'] is None:
+			return X
+		return X[:kwargs['n_loci']]
+
+	def fake_report(model, motifs, X, output, **kwargs):
+		captured['X'] = X
+
+	with mock.patch("cherimoya.Cherimoya") as model_cls, \
+			mock.patch("tangermeme.io.extract_loci",
+				side_effect=fake_extract), \
+			mock.patch("bpnetlite.marginalize.marginalization_report",
+				side_effect=fake_report):
+		model_cls.load.return_value = _StubModel()
+		marginalize_cmd.run(argparse.Namespace(parameters=path))
+
+	return captured
+
+
+def test_shuffle_samples_across_the_whole_locus_file(tmp_path):
+	"""With `shuffle` on, the extraction must not be capped at `n_loci`.
+
+	`extract_loci` returns the *first* `n_loci` rows it can use, so
+	capping it and then shuffling permutes a set already chosen by file
+	order -- the report is built from the top of the BED every time,
+	which is what `shuffle` exists to avoid. The three assertions are
+	the uncapped extraction, the sample still being `n_loci` wide, and
+	the observable consequence that it is not the first `n_loci`.
+	"""
+
+	captured = _extracted_n_loci(
+		_marginalize_json(tmp_path, shuffle=True, n_loci=4))
+
+	assert captured['n_loci'] is None
+	assert captured['X'].shape[0] == 4
+	assert sorted(captured['X'][:, 0, 0].tolist()) != [0.0, 1.0, 2.0, 3.0]
+
+
+def test_no_shuffle_still_caps_the_extraction(tmp_path):
+	"""Without `shuffle` the cap is what keeps the unshuffled path from
+	reading the whole file into memory, so it has to stay."""
+
+	captured = _extracted_n_loci(
+		_marginalize_json(tmp_path, shuffle=False, n_loci=4))
+
+	assert captured['n_loci'] == 4

@@ -786,10 +786,13 @@ def test_cherimoya_backward_matches_cpu_autograd():
 	~5e-3 absolute or relative. This is the realistic precision floor
 	of fp32-with-TF32 training on GPU vs a fp32 CPU reference.
 
-	The first GPU call to each block shape triggers Triton autotune,
-	whose benchmark trials can contaminate the user-visible output via
-	atomic_add residue in the bwd. We warm up to lock the configs
-	before measuring."""
+	The first GPU call to each block shape triggers Triton autotune. Its
+	benchmark trials used to corrupt the backward's scratch buffer, so
+	the first backward at a new shape came back wrong; the kernel now
+	declares `restore_value` and that is fixed, with
+	`tests/test_cheri_autotune.py` pinning it. The warmup below is kept
+	anyway: it takes autotune's variable cost out of the measurement,
+	which is worth having in a tolerance-bounded comparison."""
 
 	torch.manual_seed(0)
 	cpu_model = Cherimoya(n_filters=16, n_layers=3, signal_groups=[1],
@@ -1189,3 +1192,98 @@ def test_fit_with_loss_weights_freezes_the_kendall_weights(tmp_path):
 	assert model.lw1.requires_grad is False
 	assert torch.allclose(model.lw0.detach(), lw0_before)
 	assert torch.allclose(model.lw1.detach(), lw1_before)
+
+
+##
+# Guards against a run that silently does nothing.
+##
+
+def _fit_optimizers(model):
+	"""Build the three optimizers and schedulers `fit` takes, routed
+	the way `cherimoya fit` routes them."""
+
+	from torch.optim import Muon
+	from torch.optim.lr_scheduler import LinearLR
+
+	from cherimoya_cli.commands.fit import _split_parameters
+
+	muon_params, adam_params, lw_params = _split_parameters(model)
+	muon_opt = Muon(muon_params, lr=1e-3, weight_decay=0.0)
+	adam_opt = torch.optim.AdamW(adam_params, lr=1e-3, weight_decay=0.0)
+	lw_opt = torch.optim.SGD(lw_params, lr=1e-3, momentum=0.9)
+	scheds = [LinearLR(o, start_factor=1.0, total_iters=1)
+		for o in (muon_opt, adam_opt, lw_opt)]
+	return (muon_opt, adam_opt, lw_opt), scheds
+
+
+def _fit_inputs(model, n=6, loader_batch=3):
+	"""A trivial loader plus validation tensors shaped for `model`."""
+
+	L = _input_window_for(model)
+	out_L = L - 2 * model.trimming
+
+	g = torch.Generator().manual_seed(0)
+	X = torch.zeros(n, 4, L)
+	X[:, 0, :] = 1.0
+	y = torch.randint(0, 4, (n, 1, out_L), generator=g).float()
+	labels = torch.ones(n)
+
+	loader = torch.utils.data.DataLoader(
+		torch.utils.data.TensorDataset(X, y, labels),
+		batch_size=loader_batch)
+
+	X_valid = torch.zeros(2, 4, L)
+	X_valid[:, 0, :] = 1.0
+	y_valid = torch.randint(0, 4, (2, 1, out_L), generator=g).float()
+	return loader, X_valid, y_valid
+
+
+def test_fit_raises_when_no_batch_matches_batch_size(tmp_path, monkeypatch):
+	"""`fit` skips any batch whose size is not exactly `batch_size`. If
+	the loader's batch size disagrees with the argument, *every* batch
+	is skipped and the run completes having taken no optimizer step,
+	logging nan for the full `max_epochs` and saving the initial
+	weights as though it had trained.
+
+	A single empty epoch is a supported outcome -- a training set
+	smaller than one batch produces it, which
+	`test_epoch_with_no_full_batch_logs_nan_training_losses` pins -- so
+	this warns rather than raising. The warning is what turns "the log
+	has nan in it" into something the user sees without reading the log.
+	"""
+
+	torch.manual_seed(0)
+	model = Cherimoya(n_filters=4, n_layers=2, signal_groups=[1],
+		verbose=False, compile=False)
+	loader, X_valid, y_valid = _fit_inputs(model, loader_batch=3)
+	opts, scheds = _fit_optimizers(model)
+	monkeypatch.chdir(tmp_path)
+
+	with pytest.warns(RuntimeWarning, match="batch_size"):
+		model.fit(loader, *opts, *scheds, X_valid=X_valid,
+			X_ctl_valid=None, y_valid=y_valid, max_epochs=1,
+			batch_size=64, device='cpu')
+
+
+def test_fit_runs_when_the_batch_size_matches(tmp_path, monkeypatch):
+	"""The control: the same setup with matching batch sizes trains and
+	warns about nothing."""
+
+	import warnings as _warnings
+
+	torch.manual_seed(0)
+	model = Cherimoya(n_filters=4, n_layers=2, signal_groups=[1],
+		verbose=False, compile=False)
+	loader, X_valid, y_valid = _fit_inputs(model, loader_batch=3)
+	opts, scheds = _fit_optimizers(model)
+	monkeypatch.chdir(tmp_path)
+
+	with _warnings.catch_warnings(record=True) as caught:
+		_warnings.simplefilter("always")
+		model.fit(loader, *opts, *scheds, X_valid=X_valid,
+			X_ctl_valid=None, y_valid=y_valid, max_epochs=1,
+			batch_size=3, device='cpu')
+
+	assert not [w for w in caught
+		if issubclass(w.category, RuntimeWarning)
+		and "batch_size" in str(w.message)]

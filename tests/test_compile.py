@@ -178,45 +178,36 @@ def test_load_accepts_compile_mode_kwarg(tmp_path):
 		assert torch.equal(p1, p2)
 
 
-def test_compile_mode_not_in_init_kwargs():
-	"""compile_mode is a runtime knob, not architecture. It must not
-	leak into checkpoints — otherwise newly-trained checkpoints would
-	pin a mode and conflict with the load-time kwarg."""
-	m = Cherimoya(**_tiny_kwargs(),
-		compile_mode='max-autotune-no-cudagraphs')
-	assert 'compile_mode' not in m._init_kwargs()
-
-
-def test_compile_mode_not_in_saved_checkpoint(tmp_path):
-	"""Same invariant as above, observed at the on-disk format level."""
-	m = Cherimoya(**_tiny_kwargs(),
-		compile_mode='max-autotune-no-cudagraphs')
-	p = tmp_path / 'm.torch'
-	m.save(str(p))
-	payload = torch.load(str(p), weights_only=True)
-	assert 'compile_mode' not in payload['config']
-
-
 # ---------------------------------------------------------------------------
-# 3. Checkpoint back-compat: `compile` must not leak into saved configs
+# 3. Checkpoint back-compat: neither runtime knob may leak into a config
 # ---------------------------------------------------------------------------
 
-def test_compile_not_in_init_kwargs():
-	"""`_init_kwargs` is the explicit serializer used by `save`. It must
-	not contain `compile` — otherwise newly-trained checkpoints would
-	pin a compile choice into their config and conflict with the
+# The two knobs, and the non-default value to set each to.
+RUNTIME_KNOBS = [("compile", False),
+	("compile_mode", "max-autotune-no-cudagraphs")]
+
+
+@pytest.mark.parametrize("knob,value", RUNTIME_KNOBS)
+def test_runtime_knob_not_in_init_kwargs(knob, value):
+	"""`_init_kwargs` is the explicit serializer used by `save`. Neither
+	knob is architecture, so neither may leak into it -- otherwise a
+	newly-trained checkpoint pins the choice and conflicts with the
 	load-time kwarg."""
-	model = Cherimoya(**_tiny_kwargs(), compile=False)
-	assert 'compile' not in model._init_kwargs()
+
+	model = Cherimoya(**_tiny_kwargs(), **{knob: value})
+	assert knob not in model._init_kwargs()
 
 
-def test_saved_checkpoint_has_no_compile_key(tmp_path):
-	"""Same invariant as above, observed at the on-disk format level."""
-	m = Cherimoya(**_tiny_kwargs(), compile=False)
+@pytest.mark.parametrize("knob,value", RUNTIME_KNOBS)
+def test_runtime_knob_not_in_saved_checkpoint(tmp_path, knob, value):
+	"""The same invariant, observed at the on-disk format level."""
+
+	m = Cherimoya(**_tiny_kwargs(), **{knob: value})
 	p = tmp_path / 'm.torch'
 	m.save(str(p))
 	payload = torch.load(str(p), weights_only=True)
-	assert 'compile' not in payload['config']
+
+	assert knob not in payload['config']
 
 
 def test_load_old_style_config_without_compile_key():
@@ -419,3 +410,71 @@ def test_forward_parity_across_dtypes_cpu():
 	_assert_close(y_eager_c, y_comp_c)
 	_assert_close(y_eager_p, y_eager_p2, atol=0, rtol=0)
 	_assert_close(y_comp_p, y_comp_p2, atol=0, rtol=0)
+
+
+@pytest.fixture
+def dynamo_enabled(monkeypatch):
+	"""Undo conftest's suite-wide dynamo opt-out for tests about dynamo.
+	`torch.compile` reads the env var when it wraps the forward, so the
+	model has to be built inside this fixture's scope."""
+	monkeypatch.setenv("TORCHDYNAMO_DISABLE", "0")
+	with torch._dynamo.config.patch(disable=False):
+		torch._dynamo.reset()
+		yield
+	torch._dynamo.reset()
+
+
+@pytest.mark.triton
+def test_eval_forward_compiles_to_one_graph_cuda(dynamo_enabled):
+	"""The eval-cache freshness check in `CheriBlock._cast_weights` reads
+	`Tensor._version`, which torch 2.12's dynamo cannot compare without a
+	graph break. A break inside the block loop sent all of `_forward_impl`
+	to eager and compiled each block separately, once per dilation, until
+	it hit the recompile limit."""
+	from torch._dynamo.utils import counters
+
+	counters.clear()
+
+	torch.manual_seed(0)
+	model = Cherimoya(**_tiny_kwargs(n_filters=32, n_layers=9)).cuda().eval()
+	X = torch.randn(2, 4, _input_window_for(model), device='cuda')
+
+	with torch.no_grad():
+		model(X)
+
+	assert counters['stats']['unique_graphs'] == 1
+
+
+@pytest.mark.triton
+def test_compiled_forward_sees_ema_swap_in_eval_cuda(dynamo_enabled):
+	"""`model.eval(); ema.apply_shadow(model)` must run the compiled
+	forward on the EMA weights, with no second `eval()` call. The
+	reference is a second compiled model built on the EMA weights, since
+	shifting every weight by 0.05 moves compiled-vs-eager drift past the
+	parity tolerance; a stale cache instead lands on the pre-swap output,
+	which here differs by ~1 in the counts."""
+	from cherimoya.cherimoya import EMA
+
+	torch.manual_seed(0)
+	_, m_swapped = _build_pair('cuda', **_CUDA_KWARGS)
+	ema = EMA(m_swapped)
+	for p in ema.shadow.values():
+		p.add_(0.05)
+
+	L = _input_window_for(m_swapped)
+	X = torch.randn(2, 4, L, device='cuda')
+
+	with torch.no_grad():
+		m_swapped(X)
+		ema.apply_shadow(m_swapped)
+
+		m_fresh = Cherimoya(**_tiny_kwargs(**_CUDA_KWARGS)).cuda()
+		m_fresh.load_state_dict(m_swapped.state_dict())
+		m_fresh.eval()
+
+		# Clone: both models replay CUDA graphs that reuse output memory.
+		y_swap_p, y_swap_c = [y.clone() for y in m_swapped(X)]
+		y_fresh_p, y_fresh_c = [y.clone() for y in m_fresh(X)]
+
+	_assert_close(y_swap_p, y_fresh_p)
+	_assert_close(y_swap_c, y_fresh_c)

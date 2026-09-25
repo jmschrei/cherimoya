@@ -17,6 +17,8 @@ from unittest import mock
 import pytest
 import torch
 
+from tangermeme.predict import predict
+
 from cherimoya import Cherimoya
 
 
@@ -24,7 +26,7 @@ def _build_and_save(tmp_path, signal_groups, name="m"):
 	"""Build a tiny grouped Cherimoya and save it to tmp_path. Returns
 	the checkpoint path."""
 	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=signal_groups,
-		verbose=False, compile=False)
+		verbose=False, compile=False, random_state=0)
 	ckpt = tmp_path / "{}.torch".format(name)
 	model.save(str(ckpt))
 	return ckpt, model
@@ -68,6 +70,7 @@ def _run_evaluate(tmp_path, ckpt, signals, n_signal_ch, controls=None,
 		"device": "cpu",
 		"dtype": "float32",
 		"batch_size": 4,
+		"compile": False,
 		"verbose": False,
 		"reverse_complement_average": False,
 		"exclusion_lists": None,
@@ -172,8 +175,15 @@ def test_evaluate_single_group_value_equals_legacy_full_mean(tmp_path):
 		in_window=2 * model.trimming + 64, out_window=64,
 		exclusion_lists=None, max_jitter=0, ignore=None, verbose=False)
 
-	with torch.no_grad():
-		y_hat_logits, y_hat_logcounts = model(X)
+	# Predict through `predict` at the same batch size `evaluate` uses,
+	# rather than with one unbatched forward. The two disagree in the
+	# last float32 ULPs, and `profile_spearman` turns that into a
+	# discrete jump -- it ranks with `argsort().argsort()`, so a single
+	# swapped pair moves the metric far more than the float difference
+	# that caused it. That is what made this test fail intermittently on
+	# one leg of the CI matrix while passing everywhere else.
+	y_hat_logits, y_hat_logcounts = predict(model, X, args=None,
+		batch_size=4, device="cpu", dtype="float32", verbose=False)
 
 	measures = calculate_performance_measures(
 		y_hat_logits, y, y_hat_logcounts,
@@ -182,10 +192,12 @@ def test_evaluate_single_group_value_equals_legacy_full_mean(tmp_path):
 		'profile_spearman', 'count_pearson', 'count_spearman', 'count_mse']
 	expected = [measures[name].mean().item() for name in measure_names]
 
-	# The per-group row must match the legacy `.mean()` values. Compare
-	# numerically rather than by exact string: the CLI runs predictions
-	# batched while this manual path runs them in a single pass, and the
-	# 75-wide `fconv` head makes the two differ in the last few float32
-	# ULPs (the old 1x1 head was bit-identical regardless of batching).
-	# Agreement to 4 decimals is the repo's regression tolerance.
-	assert [float(v) for v in rows[0]] == pytest.approx(expected, abs=1e-4)
+	# Both sides now see bit-identical predictions, so the only thing
+	# left between them is the aggregation: `evaluate` takes
+	# `value[:, offset:offset+g].mean()` over a slice while this takes
+	# `value.mean()` over the whole tensor. For one group those cover
+	# the same elements in a different reduction order. That difference
+	# is smooth -- unlike a rank metric it cannot jump -- and measures
+	# 0 here, so the bound is a guard rather than a fitted tolerance.
+	assert [float(v) for v in rows[0]] == pytest.approx(
+		expected, rel=1e-6, abs=1e-6)
