@@ -733,6 +733,14 @@ Tooling
   omitted ``tests/commands/`` entirely. The table now matches the
   tree.
 
+* The bundled skill's ``SKILL.md`` frontmatter is now tested, in
+  ``tests/commands/test_install_skill.py``. Claude Code reads only the
+  frontmatter before deciding to load a skill, so a missing ``name`` or
+  ``description``, a ``name`` that differs from the ``cherimoya`` install
+  directory, or a description over the 1024-character limit stops the skill
+  from loading or triggering, and no other test would notice. The check
+  parses the frontmatter directly because PyYAML is not a dependency.
+
 v0.2.1
 ------
 

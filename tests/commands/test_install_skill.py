@@ -90,6 +90,48 @@ def _skill_documents():
 	return documents
 
 
+def _frontmatter(text):
+	"""The SKILL.md frontmatter as a dict of top-level keys to strings.
+
+	PyYAML is not a dependency, so this reads the two shapes the skill uses:
+	`key: value` on one line, and a folded `key: >-` block whose indented
+	lines are joined with spaces.
+	"""
+
+	lines = text.split("\n")
+	assert lines[0] == "---", "SKILL.md must open with a --- frontmatter line"
+	end = lines.index("---", 1)
+
+	fields, key = {}, None
+	for line in lines[1:end]:
+		if line.startswith((" ", "\t")) and key is not None:
+			fields[key] = (fields[key] + " " + line.strip()).strip()
+		elif ":" in line:
+			key, value = line.split(":", 1)
+			value = value.strip()
+			fields[key] = "" if value in (">", ">-", "|", "|-") else value
+
+	return fields
+
+
+def test_skill_frontmatter_has_name_and_description():
+	"""Claude Code reads only the frontmatter before deciding to load a skill.
+
+	A missing `name` or `description`, a name that differs from the install
+	directory, or a description over 1024 characters stops the skill from
+	loading or triggering, and nothing else in the suite would notice.
+	"""
+
+	with open(os.path.join(SKILL_SOURCE, "SKILL.md")) as f:
+		fields = _frontmatter(f.read())
+
+	assert fields.get("name") == "cherimoya"
+	assert fields.get("description"), "SKILL.md frontmatter has no description"
+	assert len(fields["description"]) <= 1024, (
+		"description is {} characters; the limit is 1024".format(
+			len(fields["description"])))
+
+
 def test_cross_references_are_complete_paths_that_resolve():
 	"""Every `*.md` a skill file names must be a real, skill-root path.
 
