@@ -621,6 +621,12 @@ Packaging
   test suite is run against, with a comment in ``pyproject.toml``
   recording the policy so it does not drift again.
 
+* Removed the one-week ``exclude-newer`` window from ``[tool.uv]`` in
+  ``pyproject.toml``. It hid every release younger than a week from the
+  resolver, so ``uv sync`` could not satisfy a floor on a just-released
+  dependency such as ``tangermeme>=1.5.0``. ``uv.lock`` now pins
+  tangermeme 1.5.0.
+
 Documentation
 ~~~~~~~~~~~~~
 

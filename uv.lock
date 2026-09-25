@@ -14,10 +14,6 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
-[options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
-exclude-newer-span = "P1W"
-
 [[package]]
 name = "accessible-pygments"
 version = "0.0.5"
@@ -208,7 +204,6 @@ dependencies = [
     { name = "bam2bw" },
     { name = "bpnet-lite" },
     { name = "h5py" },
-    { name = "joblib" },
     { name = "macs3" },
     { name = "modisco" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -245,7 +240,6 @@ requires-dist = [
     { name = "bpnet-lite", specifier = ">=1.0.0" },
     { name = "furo", marker = "extra == 'docs'", specifier = ">=2024.1" },
     { name = "h5py", specifier = ">=3.7.0" },
-    { name = "joblib", specifier = ">=1.0.0" },
     { name = "macs3" },
     { name = "modisco", specifier = ">=2.0.0" },
     { name = "numpy", specifier = ">=1.14.2" },
@@ -254,7 +248,7 @@ requires-dist = [
     { name = "seaborn", specifier = ">=0.11.2" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=7.0" },
     { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5" },
-    { name = "tangermeme", specifier = ">=0.2.3" },
+    { name = "tangermeme", specifier = ">=1.5.0" },
     { name = "torch", specifier = ">=2.9.0" },
     { name = "tqdm", specifier = ">=4.64.1" },
     { name = "triton", specifier = ">=3.5.1" },
@@ -2746,7 +2740,7 @@ wheels = [
 
 [[package]]
 name = "tangermeme"
-version = "1.4.0"
+version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "joblib" },
@@ -2768,9 +2762,9 @@ dependencies = [
     { name = "torch" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/b3/85dc5b359439c57eaa9c198ccd5d6cee0b17f962535d709d4521ad54ded4/tangermeme-1.4.0.tar.gz", hash = "sha256:159d2f4d489928c355686c9ba39bbed408865fe43fa44771311a70f6f7540fa5", size = 124112, upload-time = "2026-06-25T18:05:56.604Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/6c/6f6c7be393ea2b4d37682a6f373d0ddcfd6e5c1d84e8237aaa0a0dc08f10/tangermeme-1.5.0.tar.gz", hash = "sha256:8461867f3e91d9810f8170e77a0cdd73720a2847a01aa99efe37ff75c2c46096", size = 150905, upload-time = "2026-09-25T00:53:10.175Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b4/fc/bce0cee69931919c34efa7c1304a99593be5ca1d4a61edc79b4845946021/tangermeme-1.4.0-py3-none-any.whl", hash = "sha256:45bebe7adf5e91394ed1cd7888e1c527ab771abfa6ca33c716d133f9335ab794", size = 157264, upload-time = "2026-06-25T18:05:55.336Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/8d/b086b68db3b01c03254d22fad886bda58451403905b8cd045847d155dfbb/tangermeme-1.5.0-py3-none-any.whl", hash = "sha256:f45c87e8a731b00be9f509248c9c52a1c85f28731d7eb2490813d074d0eb1c93", size = 185186, upload-time = "2026-09-25T00:53:08.851Z" },
 ]
 
 [[package]]
