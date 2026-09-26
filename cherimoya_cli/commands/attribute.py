@@ -43,10 +43,11 @@ def run(args):
 	idxs[idxs.clone()] = n_idxs
 
 	model = ControlWrapper(model)
+	group = parameters["output_group"]
 	if parameters["output"] == "counts":
-		wrapper = LogCountWrapper(model)
+		wrapper = LogCountWrapper(model, group=group)
 	elif parameters["output"] == "profile":
-		wrapper = ProfileWrapper(model)
+		wrapper = ProfileWrapper(model, group=group)
 	else:
 		raise ValueError("output must be either `counts` or `profile`.")
 

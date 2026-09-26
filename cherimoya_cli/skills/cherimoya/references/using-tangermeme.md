@@ -32,6 +32,11 @@ passes only a sequence, it supplies a zero control of the right
 shape/dtype/device automatically. For a model with no controls it's a
 pass-through, so wrapping is always safe.
 
+For a multi-group model (`signal_groups` with more than one entry),
+`LogCountWrapper` returns every group's count and `ProfileWrapper` softmaxes
+all groups together. Pass `group=i` to either one to attribute group `i` alone;
+`cherimoya attribute` takes the same index as `output_group`.
+
 ## Pattern
 
 ```python

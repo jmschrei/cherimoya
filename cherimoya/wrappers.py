@@ -62,6 +62,27 @@ class ControlWrapper(torch.nn.Module):
 		return self.model(X, X_ctl)
 
 
+def _check_group(model, group):
+	"""Validate a signal-group index against ``model.signal_groups``.
+
+	Returns the group's ``(start, end)`` channel range in the profile head.
+	``model`` may be a :class:`ControlWrapper`, which forwards
+	``signal_groups`` from the model it wraps.
+	"""
+
+	signal_groups = model.signal_groups
+	if isinstance(group, bool) or not isinstance(group, int):
+		raise ValueError("group must be an int or None, got {!r}"
+			.format(group))
+	if not 0 <= group < len(signal_groups):
+		raise ValueError("group must be in [0, {}) for a model with "
+			"signal_groups={}, got {}".format(len(signal_groups),
+			list(signal_groups), group))
+
+	start = sum(signal_groups[:group])
+	return start, start + signal_groups[group]
+
+
 class _ProfileLogitScaling(torch.nn.Module):
 	"""A non-linear scaling of profile logits, isolated for Captum.
 
@@ -93,22 +114,40 @@ class ProfileWrapper(torch.nn.Module):
 	*shape*. This is a port of ``bpnetlite.bpnet.ProfileWrapper`` so that
 	Cherimoya does not depend on bpnet-lite for attribution.
 
+	By default every profile channel is flattened together, so for a model
+	with several signal groups the softmax runs over all groups at once and
+	the output summarizes all of them. Passing ``group`` restricts the
+	calculation to that group's channels, so the mean-centering and softmax
+	run over its ``channels x length`` only, the same joint normalization the
+	group gets in the training loss.
+
 
 	Parameters
 	----------
 	model: cherimoya.Cherimoya
 		A Cherimoya model, which makes predictions for basepair resolution profiles
 		and also for log counts.
+
+	group: int or None, optional
+		The index into ``model.signal_groups`` of the group to attribute. If
+		None, use every profile channel. Default is None.
 	"""
 
-	def __init__(self, model):
+	def __init__(self, model, group=None):
 		super().__init__()
 		self.model = model
+		self.group = group
 		self.flatten = torch.nn.Flatten()
 		self.scaling = _ProfileLogitScaling()
 
+		if group is not None:
+			self._start, self._end = _check_group(model, group)
+
 	def forward(self, X, X_ctl=None):
 		logits = self.model(X, X_ctl=X_ctl)[0]
+		if self.group is not None:
+			logits = logits[:, self._start:self._end]
+
 		logits = self.flatten(logits)
 		logits = logits - torch.mean(logits, dim=-1, keepdims=True)
 		return self.scaling(logits).sum(dim=-1, keepdims=True)
@@ -121,20 +160,36 @@ class LogCountWrapper(torch.nn.Module):
 	log counts. This is useful when you only care about the log count predictions,
 	such as for feature attribution or design methods.
 
+	The count head makes one prediction per signal group, so by default the
+	output has shape ``(batch_size, len(signal_groups))``. Passing ``group``
+	returns only that group's column, with shape ``(batch_size, 1)``.
+
 
 	Parameters
 	----------
 	model: cherimoya.Cherimoya
 		A Cherimoya model, which makes predictions for basepair resolution profiles
 		and also for log counts.
+
+	group: int or None, optional
+		The index into ``model.signal_groups`` of the group to return. If None,
+		return every group. Default is None.
 	"""
 
-	def __init__(self, model):
+	def __init__(self, model, group=None):
 		super().__init__()
 		self.model = model
+		self.group = group
+
+		if group is not None:
+			_check_group(model, group)
 
 	def forward(self, X, X_ctl=None):
-		return self.model(X, X_ctl=X_ctl)[1]
+		y_logcounts = self.model(X, X_ctl=X_ctl)[1]
+		if self.group is not None:
+			y_logcounts = y_logcounts[:, self.group:self.group+1]
+
+		return y_logcounts
 
 
 class ExpectedCountsWrapper(torch.nn.Module):

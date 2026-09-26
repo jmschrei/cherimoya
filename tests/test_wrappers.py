@@ -481,3 +481,145 @@ def test_expected_counts_group_structure_through_control_wrapper(
 		total = y[:, offset:offset + g].sum(dim=(1, 2))
 		assert_array_almost_equal(total.numpy(), counts[:, i].numpy(), 4)
 		offset += g
+
+
+##
+# Selecting one signal group.
+#
+# For a multi-group model `ProfileWrapper` otherwise softmaxes every group
+# together and `LogCountWrapper` returns every group, so `group=` is the
+# only way to attribute one modality.
+##
+
+
+def _reference_group_profile(logits):
+	"""The ProfileWrapper calculation, written out on one group's logits."""
+
+	logits = logits.reshape(logits.shape[0], -1)
+	logits = logits - logits.mean(dim=-1, keepdim=True)
+	return (logits * torch.softmax(logits, dim=-1)).sum(dim=-1, keepdim=True)
+
+
+@pytest.mark.parametrize("group, channels", [(0, slice(0, 1)),
+	(1, slice(1, 3))])
+def test_profile_wrapper_group_uses_only_that_group(grouped_model, group,
+		channels):
+	"""The mean-centering and softmax run over the selected group's
+	channels and positions only, including both strands of the stranded
+	pair."""
+
+	X = torch.randn(3, 4, _input_window_for(grouped_model))
+
+	with torch.no_grad():
+		y_logits, _ = grouped_model(X)
+		y_hat = ProfileWrapper(grouped_model, group=group)(X)
+
+	expected = _reference_group_profile(y_logits[:, channels])
+	assert y_hat.shape == (3, 1)
+	assert_array_almost_equal(y_hat.numpy(), expected.numpy(), 6)
+
+
+def test_profile_wrapper_group_regression(grouped_model):
+	"""Regression on the per-group profile target for a fixed seed."""
+
+	torch.manual_seed(1)
+	X = torch.randn(2, 4, _input_window_for(grouped_model))
+
+	with torch.no_grad():
+		y_hat = torch.cat([ProfileWrapper(grouped_model, group=g)(X)
+			for g in range(2)], dim=-1)
+
+	assert_array_almost_equal(y_hat.numpy(), [
+		[0.00125393, 0.00164274],
+		[0.00115233, 0.00169656]], 6)
+
+
+def test_profile_wrapper_group_single_group_matches_default():
+	"""With one group, selecting it is the same as selecting everything."""
+
+	torch.manual_seed(0)
+	model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[2],
+		verbose=False, compile=False).eval()
+	X = torch.randn(2, 4, _input_window_for(model))
+
+	with torch.no_grad():
+		y_all = ProfileWrapper(model)(X)
+		y_group = ProfileWrapper(model, group=0)(X)
+
+	assert torch.equal(y_all, y_group)
+
+
+@pytest.mark.parametrize("group", [0, 1])
+def test_logcount_wrapper_group_is_that_column(grouped_model, group):
+	"""The output is the selected group's log-count, kept two-dimensional."""
+
+	X = torch.randn(3, 4, _input_window_for(grouped_model))
+
+	with torch.no_grad():
+		_, y_logcounts = grouped_model(X)
+		y_hat = LogCountWrapper(grouped_model, group=group)(X)
+
+	assert y_hat.shape == (3, 1)
+	assert torch.equal(y_hat, y_logcounts[:, group:group+1])
+
+
+@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountWrapper])
+def test_group_wrappers_compose_over_control_wrapper(wrapper,
+		controlled_model):
+	"""The group offsets are read through ControlWrapper, which is the
+	stack the attribute CLI builds."""
+
+	X = torch.randn(2, 4, _input_window_for(controlled_model))
+	X_ctl = torch.zeros(2, 2, X.shape[-1])
+
+	with torch.no_grad():
+		wrapped = wrapper(ControlWrapper(controlled_model), group=1)(X)
+		direct = wrapper(controlled_model, group=1)(X, X_ctl=X_ctl)
+
+	assert_array_almost_equal(wrapped.numpy(), direct.numpy(), 5)
+
+
+@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountWrapper])
+def test_group_wrappers_are_differentiable(wrapper, grouped_model):
+	"""Gradients flow to the input through the group slice."""
+
+	X = torch.randn(2, 4, _input_window_for(grouped_model),
+		requires_grad=True)
+
+	wrapper(grouped_model, group=1)(X).sum().backward()
+
+	assert X.grad is not None
+	assert torch.isfinite(X.grad).all()
+	assert X.grad.abs().sum() > 0
+
+
+def test_logcount_wrapper_group_matches_ism_target(grouped_model):
+	"""Attributing ``LogCountWrapper(group=g)`` gives what tangermeme
+	gives for the unselected wrapper with ``target=g``."""
+
+	from tangermeme.saturation_mutagenesis import saturation_mutagenesis
+
+	torch.manual_seed(0)
+	L = _input_window_for(grouped_model)
+	X = torch.zeros(2, 4, L)
+	X[:, 0] = 1
+	kwargs = dict(start=L // 2 - 5, end=L // 2 + 5, device='cpu',
+		verbose=False)
+
+	X_attr = saturation_mutagenesis(LogCountWrapper(grouped_model, group=1),
+		X, **kwargs)
+	X_attr_target = saturation_mutagenesis(LogCountWrapper(grouped_model),
+		X, target=1, **kwargs)
+
+	assert_array_almost_equal(X_attr.numpy(), X_attr_target.numpy(), 6)
+
+
+@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountWrapper])
+@pytest.mark.parametrize("group", [2, -1, 1.0, True, "0"])
+def test_group_wrappers_reject_bad_group(wrapper, group, grouped_model):
+	"""An index outside ``range(len(signal_groups))``, or anything that is
+	not an int, is rejected when the wrapper is built rather than at the
+	first forward pass."""
+
+	with pytest.raises(ValueError, match="group"):
+		wrapper(grouped_model, group=group)

@@ -476,6 +476,16 @@ Logging
 Attribution
 ~~~~~~~~~~~
 
+* :class:`cherimoya.ProfileWrapper` and :class:`cherimoya.LogCountWrapper`
+  take an optional ``group`` index into ``signal_groups``, so one modality
+  of a multi-group model can be attributed on its own (#52).
+  ``ProfileWrapper(model, group=i)`` mean-centres and softmaxes group
+  ``i``'s channels and positions only; ``LogCountWrapper(model, group=i)``
+  returns group ``i``'s log-count with shape ``(batch_size, 1)``. An index
+  outside the model's groups raises ``ValueError`` when the wrapper is
+  built. The default, ``None``, is the previous behaviour. ``cherimoya
+  attribute`` exposes it as the ``output_group`` key, default ``null``.
+
 * The fused dilated convolution + per-example norm inside
   :class:`cherimoya.CheriBlock` now lives on a
   :class:`~cherimoya.cheri.FusedDilatedConvNorm` submodule

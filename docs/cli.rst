@@ -412,6 +412,10 @@ attribute_parameters
    * - ``output``
      - ``"counts"``
      - Attribute to counts or profile (``"profile"``).
+   * - ``output_group``
+     - ``null``
+     - Index into the model's ``signal_groups`` of the one group to
+       attribute. ``null`` attributes every group at once.
    * - ``in_window``
      - 2114
      - Width of the sequence window extracted per locus. Must match the

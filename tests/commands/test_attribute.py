@@ -34,6 +34,7 @@ def _run_attribute(tmp_path, n_loci=3, **overrides):
 
 	def fake_sm(model, X, **kwargs):
 		captured['sm'] = kwargs
+		captured['wrapper'] = model
 		start, end = kwargs['start'], kwargs['end']
 		return torch.zeros(X.shape[0], 4, end - start)
 
@@ -56,7 +57,8 @@ def _run_attribute(tmp_path, n_loci=3, **overrides):
 				side_effect=fake_extract), \
 			mock.patch('tangermeme.saturation_mutagenesis.'
 				'saturation_mutagenesis', side_effect=fake_sm):
-		model_cls.load.return_value = mock.MagicMock(n_control_tracks=0)
+		model_cls.load.return_value = mock.MagicMock(n_control_tracks=0,
+			signal_groups=[1, 2])
 		attribute.run(argparse.Namespace(parameters=str(path)))
 
 	captured['ohe'] = numpy.load(cfg['ohe_filename'])['arr_0']
@@ -122,3 +124,31 @@ def test_attr_window_wider_than_in_window_raises(tmp_path):
 
 	with pytest.raises(ValueError, match="attr_window"):
 		_run_attribute(tmp_path, in_window=500, attr_window=600)
+
+
+@pytest.mark.parametrize("output, wrapper", [("counts", "LogCountWrapper"),
+	("profile", "ProfileWrapper")])
+def test_output_group_reaches_the_wrapper(tmp_path, output, wrapper):
+	"""`output_group` selects one signal group of a multi-group model as
+	the attribution target."""
+
+	captured = _run_attribute(tmp_path, output=output, output_group=1)
+
+	assert type(captured['wrapper']).__name__ == wrapper
+	assert captured['wrapper'].group == 1
+
+
+def test_default_output_group_attributes_every_group(tmp_path):
+	"""The default leaves the wrapper unselected, so existing runs are
+	unaffected."""
+
+	captured = _run_attribute(tmp_path)
+
+	assert captured['wrapper'].group is None
+
+
+def test_output_group_out_of_range_raises(tmp_path):
+	"""A group index the model does not have is a configuration error."""
+
+	with pytest.raises(ValueError, match="group"):
+		_run_attribute(tmp_path, output_group=2)
