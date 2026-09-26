@@ -415,7 +415,7 @@ attribute_parameters
      - ``false`` / ``"max-autotune"``
      - Whether to ``torch.compile`` the model, for saturation mutagenesis
        only; DeepLIFT/SHAP always loads it uncompiled, since its backward
-       hooks break the compiled forward. Off by default because neither
+       hooks cause graph breaks and recompiles. Off by default because neither
        algorithm ran faster compiled, and compiling added 6–70 s to the
        first call.
    * - ``batch_size``

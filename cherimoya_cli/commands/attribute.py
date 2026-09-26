@@ -32,7 +32,7 @@ def run(args):
 
 	# `compile` defaults to false here: neither algorithm ran faster
 	# compiled, and compiling added 6-70 s to the first call. DeepLIFT is
-	# never compiled; its backward hooks break the compiled forward.
+	# never compiled: its backward hooks cause graph breaks and recompiles.
 	compiled = parameters["compile"] and algorithm == "saturation_mutagenesis"
 	model = Cherimoya.load(parameters["model"], device=parameters["device"],
 		compile=compiled,

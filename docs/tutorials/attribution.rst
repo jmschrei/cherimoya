@@ -75,7 +75,7 @@ default, ``0``, is the whole output.
 
 The model is loaded uncompiled by default. ``"compile": true`` compiles
 it for saturation mutagenesis only; DeepLIFT/SHAP never compiles, since
-its backward hooks break the compiled forward. Neither algorithm ran
+its backward hooks cause graph breaks and recompiles. Neither algorithm ran
 faster compiled in our measurements, and compiling lengthened the first
 call.
 

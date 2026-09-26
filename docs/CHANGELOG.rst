@@ -268,7 +268,8 @@ CLI
   steady state, and compiling added 6–70 s to the first call.
   ``"compile": true`` still compiles for saturation mutagenesis. Under
   DeepLIFT/SHAP the model is never compiled, whatever ``compile`` says;
-  its backward hooks break the compiled forward.
+  its backward hooks cause graph breaks and recompiles, and the compiled
+  model gave the same attributions no faster.
 
 * A new ``group`` key (default ``0``) selects which signal group of a
   multi-group model the attribute step attributes, through the
