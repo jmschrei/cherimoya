@@ -58,6 +58,12 @@ shape-sensitive number per example. This is the wrapper used by
 bpnet-lite. As with :class:`LogCountWrapper`, pair it with
 :class:`ControlWrapper` for models trained with control tracks.
 
+For a model with several signal groups the default flattens every group
+together, so one softmax spans all of them and the output summarizes the
+whole profile head. ``ProfileWrapper(model, group=i)`` restricts the
+calculation to group ``i``'s channels, which is how to attribute one
+modality's profile shape (see :doc:`../multi_task`).
+
 
 LogCountWrapper
 ---------------
@@ -76,6 +82,12 @@ used by ``cherimoya attribute`` when ``output`` is ``"counts"`` (see
 :doc:`../tutorials/attribution`). Pair it with :class:`ControlWrapper` when
 attributing a model that was trained with control tracks, so that zero
 controls are supplied automatically.
+
+``LogCountWrapper(model, group=i)`` returns only group ``i``'s log-count, with
+shape ``(batch_size, 1)``, for attributing one modality of a multi-group
+model. Without ``group``, tangermeme's ``deep_lift_shap`` attributes its
+default ``target=0`` — group 0 alone — while ``saturation_mutagenesis``
+averages over every group.
 
 
 ExpectedCountsWrapper

@@ -265,6 +265,27 @@ def test_attribution_ops_converges_on_a_real_model(small_model, wrapper):
 	assert delta < scale / 1e4
 
 
+@pytest.mark.parametrize("wrapper", [LogCountWrapper, ProfileWrapper])
+def test_attribution_ops_converges_on_one_signal_group(wrapper):
+	"""Selecting one group of a multi-group model with `group=` keeps the
+	attributions summing to the change in that group's prediction."""
+
+	torch.manual_seed(0)
+	grouped_model = Cherimoya(n_filters=8, n_layers=2, signal_groups=[1, 2],
+		verbose=False, compile=False).eval()
+	length = 2 * grouped_model.trimming + 64
+	X = random_one_hot((2, 4, length), random_state=0).type(torch.float32)
+	references = dinucleotide_shuffle(X, n=2, random_state=0)
+	model = wrapper(grouped_model, group=1)
+
+	with torch.no_grad():
+		scale = float(model(X).abs().mean())
+
+	delta = _worst_delta(model, X, references, attribution_ops())
+
+	assert delta < scale / 1e4
+
+
 def test_attribution_ops_fixes_the_profile_head(small_model):
 	"""The profile head is wrong by more than its own output untreated.
 

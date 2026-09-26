@@ -59,6 +59,44 @@ GPU memory at training time is dominated by activations
 the cheapest way to keep batch size high.
 
 
+CUDA out of memory in the attribute step
+----------------------------------------
+
+Symptom: ``torch.cuda.OutOfMemoryError`` from ``cherimoya attribute``
+or from step 2 of ``cherimoya pipeline``.
+
+Under DeepLIFT/SHAP, the default algorithm, ``batch_size`` counts
+sequence-reference pairs, and each pair is run forward and backward
+with its activations kept. On the default 9-layer, 128-filter model at
+2114 bp, 16 pairs peaked at 4.0 GB, 32 at 7.8 GB, 64 (the default) at
+15.5 GB and 512 at 124 GB, with about the same wall time at each, so
+memory grows with ``batch_size``. Lower
+``attribute_parameters.batch_size`` (64 → 32 → 16). With a fixed
+``random_state`` the attributions are the same at any batch size, up
+to float rounding.
+
+
+"Convergence deltas too high" during attribution
+------------------------------------------------
+
+Symptom: ``RuntimeWarning: Convergence deltas too high: tensor([...])``
+from ``cherimoya attribute`` or from ``deep_lift_shap`` in Python.
+
+DeepLIFT/SHAP attributions for an example and a reference should sum
+to the difference between the two predictions. The warning lists, for
+each pair in a batch, how far they missed, and fires when any miss
+exceeds ``warning_threshold`` (default 0.001). The threshold is
+absolute, in the units of the attributed output — log counts, or the
+profile wrapper's scalar — so compare the reported deltas with the
+size of the predictions before deciding what they mean.
+
+The known cause is calling ``deep_lift_shap`` in Python without
+``additional_nonlinear_ops=attribution_ops()``: two of Cherimoya's
+layers need rules, and for the profile head the error then exceeds the
+prediction itself (see :doc:`api/deep_lift_shap`). ``cherimoya
+attribute`` always registers them.
+
+
 The first iteration is very slow, then it speeds up
 ---------------------------------------------------
 
@@ -254,7 +292,9 @@ cost of that speedup.
 From the CLI the same two settings are the ``compile`` and
 ``compile_mode`` JSON keys, accepted by ``evaluate``, ``attribute``,
 ``marginalize`` and at the top level of a ``pipeline`` JSON, where one
-value reaches every step that loads a model::
+value reaches every step that loads a model — except ``attribute``,
+which defaults to ``compile: false`` and never compiles under
+DeepLIFT/SHAP::
 
     {"compile": false}
     {"compile_mode": "max-autotune-no-cudagraphs"}

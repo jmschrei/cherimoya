@@ -22,7 +22,7 @@ For stranded ChIP-seq with input controls:
 
 This calls peaks with MACS3, converts BAMs to bigWigs, samples
 GC-matched negatives, trains a Cherimoya model, computes attributions
-via saturation mutagenesis, calls seqlets, annotates them with
+with DeepLIFT/SHAP, calls seqlets, annotates them with
 tomtom-lite, and runs TF-MoDISco. All outputs land in the working
 directory; the full output list and per-step descriptions are in
 :doc:`tutorials/cli_pipeline`. Assay-specific recipes:

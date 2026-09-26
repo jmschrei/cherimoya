@@ -84,10 +84,14 @@ Cherimoya checks.
      - HDF5 I/O (TF-MoDISco results, attribution arrays).
    * - ``tqdm`` (≥ 4.64.1)
      - Progress bars for data loading and training.
-   * - ``tangermeme`` (≥ 1.4.0)
-     - Sequence loading, attribution (saturation mutagenesis), and
+   * - ``tangermeme`` (≥ 1.5.0)
+     - Sequence loading, attribution (DeepLIFT/SHAP and saturation
+       mutagenesis), and
        seqlet extraction primitives. The floor is tight because
-       Cherimoya uses a wide slice of this package:
+       Cherimoya uses a wide slice of this package: the closed-form
+       normalization rule that
+       :func:`~cherimoya.deep_lift_shap.attribution_ops` reuses (new in
+       1.5.0),
        ``extract_loci(return_mask=...)``, ``io._interleave_loci``,
        ``predict``'s dtype/device handling,
        ``seqlet.recursive_seqlets``, ``utils.example_to_fasta_coords``

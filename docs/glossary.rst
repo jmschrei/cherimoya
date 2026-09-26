@@ -61,7 +61,22 @@ Saturation mutagenesis (in silico)
    gets a 4-dim vector of "hypothetical importance scores", and
    multiplying by the actual one-hot sequence yields the importance
    of the base that *is* there. Cherimoya's ``attribute`` subcommand
-   wraps ``tangermeme.saturation_mutagenesis.saturation_mutagenesis``.
+   wraps ``tangermeme.saturation_mutagenesis.saturation_mutagenesis``
+   when ``algorithm`` is ``"saturation_mutagenesis"``; its default is
+   DeepLIFT/SHAP.
+
+DeepLIFT/SHAP
+   A gradient-based attribution method: each base's score is the
+   gradient of the prediction, propagated with DeepLIFT's rules,
+   relative to a reference sequence, averaged over several references
+   (for Cherimoya, dinucleotide shuffles of the input). The scores for
+   an example and a reference should sum to the difference between
+   their predictions; any gap is the *convergence delta*. Unlike saturation
+   mutagenesis it attributes the whole input in one forward and
+   backward pass per reference. Cherimoya's ``attribute`` subcommand
+   wraps ``tangermeme.deep_lift_shap.deep_lift_shap`` by default, with
+   the rules from :func:`cherimoya.deep_lift_shap.attribution_ops`
+   registered.
 
 Hypothetical vs actual importance
    *Hypothetical* importance is the score every possible base would

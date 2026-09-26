@@ -15,6 +15,10 @@ private and may change between versions:
   `ExpectedCountsWrapper` — output wrappers for analysis (see
   `references/using-tangermeme.md`).
 
+One module-level function is also public though not re-exported:
+`attribution_ops`, imported from `cherimoya.deep_lift_shap`, which every
+DeepLIFT/SHAP call on a Cherimoya model passes as `additional_nonlinear_ops`.
+
 ## Constructing and calling a model
 
 ```python
@@ -113,7 +117,9 @@ The same two settings are JSON keys on `evaluate`, `attribute` and
 `marginalize`, and at the top level of a `pipeline` JSON where one value reaches
 every step that loads a model: `{"compile": false}`,
 `{"compile_mode": "max-autotune-no-cudagraphs"}`. Reach for them when a CLI run
-hits a compile or CUDA-graph traceback.
+hits a compile or CUDA-graph traceback. `attribute` is the exception: it
+defaults to `compile: false` (neither algorithm ran faster compiled) and never
+compiles under DeepLIFT/SHAP.
 
 ### Things to tell users about checkpoints
 

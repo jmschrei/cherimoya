@@ -11,10 +11,13 @@ What are attributions?
 ----------------------
 
 Attributions quantify how much each base in the input sequence
-contributes to the model's prediction. Cherimoya uses **saturation
-mutagenesis** — evaluating every single-nucleotide substitution and
-taking the predicted delta — to compute hypothetical importance
-scores. The output array has shape ``(n_examples, 4, window)``: one
+contributes to the model's prediction. ``cherimoya attribute``
+computes hypothetical importance scores with **DeepLIFT/SHAP** by
+default — gradients propagated relative to dinucleotide-shuffled
+reference sequences — and with **saturation mutagenesis** —
+evaluating every single-nucleotide substitution and taking the
+predicted delta — when ``algorithm`` is ``"saturation_mutagenesis"``.
+Either way the output array has shape ``(n_examples, 4, window)``: one
 score per base per position.
 
 These scores are commonly used to:
@@ -40,8 +43,10 @@ Example JSON:
        "sequences": "hg38.fa",
        "loci": "peaks.narrowPeak",
        "chroms": ["chr2", "chr4", "chr5"],
+       "algorithm": "deep_lift_shap",
        "output": "counts",
-       "batch_size": 512,
+       "group": 0,
+       "batch_size": 64,
        "device": "cuda",
        "ohe_filename": "attributions.ohe.npz",
        "attr_filename": "attributions.attr.npz",
@@ -55,6 +60,25 @@ Example JSON:
 * ``"profile"`` — attribute to the predicted profile shape (uses
   :class:`cherimoya.ProfileWrapper`).
 
+``group`` selects which signal group of a multi-group model is
+attributed (see :doc:`../multi_task`); for a single-group model the
+default, ``0``, is the whole output.
+
+``algorithm`` chooses the method:
+
+* ``"deep_lift_shap"`` (default) — ``tangermeme.deep_lift_shap`` with
+  ``n_shuffles`` dinucleotide-shuffled references per sequence and
+  Cherimoya's DeepLIFT rules registered. ``batch_size`` counts
+  sequence-reference pairs, each run forward and backward.
+* ``"saturation_mutagenesis"`` — ``tangermeme.saturation_mutagenesis``,
+  forward passes only, three per attributed position.
+
+The model is loaded uncompiled by default. ``"compile": true`` compiles
+it for saturation mutagenesis only; DeepLIFT/SHAP never compiles, since
+its backward hooks cause graph breaks and recompiles. Neither algorithm ran
+faster compiled in our measurements, and compiling lengthened the first
+call.
+
 The CLI automatically:
 
 1. Loads sequences from ``loci`` on ``chroms`` and filters out any
@@ -62,8 +86,10 @@ The CLI automatically:
 2. Wraps the model with :class:`cherimoya.ControlWrapper` (passing
    zero controls if the model has none) and then with the chosen
    output wrapper.
-3. Runs ``tangermeme.saturation_mutagenesis.saturation_mutagenesis``
-   over the central 400 bp of each input.
+3. Runs the chosen algorithm and keeps the central ``attr_window``
+   (default 400) bp of each input. DeepLIFT/SHAP attributes the whole
+   input window and the centre is sliced out; saturation mutagenesis
+   only mutates the centre.
 4. Writes one-hot encoded inputs to ``ohe_filename``, hypothetical
    importance scores to ``attr_filename``, and a boolean mask
    (``idx_filename``) recording which loci survived the N-filter, so
@@ -77,31 +103,40 @@ The ``.npz`` outputs store the array under key ``arr_0``
 Computing attributions (Python)
 -------------------------------
 
+This is what ``cherimoya attribute`` does with its defaults:
+DeepLIFT/SHAP against 20 dinucleotide-shuffled references per
+sequence, keeping the central 400 bp.
+
 .. code-block:: python
 
-   import torch
    from cherimoya import Cherimoya
    from cherimoya import ControlWrapper
    from cherimoya import LogCountWrapper
    from cherimoya import ProfileWrapper
-   from tangermeme.saturation_mutagenesis import saturation_mutagenesis
+   from cherimoya.deep_lift_shap import attribution_ops
+   from tangermeme.deep_lift_shap import deep_lift_shap
 
-   model = Cherimoya.load("my_model.torch", device="cuda")
+   # DeepLIFT's backward hooks cannot be traced by torch.compile.
+   model = Cherimoya.load("my_model.torch", device="cuda", compile=False)
 
    # ControlWrapper wraps the model so that .forward(X) returns just the
    # profile/counts tuple, supplying zero controls if the model has none.
    model = ControlWrapper(model)
-   wrapper = LogCountWrapper(model)   # use ProfileWrapper(...) to attribute to profile shape
+   wrapper = LogCountWrapper(model, group=0)   # or ProfileWrapper(model, group=0) for profile shape
 
-   # ISM over the central 400 bp of each input sequence.
-   mid = X.shape[-1] // 2
-   X_attr = saturation_mutagenesis(
+   X_attr = deep_lift_shap(
        wrapper, X,
-       batch_size=512,
-       device="cuda",
+       n_shuffles=20,
+       batch_size=64,
        hypothetical=True,
-       start=mid - 200, end=mid + 200,
+       additional_nonlinear_ops=attribution_ops(),
+       device="cuda",
+       random_state=0,
    )
+
+   # Keep the central 400 bp of each input sequence.
+   mid = X.shape[-1] // 2
+   X_attr = X_attr[:, :, mid - 200:mid + 200]
 
 This produces hypothetical importance scores. To get actual
 importance, multiply elementwise by the one-hot encoding and sum
@@ -111,34 +146,49 @@ across the channel axis:
 
    importance = (X_attr * X[:, :, mid - 200:mid + 200]).sum(dim=1)
 
+``additional_nonlinear_ops=attribution_ops()`` is required, not an
+optimization. ``FusedDilatedConvNorm`` and the profile head's logit
+scaling are neither linear nor in tangermeme's table, so without them
+the attributions carry no guarantee that they sum to the change in the
+prediction — and for the profile head the error exceeds the prediction
+itself. See :doc:`../api/deep_lift_shap` for what each rule does and
+why.
 
-DeepLIFT/SHAP instead of saturation mutagenesis
+tangermeme's ``deep_lift_shap`` attributes output ``target=0`` of the
+model it is given. ``LogCountWrapper`` without ``group`` returns one
+count per signal group, so on a multi-group model it would silently
+attribute group 0 only; pass ``group`` to say which one you mean.
+
+
+Saturation mutagenesis instead of DeepLIFT/SHAP
 -----------------------------------------------
 
-Everything above uses saturation mutagenesis, which makes forward passes
-only and needs nothing registered. ``deep_lift_shap`` is the gradient-based
-alternative: it costs a handful of forward and backward passes per sequence
-rather than three per position, which on a 9-layer model over a 2114 bp
-window is about 5 ms against 73 ms for the central-400 bp ISM the CLI runs,
-both measured on one H200 at batch 8.
-
-It does need two rules registered. ``FusedDilatedConvNorm`` and the profile
-head's logit scaling are neither linear nor in tangermeme's table, so
-without them the attributions carry no guarantee that they sum to the
-change in the prediction — and for the profile head the error exceeds the
-prediction itself. :func:`cherimoya.deep_lift_shap.attribution_ops` returns
-both:
+Saturation mutagenesis (ISM) makes forward passes only and needs
+nothing registered, at the cost of three forward passes per attributed
+position: on a 9-layer model over a 2114 bp window, DeepLIFT/SHAP takes
+about 5 ms against 73 ms for a central-400 bp ISM, both measured on one
+H200 at batch 8. Only the positions between ``start`` and ``end`` are
+mutated:
 
 .. code-block:: python
 
-   from tangermeme.deep_lift_shap import deep_lift_shap
-   from cherimoya.deep_lift_shap import attribution_ops
+   from tangermeme.saturation_mutagenesis import saturation_mutagenesis
 
-   X_attr = deep_lift_shap(wrapper, X, references=references,
-       additional_nonlinear_ops=attribution_ops())
+   model = ControlWrapper(Cherimoya.load("my_model.torch", device="cuda",
+       compile=False))
+   wrapper = LogCountWrapper(model, group=0)
 
-Load the model with ``compile=False`` when attributing it. See
-:doc:`../api/deep_lift_shap` for what each rule does and why.
+   mid = X.shape[-1] // 2
+   X_attr = saturation_mutagenesis(
+       wrapper, X,
+       batch_size=64,
+       device="cuda",
+       hypothetical=True,
+       start=mid - 200, end=mid + 200,
+   )
+
+``cherimoya attribute`` runs this with ``"algorithm":
+"saturation_mutagenesis"``.
 
 
 Identifying seqlets

@@ -10,9 +10,9 @@ Cherimoya model without registering these is a correctness question rather
 than a performance one — the attributions come back with no guarantee that
 they sum to the change in the prediction.
 
-This is only needed for DeepLIFT/SHAP. ``cherimoya attribute`` and the
-saturation-mutagenesis path in :doc:`../tutorials/attribution` make forward
-passes only and register nothing.
+This is only needed for DeepLIFT/SHAP. ``cherimoya attribute`` registers
+both rules itself when ``algorithm`` is ``"deep_lift_shap"``, its default.
+Saturation mutagenesis makes forward passes only and registers nothing.
 
 Requires ``tangermeme >= 1.5.0``, which is where the closed-form
 normalization rule that :func:`conv_norm_op` reuses was added.

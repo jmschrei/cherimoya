@@ -114,8 +114,8 @@ What this does, in order:
 4. **Model training** — writes ``{name}.torch`` (best checkpoint by
    validation count Pearson) and ``{name}.final.torch`` (EMA weights
    at end of training), plus ``{name}.log``.
-5. **Attribution** via saturation mutagenesis over the central 400 bp
-   of each example, saved as ``{name}.attributions.{ohe,attr}.npz``
+5. **Attribution** via DeepLIFT/SHAP (or saturation mutagenesis, with
+   ``algorithm``), kept over the central 400 bp of each example, saved as ``{name}.attributions.{ohe,attr}.npz``
    and ``{name}.attributions.idxs.npy``.
 6. **Seqlet identification** with TF-MoDISco-style recursive seqlet
    calling on the (attribution × one-hot) signal, written to
@@ -266,7 +266,7 @@ directory (with ``{name}`` from the ``-n`` flag in step 1):
    * - ``{name}.attributions.ohe.npz``
      - One-hot encoded sequences over the central 400 bp window.
    * - ``{name}.attributions.attr.npz``
-     - Hypothetical importance scores (saturation mutagenesis).
+     - Hypothetical importance scores (DeepLIFT/SHAP by default).
    * - ``{name}.attributions.idxs.npy``
      - Boolean mask into the original loci list selecting examples
        that had no Ns over the window.

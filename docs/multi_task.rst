@@ -338,6 +338,23 @@ output channels: in this example channel 0 is ATAC, channels 1–2 are
 CTCF (+/-), channels 3–4 are YY1 (+/-). Count predictions are in the
 same group order: count 0 is ATAC, count 1 is CTCF, count 2 is YY1.
 
+**Attributing one modality.** :class:`~cherimoya.ProfileWrapper` and
+:class:`~cherimoya.LogCountWrapper` take a ``group`` index in the same
+order, so ``group=1`` in this example attributes CTCF alone. Without it,
+``LogCountWrapper`` returns all three counts and ``ProfileWrapper``
+softmaxes all five channels together into one number. In
+``cherimoya attribute`` the same index is the ``group`` key, whose
+default is ``0``.
+
+.. code-block:: python
+
+   from cherimoya import ControlWrapper
+   from cherimoya import LogCountWrapper
+   from cherimoya import ProfileWrapper
+
+   ctcf_counts = LogCountWrapper(ControlWrapper(model), group=1)
+   ctcf_profile = ProfileWrapper(ControlWrapper(model), group=1)
+
 .. admonition:: BAM input for variably-multitask
    :class: note
 

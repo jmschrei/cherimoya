@@ -188,7 +188,8 @@ def _setup_parsers() -> argparse.ArgumentParser:
 
 	# Attribute
 	attribute_parser = subparsers.add_parser(
-		"attribute", help="Calculate attributions using a trained Cherimoya model."
+		"attribute", help="Calculate attributions using a trained Cherimoya "
+		"model, with DeepLIFT/SHAP (default) or saturation mutagenesis."
 	)
 	attribute_parser.add_argument(
 		"-p",

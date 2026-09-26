@@ -53,8 +53,8 @@ weights, which validates better than the raw training weights):
 ## "What did the model learn?" — interpretation outputs
 
 ### Attributions — `{name}.attributions.*`
-Per-base importance from saturation mutagenesis, over the central 400 bp of each
-locus, as three aligned files:
+Per-base importance from DeepLIFT/SHAP (or saturation mutagenesis, with
+`algorithm`), over the central 400 bp of each locus, as three aligned files:
 - `{name}.attributions.ohe.npz` — one-hot input sequences (that 400 bp span).
 - `{name}.attributions.attr.npz` — hypothetical importance scores.
 - `{name}.attributions.idxs.npy` — boolean mask back to the original loci list
