@@ -516,6 +516,11 @@ Logging
 Attribution
 ~~~~~~~~~~~
 
+* :func:`cherimoya.deep_lift_shap.attribution_ops` is now declared public
+  API, alongside the other module-level symbols listed in
+  :doc:`development`. It is imported from ``cherimoya.deep_lift_shap``
+  and is not re-exported from ``cherimoya``.
+
 * :class:`cherimoya.ProfileWrapper` and :class:`cherimoya.LogCountWrapper`
   take an optional ``group`` index into ``signal_groups``, so one modality
   of a multi-group model can be attributed on its own (#52).

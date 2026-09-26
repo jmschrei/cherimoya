@@ -67,9 +67,17 @@ Explicitly:
   :class:`~cherimoya.cheri.FusedDilatedConvNorm`,
   :class:`~cherimoya.cheri.FusedDilatedConvNormFunc`,
   :func:`~cherimoya.performance.calculate_performance_measures` and
-  its component metrics, :func:`~cherimoya.losses._mixture_loss`
+  its component metrics, :func:`~cherimoya.deep_lift_shap.attribution_ops`,
+  :func:`~cherimoya.losses._mixture_loss`
   (despite the underscore — it is the trainer's loss function and
   the API is stable).
+
+  :func:`~cherimoya.deep_lift_shap.attribution_ops` is public because
+  every DeepLIFT/SHAP call on a Cherimoya model has to pass it, so the
+  documentation tells users to import it from ``cherimoya.deep_lift_shap``.
+  Its name, import path, and the fact that it returns a dict suitable
+  for ``additional_nonlinear_ops`` are a compatibility surface; which
+  rules the dict contains may change as the model does.
 
   :class:`~cherimoya.cheri.FusedDilatedConvNorm` is public because
   naming the class *is* the interface: an attribution method that wants

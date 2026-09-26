@@ -15,6 +15,10 @@ private and may change between versions:
   `ExpectedCountsWrapper` — output wrappers for analysis (see
   `references/using-tangermeme.md`).
 
+One module-level function is also public though not re-exported:
+`attribution_ops`, imported from `cherimoya.deep_lift_shap`, which every
+DeepLIFT/SHAP call on a Cherimoya model passes as `additional_nonlinear_ops`.
+
 ## Constructing and calling a model
 
 ```python
