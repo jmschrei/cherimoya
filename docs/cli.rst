@@ -143,9 +143,9 @@ JSON schema (top-level keys, with defaults from
      - ``true``
      - Whether every step that loads a model wraps its forward in
        ``torch.compile``. Set to ``false`` for an eager forward — the
-       fix for a ``torch.compile`` or CUDA-graph error, and what
-       attribution wants, since DeepLIFT's backward hooks cannot be
-       traced by Inductor.
+       fix for a ``torch.compile`` or CUDA-graph error. The attribute
+       step ignores it under DeepLIFT/SHAP and always loads eagerly,
+       since DeepLIFT's backward hooks cannot be traced by Inductor.
    * - ``compile_mode``
      - ``"max-autotune"``
      - The ``mode`` passed to ``torch.compile``. Useful alternatives are
@@ -154,7 +154,9 @@ JSON schema (top-level keys, with defaults from
        ``compile`` is ``false``.
    * - ``batch_size``
      - 512
-     - Batch size for inference stages (attribution, evaluation).
+     - Batch size for inference stages. The attribute step sets its
+       own (64) in ``attribute_parameters``, since for DeepLIFT/SHAP
+       each item is a sequence-reference pair run forward and backward.
    * - ``verbose``
      - ``true``
      - Print per-step progress.
@@ -403,19 +405,41 @@ attribute_parameters
    * - Key
      - Default
      - Description
+   * - ``algorithm``
+     - ``"deep_lift_shap"``
+     - ``"deep_lift_shap"`` (DeepLIFT/SHAP against dinucleotide-shuffled
+       references, with Cherimoya's DeepLIFT rules registered) or
+       ``"saturation_mutagenesis"``. Both write arrays of the same
+       shape. DeepLIFT/SHAP always loads the model uncompiled;
+       ``compile`` and ``compile_mode`` apply only to saturation
+       mutagenesis.
    * - ``batch_size``
-     - 512
-     - Inference batch size.
+     - 64
+     - Batch size. For DeepLIFT/SHAP this counts sequence-reference
+       pairs, each run forward and backward.
    * - ``chroms``
      - training + validation chroms
      - Chromosomes to attribute.
    * - ``output``
      - ``"counts"``
      - Attribute to counts or profile (``"profile"``).
-   * - ``output_group``
-     - ``null``
+   * - ``group``
+     - 0
      - Index into the model's ``signal_groups`` of the one group to
-       attribute. ``null`` attributes every group at once.
+       attribute. ``null`` attributes every group at once; DeepLIFT/SHAP
+       rejects that for ``"counts"`` on a model with more than one group,
+       since it attributes a single output.
+   * - ``n_shuffles``
+     - 20
+     - DeepLIFT/SHAP: dinucleotide-shuffled references per sequence.
+   * - ``warning_threshold``
+     - 0.001
+     - DeepLIFT/SHAP: warn when an example's attributions miss the
+       change in prediction by more than this.
+   * - ``random_state``
+     - 0
+     - DeepLIFT/SHAP: seed for the shuffled references. Left ``null``
+       in a pipeline JSON, the pipeline's top-level value is used.
    * - ``in_window``
      - 2114
      - Width of the sequence window extracted per locus. Must match the
@@ -425,8 +449,9 @@ attribute_parameters
      - Width of the centred slice that is actually attributed, and the
        width of the arrays written to ``ohe_filename`` and
        ``attr_filename``. Saturation mutagenesis is one forward pass
-       per alternate base per position, so this sets the cost of the
-       step. Must not exceed ``in_window``.
+       per alternate base per position, so for it this sets the cost
+       of the step; DeepLIFT/SHAP attributes the whole ``in_window``
+       and keeps this slice. Must not exceed ``in_window``.
    * - ``ohe_filename``
      - ``"attributions.ohe.npz"``
      - Output: one-hot encoded inputs, ``attr_window`` wide.

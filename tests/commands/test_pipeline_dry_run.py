@@ -40,3 +40,23 @@ def test_dry_run_with_motifs_writes_the_step_jsons(tmp_path, run_pipeline):
 	for name in ("demo.fit.json", "demo.attribute.json",
 			"demo.seqlets.json", "demo.marginalize.json"):
 		assert (tmp_path / name).exists(), name
+
+
+def test_dry_run_attribute_json_uses_deep_lift_shap_settings(tmp_path,
+		run_pipeline):
+	"""The pipeline's shared `batch_size` (512) is sized for inference and
+	would reach the attribute step through `_extract_set`; the step pins
+	its own, and the seed comes from the top level."""
+
+	import json
+
+	run_pipeline(motifs=str(tmp_path / "m.meme"))
+
+	with open(tmp_path / "demo.attribute.json") as f:
+		step = json.load(f)
+
+	assert step["algorithm"] == "deep_lift_shap"
+	assert step["batch_size"] == 64
+	assert step["group"] == 0
+	assert step["n_shuffles"] == 20
+	assert step["random_state"] == 0

@@ -50,6 +50,10 @@ def _captured_load_kwargs(command, tmp_path, **overrides):
 	# `evaluate` reads `signals` before it loads the model, and does not
 	# declare it as a default, so it has to be supplied here.
 	cfg.setdefault("signals", ["s.bw"])
+	# `attribute` loads uncompiled for DeepLIFT whatever `compile` says
+	# (see test_attribute.py); the knob applies to its ISM path.
+	if command == "attribute":
+		cfg["algorithm"] = "saturation_mutagenesis"
 	cfg.update(overrides)
 
 	path = tmp_path / "{}.json".format(command)

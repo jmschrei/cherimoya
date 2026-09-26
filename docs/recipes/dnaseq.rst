@@ -64,7 +64,7 @@ Steps invoked, in order:
 3. GC-matched negative sampling (``dnase_experiment.negatives.bed``).
 4. Train a 9-layer 128-filter Cherimoya model with
    ``signal_groups=[1]`` and ``n_control_tracks=0``.
-5. Compute count attributions via saturation mutagenesis on the
+5. Compute count attributions via DeepLIFT/SHAP on the
    validation chromosomes.
 6. Call seqlets, annotate with tomtom-lite.
 7. Run TF-MoDISco motif discovery.

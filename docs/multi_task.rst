@@ -343,7 +343,8 @@ same group order: count 0 is ATAC, count 1 is CTCF, count 2 is YY1.
 order, so ``group=1`` in this example attributes CTCF alone. Without it,
 ``LogCountWrapper`` returns all three counts and ``ProfileWrapper``
 softmaxes all five channels together into one number. In
-``cherimoya attribute`` the same index is the ``output_group`` key.
+``cherimoya attribute`` the same index is the ``group`` key, whose
+default is ``0``.
 
 .. code-block:: python
 

@@ -236,6 +236,46 @@ Robustness
 CLI
 ~~~
 
+* ``cherimoya attribute`` **now computes DeepLIFT/SHAP attributions by
+  default**, the way bpnet-lite's attribute step does. A new
+  ``algorithm`` key takes ``"deep_lift_shap"`` (the default) or
+  ``"saturation_mutagenesis"``, which is the previous behaviour. An
+  existing attribute or pipeline JSON rerun unchanged now produces
+  DeepLIFT/SHAP scores; add ``"algorithm": "saturation_mutagenesis"`` to
+  keep ISM. Both write ``(n, 4, attr_window)`` arrays to the same files,
+  so ``cherimoya seqlets`` and TF-MoDISco read either. DeepLIFT/SHAP
+  attributes the whole ``in_window`` against dinucleotide-shuffled
+  references with :func:`cherimoya.deep_lift_shap.attribution_ops`
+  registered, and the centred ``attr_window`` slice is saved. Three new
+  keys configure it, with bpnet-lite's defaults: ``n_shuffles`` (20),
+  ``warning_threshold`` (0.001) and ``random_state`` (0; in a pipeline
+  JSON, ``null`` inherits the top-level seed).
+
+* The attribute step's ``batch_size`` default is now 64 rather than 512,
+  for both algorithms, and the pipeline's ``attribute_parameters`` sets
+  64 rather than inheriting the top-level 512. For DeepLIFT/SHAP each
+  item is a sequence-reference pair run forward and backward: on a
+  9-layer, 128-filter model at 2114 bp, 512 pairs peaked at 124 GB of GPU
+  memory and 64 at 15.5 GB, with the same wall time.
+
+* Under DeepLIFT/SHAP the attribute step loads the model with
+  ``compile=False`` whatever ``compile`` says. The backward hooks make
+  the compiled forward recompile until Dynamo's recompile limit, which
+  added about 45 s of warm-up in one measured run and gave the same
+  attributions (to ~1e-11). ``compile`` and ``compile_mode`` still apply to saturation
+  mutagenesis.
+
+* A new ``group`` key (default ``0``) selects which signal group of a
+  multi-group model the attribute step attributes, through the
+  ``group`` argument of :class:`~cherimoya.ProfileWrapper` and
+  :class:`~cherimoya.LogCountWrapper` (#52). Single-group models are
+  unaffected. **For a multi-group model this changes the default
+  target** from every group — ISM averaged the count head's outputs,
+  and the profile target softmaxed all groups together — to group 0.
+  ``"group": null`` restores the old target under saturation
+  mutagenesis; DeepLIFT/SHAP raises ``ValueError`` for it with
+  ``output: counts``, since it attributes a single output.
+
 * ``default_pipeline_parameters['marginalize_parameters']`` declared
   ``output_folder`` while ``cherimoya marginalize`` reads
   ``output_filename``, so setting it in a pipeline JSON was a silent
@@ -484,7 +524,7 @@ Attribution
   returns group ``i``'s log-count with shape ``(batch_size, 1)``. An index
   outside the model's groups raises ``ValueError`` when the wrapper is
   built. The default, ``None``, is the previous behaviour. ``cherimoya
-  attribute`` exposes it as the ``output_group`` key, default ``null``.
+  attribute`` exposes it as the ``group`` key (see CLI below).
 
 * The fused dilated convolution + per-example norm inside
   :class:`cherimoya.CheriBlock` now lives on a

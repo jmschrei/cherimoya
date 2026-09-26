@@ -85,7 +85,8 @@ Cherimoya checks.
    * - ``tqdm`` (≥ 4.64.1)
      - Progress bars for data loading and training.
    * - ``tangermeme`` (≥ 1.4.0)
-     - Sequence loading, attribution (saturation mutagenesis), and
+     - Sequence loading, attribution (DeepLIFT/SHAP and saturation
+       mutagenesis), and
        seqlet extraction primitives. The floor is tight because
        Cherimoya uses a wide slice of this package:
        ``extract_loci(return_mask=...)``, ``io._interleave_loci``,

@@ -45,8 +45,10 @@ wrong is silent; see the grouping footgun in `references/input-files.md`.
 
 The "what did the model learn" chain, in order:
 - **Attribution** — per-base importance scores: which bases the model relied on
-  for its prediction. Cherimoya computes these by **saturation mutagenesis
-  (ISM)** — mutating each base and measuring the change in prediction.
+  for its prediction. `cherimoya attribute` computes these with
+  **DeepLIFT/SHAP** by default — gradients relative to shuffled reference
+  sequences — or by **saturation mutagenesis (ISM)** — mutating each base and
+  measuring the change in prediction — with `algorithm: saturation_mutagenesis`.
 - **Seqlets** — short, contiguous high-importance stretches pulled out of the
   attributions (lengths ~4–25 bp): candidate functional elements.
 - **Motifs** — recurring sequence patterns (e.g. a transcription-factor binding

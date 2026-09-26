@@ -38,8 +38,8 @@ WINDOWS = [(2114, 400), (2114, 600), (4096, 400), (1000, 1000)]
 
 
 def _run_attribute(tmp_path, in_window, attr_window):
-	"""Run `cherimoya attribute` with `extract_loci` and saturation
-	mutagenesis stubbed, leaving its own slice arithmetic real.
+	"""Run `cherimoya attribute` with `extract_loci` and the attribution
+	calls stubbed, leaving its own slice arithmetic real.
 
 	Returns the sequence the stub stood the genome up as, plus the
 	genomic coordinate of its first column, so the test has a ground
@@ -70,6 +70,10 @@ def _run_attribute(tmp_path, in_window, attr_window):
 		width = kwargs["end"] - kwargs["start"]
 		return torch.ones(X.shape[0], 4, width)
 
+	def fake_dls(model, X, **kwargs):
+		# DeepLIFT attributes the whole window; `attribute` slices it.
+		return torch.ones(X.shape)
+
 	cfg = dict(default_attribute_parameters)
 	cfg.update({
 		"sequences": "g.fa", "loci": str(tmp_path / "loci.bed"),
@@ -88,8 +92,11 @@ def _run_attribute(tmp_path, in_window, attr_window):
 			mock.patch("tangermeme.io.extract_loci",
 				side_effect=fake_extract), \
 			mock.patch("tangermeme.saturation_mutagenesis."
-				"saturation_mutagenesis", side_effect=fake_sm):
-		model_cls.load.return_value = mock.MagicMock(n_control_tracks=0)
+				"saturation_mutagenesis", side_effect=fake_sm), \
+			mock.patch("tangermeme.deep_lift_shap.deep_lift_shap",
+				side_effect=fake_dls):
+		model_cls.load.return_value = mock.MagicMock(n_control_tracks=0,
+			signal_groups=[1])
 		attribute.run(argparse.Namespace(parameters=str(path)))
 
 	captured["ohe"] = numpy.load(tmp_path / "a.ohe.npz")["arr_0"]

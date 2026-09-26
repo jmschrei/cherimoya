@@ -61,7 +61,9 @@ Saturation mutagenesis (in silico)
    gets a 4-dim vector of "hypothetical importance scores", and
    multiplying by the actual one-hot sequence yields the importance
    of the base that *is* there. Cherimoya's ``attribute`` subcommand
-   wraps ``tangermeme.saturation_mutagenesis.saturation_mutagenesis``.
+   wraps ``tangermeme.saturation_mutagenesis.saturation_mutagenesis``
+   when ``algorithm`` is ``"saturation_mutagenesis"``; its default is
+   DeepLIFT/SHAP.
 
 Hypothetical vs actual importance
    *Hypothetical* importance is the score every possible base would

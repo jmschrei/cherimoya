@@ -46,7 +46,7 @@ GPU acceleration requires Triton and a CUDA-capable device; a pure-PyTorch CPU f
 ### What you can do with Cherimoya
 
 - Train a sequence-to-function model on [TF ChIP-seq](https://cherimoya.readthedocs.io/en/latest/recipes/chipseq_tf.html), [ATAC-seq](https://cherimoya.readthedocs.io/en/latest/recipes/atacseq.html), [DNase-seq](https://cherimoya.readthedocs.io/en/latest/recipes/dnaseq.html), or any signal that can be expressed as a stranded or unstranded coverage track. Multi-task models that share a backbone across several modalities — for example ATAC co-trained with several stranded TFs — are also supported; see [the multi-task guide](https://cherimoya.readthedocs.io/en/latest/multi_task.html).
-- Compute per-base attribution scores via [*in silico* saturation mutagenesis](https://cherimoya.readthedocs.io/en/latest/tutorials/attribution.html).
+- Compute per-base attribution scores via [DeepLIFT/SHAP or *in silico* saturation mutagenesis](https://cherimoya.readthedocs.io/en/latest/tutorials/attribution.html).
 - Call seqlets and discover *de novo* motifs with [TF-MoDISco](https://cherimoya.readthedocs.io/en/latest/tutorials/attribution.html#tf-modisco-motif-discovery).
 - Annotate seqlets against a known motif database via [tomtom-lite](https://cherimoya.readthedocs.io/en/latest/tutorials/attribution.html#tomtom-lite-annotation).
 - [Marginalize](https://cherimoya.readthedocs.io/en/latest/tutorials/variant_effect.html#motif-marginalization-cli) the contribution of inserted motifs in counterfactual sequence designs.
@@ -108,7 +108,7 @@ Any input path can be remote (S3, HTTPS, etc.); the pipeline streams reads throu
 cherimoya pipeline -p pipeline.json
 ```
 
-This calls peaks with MACS3, samples GC-matched negatives, trains a Cherimoya model, computes attributions via saturation mutagenesis, calls seqlets, annotates them with tomtom-lite, and runs TF-MoDISco. The outputs land in the working directory: a `.torch` model checkpoint and training log, per-track bigWigs, a saturation-mutagenesis attribution array (`.npz`), a seqlet table with tomtom-lite annotations, and a TF-MoDISco results H5. Each sub-step writes its own JSON snapshot so individual stages can be re-run in isolation with the `negatives`, `fit`, `evaluate`, `attribute`, `marginalize`, or `seqlets` subcommands. See [the CLI reference](https://cherimoya.readthedocs.io/en/latest/cli.html) for the full command list and JSON schema.
+This calls peaks with MACS3, samples GC-matched negatives, trains a Cherimoya model, computes attributions with DeepLIFT/SHAP, calls seqlets, annotates them with tomtom-lite, and runs TF-MoDISco. The outputs land in the working directory: a `.torch` model checkpoint and training log, per-track bigWigs, a DeepLIFT/SHAP attribution array (`.npz`), a seqlet table with tomtom-lite annotations, and a TF-MoDISco results H5. Each sub-step writes its own JSON snapshot so individual stages can be re-run in isolation with the `negatives`, `fit`, `evaluate`, `attribute`, `marginalize`, or `seqlets` subcommands. See [the CLI reference](https://cherimoya.readthedocs.io/en/latest/cli.html) for the full command list and JSON schema.
 
 ### Python API and saving/loading
 

@@ -1,11 +1,11 @@
 # Analyzing a Cherimoya model with tangermeme
 
-Post-training analysis — attributions via saturation mutagenesis (ISM, the
-method Cherimoya uses), marginalization, variant-effect scoring, and sequence
-design — lives in **tangermeme**, not Cherimoya. (DeepLIFT/SHAP via
-`deep_lift_shap` is an alternative on a wrapped model, and needs two rules
-registered — see below.) Cherimoya's only job is to expose the right single
-tensor from its `(profile, log-count)` output.
+Post-training analysis — attributions via DeepLIFT/SHAP (`deep_lift_shap`,
+which `cherimoya attribute` runs by default and which needs two rules
+registered — see below) or saturation mutagenesis (ISM), marginalization,
+variant-effect scoring, and sequence design — lives in **tangermeme**, not
+Cherimoya. Cherimoya's only job is to expose the right single tensor from its
+`(profile, log-count)` output.
 
 **If a `tangermeme` skill is available, invoke it for the actual analysis.**
 This file covers only the Cherimoya-specific step — choosing and applying the
@@ -35,7 +35,9 @@ pass-through, so wrapping is always safe.
 For a multi-group model (`signal_groups` with more than one entry),
 `LogCountWrapper` returns every group's count and `ProfileWrapper` softmaxes
 all groups together. Pass `group=i` to either one to attribute group `i` alone;
-`cherimoya attribute` takes the same index as `output_group`.
+`cherimoya attribute` takes the same index as `group` (default `0`). tangermeme's
+`deep_lift_shap` attributes output `target=0` of whatever it is given, so an
+unselected multi-group `LogCountWrapper` silently attributes group 0 only.
 
 ## Pattern
 

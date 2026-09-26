@@ -11,10 +11,13 @@ What are attributions?
 ----------------------
 
 Attributions quantify how much each base in the input sequence
-contributes to the model's prediction. Cherimoya uses **saturation
-mutagenesis** — evaluating every single-nucleotide substitution and
-taking the predicted delta — to compute hypothetical importance
-scores. The output array has shape ``(n_examples, 4, window)``: one
+contributes to the model's prediction. ``cherimoya attribute``
+computes hypothetical importance scores with **DeepLIFT/SHAP** by
+default — gradients propagated relative to dinucleotide-shuffled
+reference sequences — and with **saturation mutagenesis** —
+evaluating every single-nucleotide substitution and taking the
+predicted delta — when ``algorithm`` is ``"saturation_mutagenesis"``.
+Either way the output array has shape ``(n_examples, 4, window)``: one
 score per base per position.
 
 These scores are commonly used to:
@@ -40,8 +43,10 @@ Example JSON:
        "sequences": "hg38.fa",
        "loci": "peaks.narrowPeak",
        "chroms": ["chr2", "chr4", "chr5"],
+       "algorithm": "deep_lift_shap",
        "output": "counts",
-       "batch_size": 512,
+       "group": 0,
+       "batch_size": 64,
        "device": "cuda",
        "ohe_filename": "attributions.ohe.npz",
        "attr_filename": "attributions.attr.npz",
@@ -55,6 +60,21 @@ Example JSON:
 * ``"profile"`` — attribute to the predicted profile shape (uses
   :class:`cherimoya.ProfileWrapper`).
 
+``group`` selects which signal group of a multi-group model is
+attributed (see :doc:`../multi_task`); for a single-group model the
+default, ``0``, is the whole output.
+
+``algorithm`` chooses the method:
+
+* ``"deep_lift_shap"`` (default) — ``tangermeme.deep_lift_shap`` with
+  ``n_shuffles`` dinucleotide-shuffled references per sequence and
+  Cherimoya's DeepLIFT rules registered. ``batch_size`` counts
+  sequence-reference pairs, each run forward and backward.
+* ``"saturation_mutagenesis"`` — ``tangermeme.saturation_mutagenesis``,
+  forward passes only, three per attributed position. ``compile`` and
+  ``compile_mode`` apply only to this algorithm; DeepLIFT/SHAP always
+  loads the model uncompiled.
+
 The CLI automatically:
 
 1. Loads sequences from ``loci`` on ``chroms`` and filters out any
@@ -62,8 +82,10 @@ The CLI automatically:
 2. Wraps the model with :class:`cherimoya.ControlWrapper` (passing
    zero controls if the model has none) and then with the chosen
    output wrapper.
-3. Runs ``tangermeme.saturation_mutagenesis.saturation_mutagenesis``
-   over the central 400 bp of each input.
+3. Runs the chosen algorithm and keeps the central ``attr_window``
+   (default 400) bp of each input. DeepLIFT/SHAP attributes the whole
+   input window and the centre is sliced out; saturation mutagenesis
+   only mutates the centre.
 4. Writes one-hot encoded inputs to ``ohe_filename``, hypothetical
    importance scores to ``attr_filename``, and a boolean mask
    (``idx_filename``) recording which loci survived the N-filter, so
@@ -115,12 +137,12 @@ across the channel axis:
 DeepLIFT/SHAP instead of saturation mutagenesis
 -----------------------------------------------
 
-Everything above uses saturation mutagenesis, which makes forward passes
-only and needs nothing registered. ``deep_lift_shap`` is the gradient-based
-alternative: it costs a handful of forward and backward passes per sequence
-rather than three per position, which on a 9-layer model over a 2114 bp
-window is about 5 ms against 73 ms for the central-400 bp ISM the CLI runs,
-both measured on one H200 at batch 8.
+The Python example above uses saturation mutagenesis, which makes forward
+passes only and needs nothing registered. ``deep_lift_shap`` is the
+gradient-based alternative, and the CLI's default: it costs a handful of
+forward and backward passes per sequence rather than three per position,
+which on a 9-layer model over a 2114 bp window is about 5 ms against 73 ms
+for a central-400 bp ISM, both measured on one H200 at batch 8.
 
 It does need two rules registered. ``FusedDilatedConvNorm`` and the profile
 head's logit scaling are neither linear nor in tangermeme's table, so

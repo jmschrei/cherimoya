@@ -114,7 +114,7 @@ default_evaluate_parameters = {
 
 
 default_attribute_parameters = {
-	'batch_size': 512,
+	'batch_size': 64,
 	'in_window': 2114,
 	'verbose': False,
 	'chroms': training_chroms + validation_chroms,
@@ -124,9 +124,13 @@ default_attribute_parameters = {
 	'model': None,
 	'compile': True,
 	'compile_mode': 'max-autotune',
+	'algorithm': 'deep_lift_shap',
 	'output': 'counts',
-	'output_group': None,
+	'group': 0,
 	'attr_window': 400,
+	'n_shuffles': 20,
+	'warning_threshold': 1e-3,
+	'random_state': 0,
 	'ohe_filename': 'attributions.ohe.npz',
 	'attr_filename': 'attributions.attr.npz',
 	'idx_filename': 'attributions.idx.npy',
@@ -275,11 +279,15 @@ default_pipeline_parameters = {
 
 	# Attribution parameters
 	'attribute_parameters': {
-		'batch_size': None,
+		'batch_size': 64,
 		'chroms': training_chroms + validation_chroms,
+		'algorithm': 'deep_lift_shap',
 		'output': 'counts',
-		'output_group': None,
+		'group': 0,
 		'attr_window': None,
+		'n_shuffles': 20,
+		'warning_threshold': 1e-3,
+		'random_state': None,
 		'loci': None,
 		'dtype': None,
 		'device': None,

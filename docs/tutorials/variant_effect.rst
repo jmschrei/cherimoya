@@ -11,10 +11,12 @@ both from the CLI and from Python.
 Saturation mutagenesis (CLI)
 ----------------------------
 
-The simplest *exhaustive* variant scan is the ``attribute`` subcommand,
-which performs in-silico saturation mutagenesis over the central 400 bp
-of each input sequence — every possible single-nucleotide substitution,
-scored by its effect on the predicted log counts (or profile):
+The simplest *exhaustive* variant scan is the ``attribute`` subcommand
+with ``"algorithm": "saturation_mutagenesis"``, which performs in-silico
+saturation mutagenesis over the central 400 bp of each input sequence —
+every possible single-nucleotide substitution, scored by its effect on
+the predicted log counts (or profile). The subcommand's default
+algorithm is DeepLIFT/SHAP, so the key has to be set:
 
 .. code-block:: bash
 
@@ -29,6 +31,7 @@ Example JSON:
        "sequences": "hg38.fa",
        "loci": "peaks.narrowPeak",
        "chroms": ["chr2", "chr4", "chr5"],
+       "algorithm": "saturation_mutagenesis",
        "output": "counts",
        "batch_size": 512,
        "device": "cuda",

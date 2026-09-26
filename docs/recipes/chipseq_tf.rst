@@ -64,7 +64,7 @@ Steps invoked, in order:
 4. Train a 9-layer 128-filter Cherimoya model with
    ``signal_groups=[2]`` (one stranded ``(+, -)`` group) and
    ``n_control_tracks=2``.
-5. Compute count attributions via saturation mutagenesis on the
+5. Compute count attributions via DeepLIFT/SHAP on the
    validation chromosomes.
 6. Call seqlets, annotate with tomtom-lite against
    ``JASPAR_2024.meme``.
