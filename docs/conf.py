@@ -48,7 +48,7 @@ autodoc_typehints = 'description'
 autodoc_mock_imports = [
     'torch', 'triton', 'numpy', 'scipy', 'pandas', 'h5py',
     'tqdm', 'seaborn', 'tangermeme', 'bpnetlite', 'modisco',
-    'macs3', 'bam2bw', 'sklearn',
+    'macs3', 'bam2bw', 'sklearn', 'lightning',
 ]
 
 # Intersphinx mapping

@@ -123,9 +123,10 @@ compiles under DeepLIFT/SHAP.
 
 ### Things to tell users about checkpoints
 
-- **Saved weights are the EMA shadow.** `model.fit(...)` applies the EMA average
-  before saving, so a loaded model reproduces the **EMA validation** numbers in
-  the log — not any mid-epoch training loss. Expected, not drift.
+- **Saved weights are the EMA shadow.** `cherimoya.training.fit(...)` applies
+  the EMA average before saving, so a loaded model reproduces the **EMA
+  validation** numbers in `{name}.metrics.csv` — not any mid-epoch training
+  loss. Expected, not drift.
 - From a pipeline run, load **`{name}.torch`** (best validation count Pearson);
   `{name}.final.torch` is the final-epoch EMA snapshot. See
   `references/interpreting-outputs.md`.
@@ -136,8 +137,12 @@ compiles under DeepLIFT/SHAP.
 
 ## Training in Python
 
-The CLI subcommands and `model.fit(...)` share this save format. For an
-end-to-end walkthrough (data loading, `fit()`, `predict()` signatures) see the
+The CLI subcommands and `cherimoya.training.fit(...)` share this save format.
+`cherimoya.training.fit(model, training_data, X_valid, y_valid, ...)` trains
+with PyTorch Lightning and returns the `Trainer`; `training_data` is the
+dataset (`PeakGenerator(...).dataset`), not a DataLoader, and the optimizers
+and schedules are built from keyword arguments. For an end-to-end walkthrough
+(data loading, the `fit()` call with the CLI's schedule) see the
 Python API tutorial at
 <https://cherimoya.readthedocs.io/en/latest/tutorials/python_api.html>. For most
 "train on my data" requests the CLI pipeline

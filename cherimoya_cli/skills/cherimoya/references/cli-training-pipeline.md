@@ -57,6 +57,10 @@ Common novice edits — always explain the change you make:
 - **Out of GPU memory?** Lower `fit_parameters.batch_size` (64 → 32/16) or
   `fit_parameters.n_filters` (128 → 64), or set `fit_parameters.dtype` to
   `"bfloat16"`.
+- **Several GPUs?** Set `fit_parameters.devices` (default 1; `-1` = every
+  visible GPU) to train with DDP. `batch_size` is the *global* batch, split
+  evenly across devices, so it must be divisible by `devices`. The pipeline
+  then runs the fit step as a separate `python -m cherimoya_cli fit` process.
 - **Small dataset?** See dataset-size guidance in
   `references/troubleshooting.md`.
 - **Want replicates?** `random_state` defaults to `0`, so rerunning the same
@@ -94,7 +98,7 @@ inline and write no snapshot.
 | 0.1 MACS3 peak calling | `loci` is `null` | `{name}_peaks.narrowPeak` |
 | 0.2 `bam2bw` signal → bigWig | signals aren't already bigWig (`.sam/.bam/.bed[.gz]/.tsv[.gz]`) | `{name}.+.bw`/`{name}.-.bw` (stranded) or `{name}.bw` (unstranded); controls → `{name}.control.*.bw` |
 | 0.3 negative sampling | `negatives` is `null` | `{name}.negatives.bed` |
-| 1 train | always (unless `model` set) | `{name}.torch`, `{name}.final.torch`, `{name}.log`, `{name}.detailed.log`, `{name}.performance.tsv` |
+| 1 train | always (unless `model` set) | `{name}.torch`, `{name}.final.torch`, `{name}.metrics.csv`, `{name}.performance.tsv` |
 | 2 attribute (DeepLIFT/SHAP) | always | `{name}.attributions.{ohe,attr}.npz`, `{name}.attributions.idxs.npy` |
 | 3.1 seqlets | always | `{name}.seqlets.bed` |
 | 3.2 tomtom-lite annotation | `motifs` is set | `{name}.seqlets_annotated.bed`, `{name}.motif_seqlet_count.tsv` |

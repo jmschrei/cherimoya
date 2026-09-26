@@ -19,6 +19,8 @@ Cheapest fixes first:
 1. Lower `fit_parameters.batch_size` (64 → 32 → 16 → 8).
 2. Set `fit_parameters.dtype` to `"bfloat16"` (bf16 autocast).
 3. Shrink the model: `fit_parameters.n_filters` (128 → 96).
+4. With more than one GPU free, set `fit_parameters.devices`: `batch_size` is
+   the global batch, so each GPU holds `batch_size / devices` examples.
 
 The default (batch 64, 2114 bp window, 9-layer/128-filter model) fits
 comfortably on a 16 GB GPU. Reducing batch size is cheapest; don't change model
@@ -141,5 +143,5 @@ the save/load format.
 
 Not a mismatch. The saved checkpoint holds the **EMA-applied** weights, which
 produced the best validation numbers. Compare against the **EMA validation** row
-in `{name}.log`, not the mid-epoch training loss. See the checkpoint note in
+in `{name}.metrics.csv`, not the mid-epoch training loss. See the checkpoint note in
 `references/interpreting-outputs.md`.

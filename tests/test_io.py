@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from cherimoya.io import (PeakGenerator, PeakNegativeSampler,
-	normalize_signal_groups, channel_permutation_from_groups,
+	ShardedEpochSampler, normalize_signal_groups, channel_permutation_from_groups,
 	_validate_signal_groups)
 
 
@@ -290,6 +290,113 @@ def test_num_workers_zero_matches_one_worker():
 	loader_b = _build_minimal_dataloader(num_workers=2, seed=7,
 		n_peaks=20, batch_size=4)
 	assert _flatten_batches(loader_a) == _flatten_batches(loader_b)
+
+
+# --------- ShardedEpochSampler -------------------------------------------
+
+def _sharded_loader(sampler, batch_size, rank, world_size, num_workers=0):
+	"""A loader over one rank's share, the way the Lightning module builds it."""
+	shard = ShardedEpochSampler(len(sampler), batch_size, rank=rank,
+		world_size=world_size)
+	loader = torch.utils.data.DataLoader(sampler, sampler=shard,
+		batch_size=shard.local_batch_size, num_workers=num_workers,
+		persistent_workers=num_workers > 0)
+	return shard, loader
+
+
+def _epoch_rows(loader):
+	"""One epoch of `loader` as a list of per-batch row lists."""
+	batches = []
+	for X, y, label in loader:
+		batches.append([(float(X[i, 0, 0]), float(y[i, 0, 0]), int(label[i]))
+			for i in range(X.shape[0])])
+	return batches
+
+
+@pytest.mark.parametrize("num_workers", [0, 2])
+def test_sharded_sampler_one_rank_matches_the_sequential_loader(num_workers):
+	"""On one rank the sampler visits what a plain sequential loader does,
+	epoch after epoch, minus the trailing partial batch. 24 peaks at ratio
+	0.5 give 36 examples: four full batches of 8 and a partial one of 4."""
+
+	batch_size = 8
+	plain = torch.utils.data.DataLoader(_make_sampler(n_peaks=24,
+		negative_ratio=0.5, random_state=3), batch_size=batch_size)
+	shard, sharded = _sharded_loader(_make_sampler(n_peaks=24,
+		negative_ratio=0.5, random_state=3), batch_size, rank=0,
+		world_size=1, num_workers=num_workers)
+
+	for epoch in range(3):
+		shard.set_epoch(epoch)
+		expected = [b for b in _epoch_rows(plain) if len(b) == batch_size]
+		assert len(expected) == 4
+		assert _epoch_rows(sharded) == expected
+
+
+@pytest.mark.parametrize("world_size", [2, 4])
+def test_sharded_sampler_ranks_together_match_one_rank(world_size):
+	"""Concatenating every rank's batch at step s gives exactly the global
+	batch one rank sees at step s, in the same order."""
+
+	batch_size = 8
+	shard, single = _sharded_loader(_make_sampler(n_peaks=24,
+		negative_ratio=0.5), batch_size, rank=0, world_size=1)
+
+	ranks = [_sharded_loader(_make_sampler(n_peaks=24, negative_ratio=0.5),
+		batch_size, rank=r, world_size=world_size) for r in range(world_size)]
+
+	for epoch in range(2):
+		shard.set_epoch(epoch)
+		expected = _epoch_rows(single)
+
+		per_rank = []
+		for rank_shard, loader in ranks:
+			rank_shard.set_epoch(epoch)
+			per_rank.append(_epoch_rows(loader))
+
+		for rows in per_rank:
+			assert len(rows) == len(expected)
+			assert all(len(b) == batch_size // world_size for b in rows)
+
+		combined = [sum((rows[s] for rows in per_rank), [])
+			for s in range(len(expected))]
+		assert combined == expected
+
+
+def test_sharded_sampler_starts_at_the_epoch_it_is_given():
+	"""The epoch comes from `set_epoch`, not from the order of indices, so
+	a sampler set straight to epoch 2 matches the third epoch of a run
+	that started at 0."""
+
+	batch_size = 4
+	shard, loader = _sharded_loader(_make_sampler(n_peaks=12), batch_size,
+		rank=0, world_size=1)
+	for epoch in range(3):
+		shard.set_epoch(epoch)
+		third = _epoch_rows(loader)
+
+	fresh_shard, fresh = _sharded_loader(_make_sampler(n_peaks=12),
+		batch_size, rank=0, world_size=1)
+	fresh_shard.set_epoch(2)
+	assert _epoch_rows(fresh) == third
+
+
+@pytest.mark.parametrize("n,batch_size,world_size,expected", [
+	(36, 8, 1, 32),
+	(36, 8, 2, 16),
+	(36, 8, 4, 8),
+	(7, 8, 1, 0),
+])
+def test_sharded_sampler_length_counts_only_full_global_batches(n,
+	batch_size, world_size, expected):
+	shard = ShardedEpochSampler(n, batch_size, world_size=world_size)
+	assert len(shard) == expected
+	assert len(list(shard)) == expected
+
+
+def test_sharded_sampler_rejects_a_batch_size_the_ranks_cannot_split():
+	with pytest.raises(ValueError, match="divisible"):
+		ShardedEpochSampler(36, 6, world_size=4)
 
 
 # --------- Edge cases: negative_ratio=0 and max_jitter=0 -----------------

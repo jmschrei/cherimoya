@@ -362,9 +362,18 @@ class PeakNegativeSampler(torch.utils.data.Dataset):
 			self._rc_flags = numpy.zeros(n, dtype=bool)
 
 	def __getitem__(self, idx):
-		if idx < self._last_idx:
-			self._prepare_epoch(self._epoch + 1)
-		self._last_idx = idx
+		# An `(epoch, idx)` pair, as `ShardedEpochSampler` yields, names
+		# its epoch outright. A bare index falls back to spotting the
+		# epoch boundary by the index jumping backward, which holds for a
+		# sequential sampler but not for one that pads or reorders.
+		if isinstance(idx, tuple):
+			epoch, idx = idx
+			if epoch != self._epoch:
+				self._prepare_epoch(epoch)
+		else:
+			if idx < self._last_idx:
+				self._prepare_epoch(self._epoch + 1)
+			self._last_idx = idx
 
 		is_peak = bool(self._labels[idx])
 		src = int(self._source_idx[idx])
@@ -405,6 +414,64 @@ class PeakNegativeSampler(torch.utils.data.Dataset):
 			return Xi, Xi_ctl, yi, int(is_peak)
 		return Xi, yi, int(is_peak)
 
+
+
+class ShardedEpochSampler(torch.utils.data.Sampler):
+	"""One rank's share of each global batch, as ``(epoch, index)`` pairs.
+
+	Global batch ``s`` of an epoch covers indices
+	``[s * batch_size, (s + 1) * batch_size)``, and rank ``r`` of
+	``world_size`` takes the ``r``-th contiguous slice of it, of size
+	``batch_size // world_size``. A trailing partial global batch is
+	dropped. With ``world_size=1`` this is the sequential order a plain
+	``DataLoader`` visits, minus the partial batch, and for any world
+	size the ranks together see exactly the examples one rank would, step
+	for step.
+
+	Each index is paired with the epoch set by :meth:`set_epoch`, which
+	PyTorch Lightning calls before every epoch, so that
+	:class:`PeakNegativeSampler` draws that epoch's arrays without
+	inferring the boundary from the index order.
+
+	Parameters
+	----------
+	n: int
+		The number of examples in one epoch, i.e. ``len(dataset)``.
+
+	batch_size: int
+		The global batch size, summed across ranks.
+
+	rank: int, optional
+		This process's rank. Default is 0.
+
+	world_size: int, optional
+		The number of ranks. Must divide ``batch_size``. Default is 1.
+	"""
+
+	def __init__(self, n, batch_size, rank=0, world_size=1):
+		if batch_size % world_size != 0:
+			raise ValueError("batch_size ({}) must be divisible by the "
+				"number of devices ({})".format(batch_size, world_size))
+
+		self.n = n
+		self.batch_size = batch_size
+		self.rank = rank
+		self.world_size = world_size
+		self.local_batch_size = batch_size // world_size
+		self.epoch = 0
+
+	def set_epoch(self, epoch):
+		self.epoch = epoch
+
+	def __len__(self):
+		return (self.n // self.batch_size) * self.local_batch_size
+
+	def __iter__(self):
+		epoch = self.epoch
+		for step in range(self.n // self.batch_size):
+			start = step * self.batch_size + self.rank * self.local_batch_size
+			for idx in range(start, start + self.local_batch_size):
+				yield epoch, idx
 
 
 def PeakGenerator(peaks, negatives, sequences, signals, controls=None,

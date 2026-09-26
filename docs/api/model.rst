@@ -12,7 +12,7 @@ Cherimoya
 ---------
 
 .. autoclass:: Cherimoya
-   :members: forward, fit, save, load
+   :members: forward, save, load
    :undoc-members:
    :show-inheritance:
 
@@ -32,7 +32,7 @@ EMA
 
    .. automethod:: __init__
 
-Used internally by :meth:`Cherimoya.fit`: a shadow copy of every
+Used internally by :func:`cherimoya.training.fit`: a shadow copy of every
 floating-point parameter (decay 0.999 by default) is updated after
 every optimizer step, swapped in for validation
 (``apply_shadow``/``restore``), and applied to the saved checkpoints

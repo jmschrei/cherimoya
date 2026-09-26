@@ -51,6 +51,9 @@ If you hit OOM, the fastest fixes:
 * Reduce ``fit_parameters.batch_size`` from 64 to 32 (or 16).
 * Use bf16 autocast: set ``fit_parameters.dtype`` to ``"bfloat16"``.
 * Shrink the model: ``fit_parameters.n_filters`` from 128 to 64 or 48.
+* Train on several GPUs: ``fit_parameters.batch_size`` is the global
+  batch, so with ``fit_parameters.devices`` set to 2 each GPU holds
+  half of it.
 
 GPU memory at training time is dominated by activations
 (``batch_size × in_window × n_filters × n_layers`` plus the
@@ -330,7 +333,7 @@ after ``Cherimoya.load`` it is materially different.
 The saved checkpoint contains the **EMA-applied** weights, not the
 running training weights. That is intentional and is what produces
 the best validation numbers during training. There is no mismatch to
-fix — the model you load is the correct one. Confirming: ``model.fit``
-applies the EMA shadow before saving, so the comparison should be
-against the *EMA* number printed in the training log, not the
-mid-epoch training-loss number.
+fix — the model you load is the correct one. Confirming:
+:func:`cherimoya.training.fit` applies the EMA shadow before saving,
+so the comparison should be against the *EMA* validation numbers in
+``{name}.metrics.csv``, not the mid-epoch training-loss number.

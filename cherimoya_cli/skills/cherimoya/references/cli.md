@@ -57,7 +57,9 @@ Quote these; don't guess others — read `defaults.py` or the docs.
 - Training: `batch_size` 64, `max_epochs` 20, `min_total_steps` 20000,
   `early_stopping` `null` (off — set an int for epochs of no validation
   count-Pearson improvement), `n_warmup_epochs` 2, `negative_ratio` 0.25,
-  `reverse_complement` true, `num_workers` 1, `loss_weights` `null`.
+  `reverse_complement` true, `num_workers` 1 (per device), `loss_weights`
+  `null`, `devices` 1 (`-1` = every visible device; more than one trains with
+  DDP and splits the global `batch_size` evenly across them).
 - Inference stages: `batch_size` 512.
 - Device/dtype: `cuda` / `float32`.
 - Split (hg38): `validation_chroms` = chr8, chr20; everything else (minus

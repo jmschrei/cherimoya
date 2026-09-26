@@ -52,6 +52,7 @@ def run(args):
 	import json
 	import os
 	import subprocess
+	import sys
 
 	import pandas
 
@@ -281,7 +282,15 @@ def run(args):
 		with open(name, "w") as outfile:
 			outfile.write(json.dumps(fit_parameters, sort_keys=True, indent=4))
 
-		_run_step(fit_cmd.run, name)
+		# With more than one device, Lightning starts the other ranks by
+		# re-running the current command, which here would re-run the whole
+		# pipeline, so the fit gets a command line of its own.
+		if fit_parameters.get("devices", default_fit_parameters["devices"]) != 1:
+			if not parameters["dry_run"]:
+				subprocess.run([sys.executable, "-m", "cherimoya_cli", "fit",
+					"-p", name], check=True)
+		else:
+			_run_step(fit_cmd.run, name)
 
 	###
 	# Step 2: Calculate attributions

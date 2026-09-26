@@ -14,9 +14,10 @@ Repository layout
    cherimoya/
    ├── cherimoya/                  # The Python package
    │   ├── __init__.py             # Public API re-exports: Cherimoya, CheriBlock, EMA
-   │   ├── cherimoya.py            # Cherimoya model + EMA wrapper + fit/save/load
+   │   ├── cherimoya.py            # Cherimoya model + EMA wrapper + save/load
+   │   ├── training.py             # Lightning training: fit + CherimoyaModule
    │   ├── cheri.py                # CheriBlock + Triton kernels + dispatcher
-   │   ├── io.py                   # PeakGenerator + PeakNegativeSampler
+   │   ├── io.py                   # PeakGenerator + PeakNegativeSampler + ShardedEpochSampler
    │   ├── losses.py               # Profile MNLL + log1pMSE mixture loss
    │   ├── wrappers.py             # Control / profile / count output wrappers
    │   └── performance.py          # Evaluation metrics
@@ -63,6 +64,9 @@ Explicitly:
 * **Public** module-level symbols:
   :func:`~cherimoya.io.PeakGenerator`,
   :class:`~cherimoya.io.PeakNegativeSampler`,
+  :class:`~cherimoya.io.ShardedEpochSampler`,
+  :func:`~cherimoya.training.fit`,
+  :class:`~cherimoya.training.CherimoyaModule`,
   :func:`~cherimoya.cheri.fused_dilated_conv_norm`,
   :class:`~cherimoya.cheri.FusedDilatedConvNorm`,
   :class:`~cherimoya.cheri.FusedDilatedConvNormFunc`,
@@ -148,14 +152,21 @@ the ``cherimoya`` CLI:
        is the only way the autotune path can be exercised.
    * - ``tests/test_model.py``
      - Full Cherimoya forward/backward parity, no_grad ==
-       grad-enabled equivalence, EMA-applied save/load round trip,
-       and the ``fit`` guards against a run that trains nothing.
+       grad-enabled equivalence, and save/load round trips.
    * - ``tests/test_compile.py``
      - ``compile`` / ``compile_mode`` semantics, and that neither
        leaks into a saved checkpoint's config.
+   * - ``tests/test_training.py``
+     - Lightning training against a reference loop, bitwise on CPU;
+       the best and final EMA checkpoints; the metrics file's
+       per-group columns; early stopping; the guards against a
+       training set smaller than one batch and an unknown ``dtype``;
+       validation shards covering every row once.
    * - ``tests/test_io.py``
      - ``PeakGenerator`` and ``PeakNegativeSampler`` reproducibility,
-       per-epoch determinism, multi-worker equivalence.
+       per-epoch determinism, multi-worker equivalence, and
+       ``ShardedEpochSampler`` matching one rank's sequence across
+       ranks.
    * - ``tests/test_ema.py``
      - EMA update/apply/restore semantics, including the interaction
        with the Cheri Block eval-time weight cache.
@@ -170,8 +181,10 @@ the ``cherimoya`` CLI:
    * - ``tests/test_utils.py``
      - JSON merge and default-handling helpers.
    * - ``tests/commands/test_fit.py``
-     - End-to-end fit step on tiny data: confirms optimizers,
-       schedulers, EMA, and checkpoint paths are wired correctly.
+     - The fit step's wiring: the settings, accelerator and schedule
+       lengths it passes to :func:`cherimoya.training.fit`, seed
+       handling across ranks, parameter routing to the three
+       optimizers, and the fit defaults.
    * - ``tests/commands/test_pipeline.py``
      - Which keys a hand-written pipeline JSON may leave out.
    * - ``tests/commands/test_pipeline_dry_run.py``

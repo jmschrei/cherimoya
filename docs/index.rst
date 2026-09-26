@@ -135,6 +135,7 @@ measured numbers.
    :caption: API Reference
 
    api/model
+   api/training
    api/cheri
    api/wrappers
    api/deep_lift_shap

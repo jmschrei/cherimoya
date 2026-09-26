@@ -2,56 +2,6 @@
 # Author: Jacob Schreiber <jmschreiber91@gmail.com>
 
 
-def _split_parameters(model):
-	"""Route each trainable parameter to one of the three optimizers.
-
-	Muon takes 2D projection weights inside Cheri Blocks
-	(linear1/linear2.weight). ``conv_weight`` is 2D but lives on the
-	depth-wise dilated path, not a projection matmul, and is routed to
-	AdamW -- note the test is a substring, so it matches whether the
-	parameter sits directly on the block or on its ``conv`` submodule.
-	``lw0`` / ``lw1`` are the Kendall loss-balancing weights and are
-	routed by exact name to SGD. Everything else goes to AdamW.
-
-	Every parameter lands in exactly one bucket, so the three lists
-	partition ``model.named_parameters()``.
-
-	Parameters
-	----------
-	model: torch.nn.Module
-			The model whose parameters are being routed.
-
-	Returns
-	-------
-	muon_params: list
-			2D projection weights, for the Muon optimizer.
-
-	adam_params: list
-			Everything not claimed by the other two, for AdamW.
-
-	lw_params: list
-			The Kendall loss-balancing weights, for SGD.
-	"""
-
-	muon_params = []
-	adam_params = []
-	lw_params = []
-	for name, p in model.named_parameters():
-		if name in ("lw0", "lw1"):
-			lw_params.append(p)
-		elif (
-			p.ndim == 2
-			and "weight" in name
-			and name != "linear.weight"
-			and "conv_weight" not in name
-		):
-			muon_params.append(p)
-		else:
-			adam_params.append(p)
-
-	return muon_params, adam_params, lw_params
-
-
 def _max_epochs_for_min_steps(max_epochs, steps_per_epoch, min_total_steps):
 	"""Raise `max_epochs` until the run reaches `min_total_steps` steps.
 
@@ -140,33 +90,28 @@ def run(args):
 	import argparse
 	import copy
 	import os
-	import random
 	import json
 
 	os.environ["TORCH_CUDNN_V8_API_ENABLED"] = "1"
 
 	import numpy
-	import torch
-
-	torch.backends.cudnn.benchmark = True
-	torch.set_float32_matmul_precision("high")
-
-	from torch.optim import Muon
-	from torch.optim.lr_scheduler import (
-		LinearLR,
-		CosineAnnealingLR,
-		ConstantLR,
-		SequentialLR,
-	)
+	import lightning
+	from lightning.pytorch.utilities import rank_zero_only
 
 	from cherimoya import Cherimoya
 	from cherimoya.io import PeakGenerator, normalize_signal_groups
+	from cherimoya.training import fit
 
 	from tangermeme.io import extract_loci
 
 	from . import evaluate as evaluate_cmd
 	from ..defaults import default_fit_parameters
 	from ..utils import merge_parameters
+
+	# With more than one device, Lightning starts every rank after the
+	# first by re-running this command, so everything up to the fit runs
+	# once per rank. Only rank 0 prints.
+	say = rank_zero_only(print)
 
 	parameters = merge_parameters(args.parameters, default_fit_parameters)
 	if parameters["skip"]:
@@ -178,22 +123,29 @@ def run(args):
 	# that produced it is printed and written into the evaluate JSON, so
 	# the run can be repeated afterwards. Drawing it here and storing it
 	# back into `parameters` is what puts it in that JSON, which is a
-	# deepcopy of this dict.
+	# deepcopy of this dict. The ranks Lightning launches after the first
+	# read rank 0's draw from `PL_GLOBAL_SEED`, which `seed_everything`
+	# sets before they start; rank 0 itself always draws, so a value left
+	# in the environment by an earlier run in the same process is ignored.
 	if parameters["random_state"] is None:
-		parameters["random_state"] = int(numpy.random.randint(0, 2**31 - 1))
+		seed = None
+		if int(os.environ.get("LOCAL_RANK", 0)) > 0:
+			seed = os.environ.get("PL_GLOBAL_SEED")
 
-		# Printed whether or not `verbose` is set: a drawn seed is the
-		# one part of the run that cannot be recovered afterwards if
-		# training dies before the evaluate JSON is written.
-		print("Drew random_state={}; set it in the JSON to repeat this run."
-			.format(parameters["random_state"]))
+		if seed is None:
+			seed = int(numpy.random.randint(0, 2**31 - 1))
 
-	# The sampler and the model each take the seed directly; these calls
-	# cover everything else that training touches.
-	random.seed(parameters["random_state"])
-	numpy.random.seed(parameters["random_state"])
-	torch.manual_seed(parameters["random_state"])
-	torch.cuda.manual_seed_all(parameters["random_state"])
+			# Printed whether or not `verbose` is set: a drawn seed is
+			# the one part of the run that cannot be recovered afterwards
+			# if training dies before the evaluate JSON is written.
+			say("Drew random_state={}; set it in the JSON to repeat this run."
+				.format(seed))
+
+		parameters["random_state"] = int(seed)
+
+	# The sampler and the model each take the seed directly; this covers
+	# everything else that training touches.
+	lightning.seed_everything(parameters["random_state"], verbose=False)
 
 	# Resolve grouped/flat signal specs into a flat list of files plus
 	# the per-group sizes. The flat list is what extract_loci and the
@@ -209,20 +161,22 @@ def run(args):
 	control_files, control_groups = normalize_signal_groups(parameters["controls"])
 
 	if parameters["verbose"]:
-		print("Training Chroms: ", parameters["training_chroms"])
-		print("Vaidation Chroms: ", parameters["validation_chroms"])
+		say("Training Chroms: ", parameters["training_chroms"])
+		say("Vaidation Chroms: ", parameters["validation_chroms"])
 
-		print("\nLoading peaks from: ", parameters["loci"])
-		print("Loading negatives from: ", parameters["negatives"])
-		print("Loading sequence from: ", parameters["sequences"])
-		print("Loading signal from: ", parameters["signals"])
-		print("Loading controls from: ", parameters["controls"])
-		print("Loading exclusion list from: ", parameters["exclusion_lists"])
-		print("Random State: ", parameters["random_state"])
-		print()
+		say("\nLoading peaks from: ", parameters["loci"])
+		say("Loading negatives from: ", parameters["negatives"])
+		say("Loading sequence from: ", parameters["sequences"])
+		say("Loading signal from: ", parameters["signals"])
+		say("Loading controls from: ", parameters["controls"])
+		say("Loading exclusion list from: ", parameters["exclusion_lists"])
+		say("Random State: ", parameters["random_state"])
+		say()
 
 	###
 
+	# The training module builds its own loader around this dataset, so
+	# that it can split each batch across devices.
 	training_data = PeakGenerator(
 		peaks=parameters["loci"],
 		negatives=parameters["negatives"],
@@ -238,12 +192,10 @@ def run(args):
 		summits=parameters["summits"],
 		exclusion_lists=parameters["exclusion_lists"],
 		random_state=parameters["random_state"],
-		batch_size=parameters["batch_size"],
-		num_workers=parameters["num_workers"],
 		verbose=parameters["verbose"],
 		signal_groups=signal_groups,
 		control_groups=control_groups,
-	)
+	).dataset
 
 	valid_data = extract_loci(
 		sequences=parameters["sequences"],
@@ -260,15 +212,11 @@ def run(args):
 	)
 
 	if parameters["verbose"]:
-		print("\nTraining Set Peaks: ", training_data.dataset.peak_sequences.shape[0])
-		print(
-			"Training Set Negatives: ",
-			training_data.dataset.negative_sequences.shape[0],
-		)
-		print("Validation Set Size: ", valid_data[0].shape[0], "\n")
-
-	if parameters["verbose"]:
-		print("Negative Ratio: 1:{:4.4} pos:neg\n".format(parameters["negative_ratio"]))
+		say("\nTraining Set Peaks: ", training_data.peak_sequences.shape[0])
+		say("Training Set Negatives: ", training_data.negative_sequences.shape[0])
+		say("Validation Set Size: ", valid_data[0].shape[0], "\n")
+		say("Negative Ratio: 1:{:4.4} pos:neg\n".format(
+			parameters["negative_ratio"]))
 
 	###
 
@@ -293,27 +241,25 @@ def run(args):
 		name=parameters["name"],
 		verbose=parameters["verbose"],
 		random_state=parameters["random_state"],
-	).to(parameters["device"])
+	)
 
 	if parameters["verbose"]:
-		print(
-			"Model has {} dilated layers and {} filters".format(
-				parameters["n_layers"], parameters["n_filters"]
-			)
-		)
-		print(
-			"Model has {} trainable parameters.\n".format(
-				sum(p.numel() for p in model.parameters() if p.requires_grad)
-			)
-		)
+		say("Model has {} dilated layers and {} filters".format(
+			parameters["n_layers"], parameters["n_filters"]))
+		say("Model has {} trainable parameters.\n".format(
+			sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
 	n_warmup_epochs = parameters["n_warmup_epochs"]
 	max_epochs = parameters["max_epochs"]
 
+	# The learning rate schedules count a trailing partial batch as a
+	# step, as the length of a plain DataLoader does, although training
+	# drops it.
+	steps_per_epoch = -(-len(training_data) // parameters["batch_size"])
+
 	# Both learning rate schedules are built from `max_epochs` just below, so
 	# extending the run here stretches them with it rather than leaving them
 	# to decay inside the original budget.
-	steps_per_epoch = len(training_data)
 	floored_epochs = _max_epochs_for_min_steps(max_epochs, steps_per_epoch,
 		parameters["min_total_steps"])
 
@@ -321,107 +267,53 @@ def run(args):
 		max_epochs = floored_epochs
 
 		if parameters["verbose"]:
-			print("Raising max_epochs to {} to reach the {} step minimum "
+			say("Raising max_epochs to {} to reach the {} step minimum "
 				"({} steps/epoch, {} total)\n".format(max_epochs,
 					parameters["min_total_steps"], steps_per_epoch,
 					steps_per_epoch * max_epochs))
 
-	num_warmup_iters = len(training_data) * n_warmup_epochs
-	num_decay_iters = len(training_data) * max(1, max_epochs - n_warmup_epochs)
-
-	muon_params, adam_params, lw_params = _split_parameters(model)
-
-	muon_optimizer = Muon(
-		muon_params, lr=parameters["muon_lr"], weight_decay=parameters["muon_wd"]
-	)
-
-	muon_warmup_scheduler = LinearLR(
-		muon_optimizer, start_factor=0.01, total_iters=num_warmup_iters
-	)
-	muon_decay_scheduler = CosineAnnealingLR(
-		muon_optimizer, T_max=num_decay_iters, eta_min=1e-5
-	)
-	muon_scheduler = SequentialLR(
-		muon_optimizer,
-		schedulers=[muon_warmup_scheduler, muon_decay_scheduler],
-		milestones=[num_warmup_iters],
-	)
-
-	adam_optimizer = torch.optim.AdamW(
-		adam_params, lr=parameters["adam_lr"], weight_decay=parameters["adam_wd"]
-	)
-	adam_warmup_scheduler = LinearLR(
-		adam_optimizer, start_factor=0.01, total_iters=num_warmup_iters
-	)
-	adam_decay_scheduler = CosineAnnealingLR(
-		adam_optimizer, T_max=num_decay_iters, eta_min=1e-5
-	)
-	adam_scheduler = SequentialLR(
-		adam_optimizer,
-		schedulers=[adam_warmup_scheduler, adam_decay_scheduler],
-		milestones=[num_warmup_iters],
-	)
-
-	# lw_optimizer holds only lw0/lw1. ``ConstantLR(factor=1.0)`` after
-	# the warmup phase keeps the lr flat for the rest of training — we
-	# deliberately do not cosine-decay the Kendall loss-balancing weights.
-	lw_optimizer = torch.optim.SGD(
-		lw_params,
-		lr=parameters["lw_lr"],
-		weight_decay=parameters["lw_wd"],
-		momentum=parameters["lw_momentum"],
-	)
-	lw_warmup_scheduler = LinearLR(
-		lw_optimizer, start_factor=0.01, total_iters=num_warmup_iters
-	)
-	lw_constant_scheduler = ConstantLR(lw_optimizer, factor=1.0, total_iters=1)
-	lw_scheduler = SequentialLR(
-		lw_optimizer,
-		schedulers=[lw_warmup_scheduler, lw_constant_scheduler],
-		milestones=[num_warmup_iters],
-	)
-
 	if parameters["verbose"]:
-		print(
-			"Muon Optimizer: lr={}, wd={}".format(
-				parameters["muon_lr"], parameters["muon_wd"]
-			)
-		)
-		print(
-			"AdamW Optimizer: lr={}, wd={}".format(
-				parameters["adam_lr"], parameters["adam_wd"]
-			)
-		)
-		print(
-			_loss_balance_summary(
-				parameters["loss_weights"],
-				parameters["lw_lr"],
-				parameters["lw_wd"],
-				parameters["lw_momentum"],
-			)
-			+ "\n"
-		)
+		say("Muon Optimizer: lr={}, wd={}".format(parameters["muon_lr"],
+			parameters["muon_wd"]))
+		say("AdamW Optimizer: lr={}, wd={}".format(parameters["adam_lr"],
+			parameters["adam_wd"]))
+		say(_loss_balance_summary(parameters["loss_weights"],
+			parameters["lw_lr"], parameters["lw_wd"],
+			parameters["lw_momentum"]) + "\n")
 
 	###
 
-	model.fit(
+	accelerator = {"cuda": "gpu"}.get(parameters["device"],
+		parameters["device"])
+
+	trainer = fit(
+		model,
 		training_data,
-		muon_optimizer,
-		adam_optimizer,
-		lw_optimizer,
-		muon_scheduler,
-		adam_scheduler,
-		lw_scheduler,
-		X_valid=valid_sequences,
+		valid_sequences,
+		valid_signals,
 		X_ctl_valid=valid_controls,
-		y_valid=valid_signals,
 		max_epochs=max_epochs,
-		loss_weights=parameters["loss_weights"],
-		batch_size=parameters["batch_size"],
 		early_stopping=parameters["early_stopping"],
 		dtype=parameters["dtype"],
-		device=parameters["device"],
+		accelerator=accelerator,
+		devices=parameters["devices"],
+		verbose=parameters["verbose"],
+		batch_size=parameters["batch_size"],
+		num_workers=parameters["num_workers"],
+		n_warmup_steps=steps_per_epoch * n_warmup_epochs,
+		n_decay_steps=steps_per_epoch * max(1, max_epochs - n_warmup_epochs),
+		muon_lr=parameters["muon_lr"],
+		muon_wd=parameters["muon_wd"],
+		adam_lr=parameters["adam_lr"],
+		adam_wd=parameters["adam_wd"],
+		lw_lr=parameters["lw_lr"],
+		lw_wd=parameters["lw_wd"],
+		lw_momentum=parameters["lw_momentum"],
+		loss_weights=parameters["loss_weights"],
 	)
+
+	if not trainer.is_global_zero:
+		return
 
 	### Evaluate Model
 

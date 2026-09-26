@@ -37,10 +37,28 @@ def fit_json(tmp_path):
 	return str(path)
 
 
-def test_fit_forwards_num_workers_to_peak_generator(fit_json):
-	"""fit.run must pass parameters['num_workers'] to PeakGenerator. We
-	stop execution immediately after the call by raising from a fake
-	PeakGenerator and then inspect the kwargs."""
+class _FakeDataset:
+	"""Stands in for the `PeakNegativeSampler` behind `PeakGenerator`."""
+
+	peak_sequences = __import__('torch').zeros(4, 4, 16)
+	negative_sequences = __import__('torch').zeros(4, 4, 16)
+
+	def __len__(self):
+		return 8
+
+
+class _FakeLoader(list):
+	dataset = _FakeDataset()
+
+
+def _run_capturing_training_fit(fit_json):
+	"""Run `fit.run` up to the training call and return its arguments.
+
+	Data loading is faked and `cherimoya.training.fit` raises once it has
+	recorded what it was given, so nothing trains.
+	"""
+
+	import torch
 
 	from cherimoya_cli.commands import fit as fit_cmd
 
@@ -49,28 +67,92 @@ def test_fit_forwards_num_workers_to_peak_generator(fit_json):
 	class _StopFit(Exception):
 		pass
 
-	def fake_peak_generator(**kwargs):
-		captured.update(kwargs)
+	def fake_fit(model, training_data, *args, **kwargs):
+		captured.update(kwargs, model=model, training_data=training_data)
 		raise _StopFit()
 
-	# Block import-time side effects of the heavy modules `fit.run`
-	# pulls in. We only need to exercise the wiring up to PeakGenerator.
-	with mock.patch("cherimoya.io.PeakGenerator", side_effect=fake_peak_generator):
-		try:
-			fit_cmd.run(argparse.Namespace(parameters=fit_json))
-		except _StopFit:
-			pass
-		except Exception as e:
-			# Any error AFTER PeakGenerator was called is fine — the
-			# point of the test is whether it received the right kwargs.
-			if not captured:
-				raise
+	def fake_peak_generator(**kwargs):
+		captured['peak_generator'] = kwargs
+		return _FakeLoader([None] * 4)
 
-	assert captured, "PeakGenerator was never called"
-	assert captured.get('num_workers') == 3, (
-		"fit.run did not forward num_workers; got {!r}"
-		.format(captured.get('num_workers'))
-	)
+	def fake_extract_loci(**kwargs):
+		return torch.zeros(1, 4, 16), torch.zeros(1, 1, 8)
+
+	with mock.patch("cherimoya.io.PeakGenerator",
+				side_effect=fake_peak_generator), \
+			mock.patch("tangermeme.io.extract_loci",
+				side_effect=fake_extract_loci), \
+			mock.patch("cherimoya.training.fit", side_effect=fake_fit):
+		with pytest.raises(_StopFit):
+			fit_cmd.run(argparse.Namespace(parameters=fit_json))
+
+	return captured
+
+
+def test_fit_forwards_the_loader_settings_to_training(fit_json):
+	"""`num_workers` and `batch_size` go to the training module, which
+	builds the loader, and the dataset rather than PeakGenerator's loader
+	is what it receives."""
+
+	captured = _run_capturing_training_fit(fit_json)
+
+	assert captured['num_workers'] == 3
+	assert captured['batch_size'] == 16
+	assert isinstance(captured['training_data'], _FakeDataset)
+
+
+@pytest.mark.parametrize("device,accelerator", [("cpu", "cpu"),
+	("cuda", "gpu")])
+def test_fit_maps_device_to_a_lightning_accelerator(fit_json, device,
+	accelerator):
+	cfg = json.loads(open(fit_json).read())
+	cfg['device'] = device
+	cfg['devices'] = 2
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	captured = _run_capturing_training_fit(fit_json)
+	assert captured['accelerator'] == accelerator
+	assert captured['devices'] == 2
+
+
+def test_fit_schedules_count_the_partial_batch(fit_json):
+	"""8 examples in batches of 16 is one step per epoch for the schedule,
+	as a DataLoader counts it, with the default 2 warmup epochs and the
+	20,000-step floor stretching the run to 20,000 epochs."""
+
+	captured = _run_capturing_training_fit(fit_json)
+	assert captured['n_warmup_steps'] == 2
+	assert captured['max_epochs'] == 20000
+	assert captured['n_decay_steps'] == 20000 - 2
+
+
+def test_fit_launched_ranks_inherit_the_drawn_seed(fit_json, monkeypatch):
+	"""A rank Lightning launches after the first re-runs `fit`, and must
+	use the seed rank 0 drew rather than drawing its own."""
+
+	cfg = json.loads(open(fit_json).read())
+	cfg['random_state'] = None
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	monkeypatch.setenv("LOCAL_RANK", "1")
+	monkeypatch.setenv("PL_GLOBAL_SEED", "1234")
+
+	captured = _run_capturing_training_fit(fit_json)
+	assert captured['peak_generator']['random_state'] == 1234
+
+
+def test_fit_first_rank_ignores_a_seed_left_in_the_environment(fit_json,
+	monkeypatch, capsys):
+	cfg = json.loads(open(fit_json).read())
+	cfg['random_state'] = None
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	monkeypatch.delenv("LOCAL_RANK", raising=False)
+	monkeypatch.setenv("PL_GLOBAL_SEED", "1234")
+
+	captured = _run_capturing_training_fit(fit_json)
+	drawn = captured['peak_generator']['random_state']
+	assert "Drew random_state={}".format(drawn) in capsys.readouterr().out
 
 
 def test_default_fit_parameters_default_num_workers_is_one():
@@ -84,7 +166,7 @@ def test_default_fit_parameters_default_num_workers_is_one():
 
 def test_default_fit_parameters_disable_early_stopping():
 	"""Early stopping is off by default in both the fit defaults and the
-	fit block of the pipeline defaults, matching Cherimoya.fit's own
+	fit block of the pipeline defaults, matching `cherimoya.training.fit`'s
 	``early_stopping=None``. A non-None default here would cut the cosine
 	learning rate schedule -- laid out over ``max_epochs`` -- short."""
 
@@ -227,7 +309,7 @@ def test_fit_does_not_flatten_signals_for_downstream_evaluate(tmp_path):
 def _routing(model):
 	"""Return (name -> buckets) plus the raw lists, for readable asserts."""
 
-	from cherimoya_cli.commands.fit import _split_parameters
+	from cherimoya.training import _split_parameters
 
 	muon, adam, lw = _split_parameters(model)
 	by_id = {}
@@ -505,7 +587,8 @@ def test_fit_seeds_the_model_initialization(fit_json):
 		captured.update(kwargs)
 		raise _StopFit()
 
-	with mock.patch("cherimoya.io.PeakGenerator", return_value=object()), \
+	with mock.patch("cherimoya.io.PeakGenerator",
+				return_value=_FakeLoader([None] * 4)), \
 			mock.patch("tangermeme.io.extract_loci",
 				side_effect=fake_extract_loci), \
 			mock.patch("cherimoya.Cherimoya", side_effect=fake_model):
@@ -707,8 +790,8 @@ def test_fit_banner_names_the_loss_balancing_in_force(fit_json, capsys,
 	"""End to end through `fit.run`: with `verbose` on, the banner must
 	name whichever scheme the run uses -- the `lw_*` optimizer when the
 	weights are learned, the constants when they are fixed and that
-	optimizer is inert. Training is cut off at `model.fit`, which is the
-	call the banner immediately precedes."""
+	optimizer is inert. Training is cut off at `cherimoya.training.fit`,
+	which is the call the banner immediately precedes."""
 
 	import json as _json
 
@@ -729,18 +812,11 @@ def test_fit_banner_names_the_loss_balancing_in_force(fit_json, capsys,
 	def fake_extract_loci(**kwargs):
 		return torch.zeros(1, 4, 16), torch.zeros(1, 1, 8)
 
-	class _FakeDataset:
-		peak_sequences = torch.zeros(4, 4, 16)
-		negative_sequences = torch.zeros(4, 4, 16)
-
-	class _FakeLoader(list):
-		dataset = _FakeDataset()
-
 	with mock.patch("cherimoya.io.PeakGenerator",
 				return_value=_FakeLoader([None] * 4)), \
 			mock.patch("tangermeme.io.extract_loci",
 				side_effect=fake_extract_loci), \
-			mock.patch("cherimoya.Cherimoya.fit", side_effect=_StopFit()):
+			mock.patch("cherimoya.training.fit", side_effect=_StopFit()):
 		with pytest.raises(_StopFit):
 			fit_cmd.run(argparse.Namespace(parameters=fit_json))
 

@@ -79,7 +79,9 @@ Loading training data
 
 :func:`cherimoya.io.PeakGenerator` reads peaks, negatives, sequences,
 and signal/control bigWigs, applies filtering and jitter, and returns
-a ``torch.utils.data.DataLoader``:
+a ``torch.utils.data.DataLoader``. Training takes the dataset inside
+it, a :class:`cherimoya.io.PeakNegativeSampler`, and builds its own
+loader around it:
 
 .. code-block:: python
 
@@ -97,11 +99,9 @@ a ``torch.utils.data.DataLoader``:
        max_jitter=500,                      # peak-center jitter at training time
        negative_ratio=0.25,                 # n_negatives per n_peaks per epoch
        reverse_complement=True,             # augment with reverse complements
-       batch_size=64,
-       num_workers=1,                       # async prefetch workers
        random_state=0,                      # base seed; reproducible
        verbose=True,                        # print progress and filter counts
-   )
+   ).dataset
 
 Setting ``verbose=True`` prints per-step counts of filtered peaks and
 filtered negatives, which is the easiest way to verify the loader is
@@ -155,100 +155,104 @@ Validation data is loaded as a single block of tensors using
    # X_valid, y_valid, X_ctl_valid = valid_data   # with controls
 
 
-Optimizers and schedulers
--------------------------
+Training
+--------
+
+:func:`cherimoya.training.fit` builds a PyTorch Lightning ``Trainer``
+around a :class:`cherimoya.training.CherimoyaModule` and returns the
+trainer after fitting. The module builds the optimizers and learning
+rate schedules itself, so only their hyperparameters are passed. The
+module's schedule defaults (``n_warmup_steps=0``, ``n_decay_steps=1``)
+are not the CLI's schedule; to match ``cherimoya fit``, count the
+steps per epoch the way it does and pass both:
+
+.. code-block:: python
+
+   from cherimoya.training import fit
+
+   batch_size = 64
+   max_epochs = 20
+   n_warmup_epochs = 2
+   steps_per_epoch = -(-len(training_data) // batch_size)   # ceiling division
+
+   trainer = fit(
+       model,
+       training_data,
+       X_valid,
+       y_valid,
+       X_ctl_valid=None,            # pass control tensors here if using controls
+       max_epochs=max_epochs,
+       early_stopping=None,         # default: train all max_epochs; an int stops
+                                    # after that many epochs without count-Pearson gain
+       dtype='float32',             # or 'bfloat16' / 'float16' for mixed precision
+       accelerator='gpu',
+       devices=1,                   # more than one trains with DDP
+       batch_size=batch_size,       # global batch, split evenly across devices
+       num_workers=1,               # data-loading workers per device
+       n_warmup_steps=steps_per_epoch * n_warmup_epochs,
+       n_decay_steps=steps_per_epoch * max(1, max_epochs - n_warmup_epochs),
+   )
+
+The remaining keyword arguments are passed to
+:class:`~cherimoya.training.CherimoyaModule`: the learning rates and
+weight decays (``muon_lr``, ``muon_wd``, ``adam_lr``, ``adam_wd``,
+``lw_lr``, ``lw_wd``, ``lw_momentum``), ``loss_weights`` and
+``ema_decay``. The learning rate, weight decay, momentum and
+``loss_weights`` defaults match the CLI defaults.
 
 Cherimoya uses a three-optimizer strategy: Muon for the 2D projection
 weights in the Cheri Blocks, AdamW for the head/tail layers, biases,
 and the per-block ``conv_weight``, and SGD for the Kendall uncertainty
-weights ``lw0`` / ``lw1``. To match the CLI defaults exactly:
-
-.. code-block:: python
-
-   from torch.optim import AdamW, Muon, SGD
-   from torch.optim.lr_scheduler import (LinearLR, CosineAnnealingLR,
-       ConstantLR, SequentialLR)
-
-   # Route parameters into three buckets. Muon takes the 2D projection
-   # weights inside Cheri Blocks (linear1.weight, linear2.weight); SGD
-   # takes lw0/lw1; AdamW takes everything else, including the count
-   # head (name == "linear.weight") and the per-block ``conv_weight``.
-   muon_params, adam_params, lw_params = [], [], []
-   for name, p in model.named_parameters():
-       if name in ("lw0", "lw1"):
-           lw_params.append(p)
-       elif (p.ndim == 2 and "weight" in name and name != "linear.weight"
-               and "conv_weight" not in name):
-           muon_params.append(p)
-       else:
-           adam_params.append(p)
-
-   muon_optimizer = Muon(muon_params, lr=0.025, weight_decay=0.03)
-   adam_optimizer = AdamW(adam_params, lr=0.001, weight_decay=0.0)
-   lw_optimizer = SGD(lw_params, lr=0.001, weight_decay=0.0, momentum=0.9)
-
-   # Warmup for 2 epochs, then cosine decay for the rest of training
-   # down to eta_min=1e-5. Note T_max uses (max_epochs - n_warmup_epochs),
-   # not max_epochs.
-   max_epochs = 20
-   n_warmup_epochs = 2
-   num_warmup_iters = len(training_data) * n_warmup_epochs
-   num_decay_iters = len(training_data) * max(1, max_epochs - n_warmup_epochs)
-
-   def make_scheduler(opt):
-       warm = LinearLR(opt, start_factor=0.01, total_iters=num_warmup_iters)
-       cos = CosineAnnealingLR(opt, T_max=num_decay_iters, eta_min=1e-5)
-       return SequentialLR(opt, schedulers=[warm, cos], milestones=[num_warmup_iters])
-
-   muon_scheduler = make_scheduler(muon_optimizer)
-   adam_scheduler = make_scheduler(adam_optimizer)
-
-   # lw schedule is warmup then flat — the Kendall weights are not
-   # cosine-decayed.
-   lw_warm = LinearLR(lw_optimizer, start_factor=0.01, total_iters=num_warmup_iters)
-   lw_const = ConstantLR(lw_optimizer, factor=1.0, total_iters=1)
-   lw_scheduler = SequentialLR(lw_optimizer,
-       schedulers=[lw_warm, lw_const], milestones=[num_warmup_iters])
-
-
-Training
---------
-
-.. code-block:: python
-
-   model.fit(
-       training_data,
-       muon_optimizer, adam_optimizer, lw_optimizer,
-       muon_scheduler, adam_scheduler, lw_scheduler,
-       X_valid=X_valid,
-       X_ctl_valid=None,            # pass control tensors here if using controls
-       y_valid=y_valid,
-       max_epochs=20,
-       batch_size=64,
-       early_stopping=None,         # default: train all max_epochs; an int stops
-                                    # after that many epochs without count-Pearson gain
-       dtype='float32',             # or 'bfloat16' for mixed precision via autocast
-       device='cuda',
-   )
+weights ``lw0`` / ``lw1``. The Muon and AdamW rates warm up linearly
+from 1% over ``n_warmup_steps`` and then follow a cosine decay to
+``1e-5`` over ``n_decay_steps``; the ``lw`` rate warms up and is then
+held constant.
 
 What ``fit`` does internally:
 
 * Maintains an :class:`~cherimoya.cherimoya.EMA` shadow of every
-  floating-point parameter (decay 0.999). The shadow is updated after
-  every optimizer step.
-* Runs the training step with ``torch.autocast`` using ``dtype``.
+  floating-point parameter (decay 0.999 by default). The shadow is
+  updated after every optimizer step.
+* Runs the training step under Lightning's precision setting for
+  ``dtype``: ``'32-true'`` for ``'float32'``, ``'bf16-mixed'`` for
+  ``'bfloat16'`` and ``'16-mixed'`` for ``'float16'``, which also
+  scales the loss.
 * Validates at the end of each epoch using the EMA-applied weights;
   the validation Pearson correlation on counts is the metric used for
   best-checkpoint selection.
 * Saves ``{model.name}.torch`` whenever validation count Pearson
   improves, and ``{model.name}.final.torch`` at the very end (also
   with EMA weights applied).
-* Saves ``{model.name}.log`` with the training and validation metrics
-  per epoch.
+* Writes ``{model.name}.metrics.csv`` with the training and validation
+  metrics per epoch. The columns are described in :doc:`../cli`.
+
+After ``fit`` returns, ``model`` holds the EMA weights, and
+``trainer.checkpoint_callback.best_model_score`` is the best
+validation count Pearson.
+
+``fit`` raises a ``ValueError`` when the training set has fewer
+examples than one ``batch_size``, since no training step could be
+taken.
 
 Once the gradients on ``lw0`` (the profile loss-weight scalar) become
 small at the end of an epoch, both loss-weight scalars are frozen and
 the loss reduces to a fixed weighted sum for the rest of training.
+
+
+Training on several GPUs
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+With ``devices`` greater than one (or ``-1`` for every visible
+device), ``fit`` trains with DDP. ``batch_size`` is the global batch
+and must be divisible by the number of devices; each device takes an
+equal contiguous slice of every global batch through
+:class:`cherimoya.io.ShardedEpochSampler`, so each step sees exactly
+the examples a single device would. Validation is split across the
+devices without padding, and the metrics are computed over the whole
+validation set.
+
+Lightning starts every rank after the first by re-running the current
+command, so the code before the ``fit`` call runs once per rank.
 
 
 Saving and loading

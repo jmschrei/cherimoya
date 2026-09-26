@@ -66,7 +66,7 @@ The "what did the model learn" chain, in order:
 - **EMA (exponential moving average)** — a smoothed running average of the model
   weights kept during training; it validates better than the raw weights.
   Cherimoya **saves the EMA weights**, so a reloaded model reproduces the EMA
-  validation numbers in the log, not the mid-epoch training loss (see
+  validation numbers in `{name}.metrics.csv`, not the mid-epoch training loss (see
   `references/interpreting-outputs.md`).
 - **Reverse-complement augmentation** — training also shows the model each
   sequence's reverse complement (on by default); for stranded data this swaps the

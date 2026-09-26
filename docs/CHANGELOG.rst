@@ -7,6 +7,72 @@ Unreleased
 Removed (**breaking**)
 ~~~~~~~~~~~~~~~~~~~~~~
 
+* ``Cherimoya.fit`` is removed. Training moved to PyTorch Lightning, and
+  the replacement is :func:`cherimoya.training.fit`, which builds a
+  ``lightning.Trainer`` around the new
+  :class:`cherimoya.training.CherimoyaModule` and returns the trainer
+  rather than the best validation correlation (that is
+  ``trainer.checkpoint_callback.best_model_score``). The signature
+  differs: ``training_data`` is the dataset, a
+  :class:`~cherimoya.io.PeakNegativeSampler`, rather than a
+  ``DataLoader``, since the module builds the loader itself; the three
+  optimizers and three schedulers are no longer passed in but built
+  from ``muon_lr``/``muon_wd``, ``adam_lr``/``adam_wd``,
+  ``lw_lr``/``lw_wd``/``lw_momentum`` and the schedule lengths
+  ``n_warmup_steps`` / ``n_decay_steps``; ``device`` is replaced by
+  Lightning's ``accelerator`` and ``devices``; and ``dtype`` must be one
+  of the strings ``'float32'``, ``'bfloat16'`` or ``'float16'``, since
+  anything else raises ``ValueError``. **Code that calls**
+  ``model.fit(...)`` **fails with** ``AttributeError``. The
+  :doc:`tutorials/python_api` shows the replacement call with the CLI's
+  schedule.
+
+  Checkpoints are unchanged: ``{name}.torch`` holds the EMA weights from
+  the epoch with the best validation count Pearson and
+  ``{name}.final.torch`` those at the end of training, both in the
+  ``Cherimoya.save`` format and loadable with ``Cherimoya.load``. They are
+  now written through Lightning (``ModelCheckpoint`` for the best one,
+  ``Trainer.save_checkpoint`` for the final one), with a checkpoint IO
+  plugin that stores only that payload.
+
+* ``{name}.log`` and ``{name}.detailed.log`` are replaced by one file,
+  ``{name}.metrics.csv``, written by Lightning's ``CSVLogger``: comma
+  separated rather than tab separated, one row per epoch, columns sorted
+  alphabetically. **A script that parses either log must be updated.**
+  The columns are renamed:
+
+  .. list-table::
+     :header-rows: 1
+     :widths: 50 50
+
+     * - Old column
+       - New column
+     * - ``Epoch``
+       - ``epoch``
+     * - ``Iteration``
+       - ``iteration``
+     * - ``Training Time`` / ``Validation Time``
+       - ``train_time`` / ``valid_time``
+     * - ``Training MNLL`` / ``Training Count MSE``
+       - ``train_profile_mnll`` / ``train_count_mse``
+     * - ``Validation MNLL`` / ``Validation Count MSE``
+       - ``valid_profile_mnll`` / ``valid_count_mse``
+     * - ``Validation Profile Pearson``
+       - ``valid_profile_pearson``
+     * - ``Validation Count Pearson``
+       - ``valid_count_pearson``
+     * - ``Saved?``
+       - ``saved`` (``1.0`` / ``0.0``)
+     * - ``ProfilePearson_g{i}`` / ``CountPearson_g{i}``
+       - ``valid_profile_pearson_g{i}`` / ``valid_count_pearson_g{i}``
+
+  Lightning adds a ``step`` column, its own step counter; ``iteration``
+  is the number of training batches. The per-epoch table the summary
+  log printed to stdout under ``verbose`` is gone; ``verbose`` now
+  switches Lightning's progress bar and model summary. The
+  ``Cherimoya(verbose=...)`` argument is unused and kept only because
+  every saved checkpoint's config passes it.
+
 * ``cherimoya batch`` is removed, along with
   ``cherimoya_cli/commands/batch.py``, its subparser, its CLI reference
   section and the "Batch mode" section of the pipeline tutorial. It fanned
@@ -392,6 +458,36 @@ CLI
 Training
 ~~~~~~~~
 
+* **Training can run on several GPUs.** ``devices`` is a new parameter
+  of :func:`cherimoya.training.fit` and of the fit and pipeline JSONs,
+  ``1`` by default; ``-1`` uses every visible device. More than one
+  device trains with DDP. ``batch_size`` is the global batch, split
+  evenly across the devices, and must be divisible by their number. The
+  new :class:`cherimoya.io.ShardedEpochSampler` gives each device a
+  contiguous slice of every global batch, so each step sees exactly the
+  examples one device would, and
+  :class:`~cherimoya.io.PeakNegativeSampler` accepts the
+  ``(epoch, index)`` pairs it yields. Validation is split across the
+  devices without padding and the metrics are computed over the whole
+  validation set.
+
+  Lightning starts every rank after the first by re-running the current
+  command. ``cherimoya fit`` therefore prints and evaluates on rank 0
+  only, and with ``random_state: null`` the other ranks use the seed
+  rank 0 drew. In ``cherimoya pipeline``, a ``devices`` other than 1
+  runs the fit step as a separate ``python -m cherimoya_cli fit -p
+  {name}.fit.json`` process, so that the re-run command is the fit and
+  not the whole pipeline.
+
+* ``dtype='float16'`` now scales the loss. The three ``dtype`` values map
+  to Lightning's ``32-true``, ``bf16-mixed`` and ``16-mixed``
+  precisions, and ``16-mixed`` uses a gradient scaler; the loop it
+  replaces ran fp16 under autocast with no loss scaling.
+
+* A training set smaller than one global batch now raises
+  ``ValueError`` before training starts, instead of warning and
+  writing nan training losses for every epoch.
+
 * **The Kendall loss weights can be replaced by constants.**
   :meth:`cherimoya.Cherimoya.fit` takes a ``loss_weights`` tuple, exposed
   as ``loss_weights`` in the fit and pipeline JSONs, which replaces the
@@ -684,6 +780,9 @@ Compatibility
 
 Packaging
 ~~~~~~~~~
+
+* ``lightning>=2.6.1`` is a new required dependency, for the training
+  loop in :mod:`cherimoya.training`.
 
 * The ``tangermeme`` floor was ``>=0.2.3``, which no release satisfying
   it can actually run: Cherimoya uses ``extract_loci(return_mask=...)``,

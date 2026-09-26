@@ -21,15 +21,18 @@ correlates with truth on held-out chromosomes.
 `profile_pearson` / `profile_jsd` describe how well the profile **shape**
 (base-pair resolution) was learned, separate from total counts.
 
-### `{name}.log` — per-epoch training curve
-One row per epoch (train/validation metrics). Shows whether validation count
-Pearson climbed and which epoch the kept checkpoint came from. **Compare final
-results against the EMA validation numbers here, not the mid-epoch training
-loss** (see the checkpoint note below).
+### `{name}.metrics.csv` — per-epoch training curve
+Comma-separated, one row per epoch, columns in alphabetical order. The ones to
+read: `valid_count_pearson` (selects the kept checkpoint), `valid_profile_pearson`,
+`train_profile_mnll` / `train_count_mse`, `valid_profile_mnll` /
+`valid_count_mse`, and `saved` (`1.0` on the epochs that rewrote `{name}.torch`).
+`iteration` counts training batches; `step` is Lightning's own counter. Shows
+whether validation count Pearson climbed and which epoch the kept checkpoint
+came from. **Compare final results against the EMA validation numbers here, not
+the mid-epoch training loss** (see the checkpoint note below).
 
-### `{name}.detailed.log`
-`.log` plus per-group `ProfilePearson_g{i}` / `CountPearson_g{i}` columns —
-only relevant for multi-group (multi-task) models.
+Multi-group (multi-task) models also get one `valid_profile_pearson_g{i}` and
+one `valid_count_pearson_g{i}` column per signal group.
 
 ### `{name}.torch` vs `{name}.final.torch` — which checkpoint to use
 Both are **EMA-applied** snapshots (an exponential moving average of the
@@ -38,7 +41,7 @@ weights, which validates better than the raw training weights):
   steps load this; use it for analysis. Load with `Cherimoya.load`.
 - **`{name}.final.torch`** — the EMA snapshot at the **final** epoch; interesting
   only if you want the end-of-training state. Because these are EMA weights, a
-  reloaded model reproduces the *EMA* validation row in the log, not any
+  reloaded model reproduces the *EMA* validation row in `{name}.metrics.csv`, not any
   mid-epoch loss — expected, not a bug.
 
 ## Intermediate data files
