@@ -68,8 +68,9 @@ or from step 2 of ``cherimoya pipeline``.
 Under DeepLIFT/SHAP, the default algorithm, ``batch_size`` counts
 sequence-reference pairs, and each pair is run forward and backward
 with its activations kept. On the default 9-layer, 128-filter model at
-2114 bp, 64 pairs (the default) peaked at 15.5 GB and 512 at 124 GB,
-so memory grows with ``batch_size``. Lower
+2114 bp, 16 pairs peaked at 4.0 GB, 32 at 7.8 GB, 64 (the default) at
+15.5 GB and 512 at 124 GB, with about the same wall time at each, so
+memory grows with ``batch_size``. Lower
 ``attribute_parameters.batch_size`` (64 → 32 → 16). With a fixed
 ``random_state`` the attributions are the same at any batch size, up
 to float rounding.

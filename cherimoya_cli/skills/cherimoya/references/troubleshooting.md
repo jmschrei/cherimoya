@@ -28,7 +28,8 @@ complexity without user input.
 
 Under DeepLIFT/SHAP (the default `algorithm`), `attribute_parameters.batch_size`
 counts sequence-reference pairs, each run forward and backward. On the default
-model at 2114 bp, 64 pairs peaked at 15.5 GB and 512 at 124 GB. Lower
+model at 2114 bp, 16 pairs peaked at 4.0 GB, 32 at 7.8 GB, 64 at 15.5 GB and 512
+at 124 GB, with about the same wall time at each. Lower
 `batch_size` (64 → 32 → 16); with a fixed `random_state` the attributions are
 the same at any batch size, up to float rounding.
 
