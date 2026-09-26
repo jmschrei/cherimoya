@@ -99,31 +99,40 @@ The ``.npz`` outputs store the array under key ``arr_0``
 Computing attributions (Python)
 -------------------------------
 
+This is what ``cherimoya attribute`` does with its defaults:
+DeepLIFT/SHAP against 20 dinucleotide-shuffled references per
+sequence, keeping the central 400 bp.
+
 .. code-block:: python
 
-   import torch
    from cherimoya import Cherimoya
    from cherimoya import ControlWrapper
    from cherimoya import LogCountWrapper
    from cherimoya import ProfileWrapper
-   from tangermeme.saturation_mutagenesis import saturation_mutagenesis
+   from cherimoya.deep_lift_shap import attribution_ops
+   from tangermeme.deep_lift_shap import deep_lift_shap
 
-   model = Cherimoya.load("my_model.torch", device="cuda")
+   # DeepLIFT's backward hooks cannot be traced by torch.compile.
+   model = Cherimoya.load("my_model.torch", device="cuda", compile=False)
 
    # ControlWrapper wraps the model so that .forward(X) returns just the
    # profile/counts tuple, supplying zero controls if the model has none.
    model = ControlWrapper(model)
-   wrapper = LogCountWrapper(model)   # use ProfileWrapper(...) to attribute to profile shape
+   wrapper = LogCountWrapper(model, group=0)   # or ProfileWrapper(model, group=0) for profile shape
 
-   # ISM over the central 400 bp of each input sequence.
-   mid = X.shape[-1] // 2
-   X_attr = saturation_mutagenesis(
+   X_attr = deep_lift_shap(
        wrapper, X,
-       batch_size=512,
-       device="cuda",
+       n_shuffles=20,
+       batch_size=64,
        hypothetical=True,
-       start=mid - 200, end=mid + 200,
+       additional_nonlinear_ops=attribution_ops(),
+       device="cuda",
+       random_state=0,
    )
+
+   # Keep the central 400 bp of each input sequence.
+   mid = X.shape[-1] // 2
+   X_attr = X_attr[:, :, mid - 200:mid + 200]
 
 This produces hypothetical importance scores. To get actual
 importance, multiply elementwise by the one-hot encoding and sum
@@ -133,34 +142,48 @@ across the channel axis:
 
    importance = (X_attr * X[:, :, mid - 200:mid + 200]).sum(dim=1)
 
+``additional_nonlinear_ops=attribution_ops()`` is required, not an
+optimization. ``FusedDilatedConvNorm`` and the profile head's logit
+scaling are neither linear nor in tangermeme's table, so without them
+the attributions carry no guarantee that they sum to the change in the
+prediction — and for the profile head the error exceeds the prediction
+itself. See :doc:`../api/deep_lift_shap` for what each rule does and
+why.
 
-DeepLIFT/SHAP instead of saturation mutagenesis
+tangermeme's ``deep_lift_shap`` attributes output ``target=0`` of the
+model it is given. ``LogCountWrapper`` without ``group`` returns one
+count per signal group, so on a multi-group model it would silently
+attribute group 0 only; pass ``group`` to say which one you mean.
+
+
+Saturation mutagenesis instead of DeepLIFT/SHAP
 -----------------------------------------------
 
-The Python example above uses saturation mutagenesis, which makes forward
-passes only and needs nothing registered. ``deep_lift_shap`` is the
-gradient-based alternative, and the CLI's default: it costs a handful of
-forward and backward passes per sequence rather than three per position,
-which on a 9-layer model over a 2114 bp window is about 5 ms against 73 ms
-for a central-400 bp ISM, both measured on one H200 at batch 8.
-
-It does need two rules registered. ``FusedDilatedConvNorm`` and the profile
-head's logit scaling are neither linear nor in tangermeme's table, so
-without them the attributions carry no guarantee that they sum to the
-change in the prediction — and for the profile head the error exceeds the
-prediction itself. :func:`cherimoya.deep_lift_shap.attribution_ops` returns
-both:
+Saturation mutagenesis (ISM) makes forward passes only and needs
+nothing registered, at the cost of three forward passes per attributed
+position: on a 9-layer model over a 2114 bp window, DeepLIFT/SHAP takes
+about 5 ms against 73 ms for a central-400 bp ISM, both measured on one
+H200 at batch 8. ISM runs on the compiled model, and only the positions
+between ``start`` and ``end`` are mutated:
 
 .. code-block:: python
 
-   from tangermeme.deep_lift_shap import deep_lift_shap
-   from cherimoya.deep_lift_shap import attribution_ops
+   from tangermeme.saturation_mutagenesis import saturation_mutagenesis
 
-   X_attr = deep_lift_shap(wrapper, X, references=references,
-       additional_nonlinear_ops=attribution_ops())
+   model = ControlWrapper(Cherimoya.load("my_model.torch", device="cuda"))
+   wrapper = LogCountWrapper(model, group=0)
 
-Load the model with ``compile=False`` when attributing it. See
-:doc:`../api/deep_lift_shap` for what each rule does and why.
+   mid = X.shape[-1] // 2
+   X_attr = saturation_mutagenesis(
+       wrapper, X,
+       batch_size=64,
+       device="cuda",
+       hypothetical=True,
+       start=mid - 200, end=mid + 200,
+   )
+
+``cherimoya attribute`` runs this with ``"algorithm":
+"saturation_mutagenesis"``.
 
 
 Identifying seqlets

@@ -121,7 +121,7 @@ step.
 | Fix an error or a bad-looking result | `references/troubleshooting.md` |
 | Run one subcommand or find a flag | `references/cli.md` |
 | Save / load / run inference with the model in Python | `references/using-in-python.md` |
-| Attribute, ISM, design, score variants | `references/using-tangermeme.md` |
+| Attribute (DeepLIFT/SHAP, ISM), design, score variants | `references/using-tangermeme.md` |
 
 Full project documentation lives at <https://cherimoya.readthedocs.io> (glossary,
 architecture, per-assay recipes, API reference). When a detail isn't in these

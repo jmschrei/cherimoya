@@ -85,7 +85,9 @@ controls are supplied automatically.
 
 ``LogCountWrapper(model, group=i)`` returns only group ``i``'s log-count, with
 shape ``(batch_size, 1)``, for attributing one modality of a multi-group
-model.
+model. Without ``group``, tangermeme's ``deep_lift_shap`` attributes its
+default ``target=0`` — group 0 alone — while ``saturation_mutagenesis``
+averages over every group.
 
 
 ExpectedCountsWrapper

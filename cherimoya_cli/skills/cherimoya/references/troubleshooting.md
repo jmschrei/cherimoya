@@ -24,6 +24,23 @@ The default (batch 64, 2114 bp window, 9-layer/128-filter model) fits
 comfortably on a 16 GB GPU. Reducing batch size is cheapest; don't change model
 complexity without user input.
 
+## "CUDA out of memory" in the attribute step
+
+Under DeepLIFT/SHAP (the default `algorithm`), `attribute_parameters.batch_size`
+counts sequence-reference pairs, each run forward and backward. On the default
+model at 2114 bp, 64 pairs peaked at 15.5 GB and 512 at 124 GB. Lower
+`batch_size` (64 → 32 → 16); with a fixed `random_state` the attributions are
+the same at any batch size, up to float rounding.
+
+## "Convergence deltas too high" during attribution
+
+DeepLIFT/SHAP scores for an example and a reference should sum to the difference
+in their predictions; the warning fires when a pair misses by more than
+`warning_threshold` (default 0.001, absolute, in the units of the attributed
+output). The known cause is Python code calling tangermeme's `deep_lift_shap`
+without `additional_nonlinear_ops=attribution_ops()` (from
+`cherimoya.deep_lift_shap`). `cherimoya attribute` always registers them.
+
 ## "The first iteration is very slow, then it speeds up"
 
 Not a bug — **Triton autotune** sweeping kernel configs on the first call, then

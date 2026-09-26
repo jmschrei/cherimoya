@@ -14,7 +14,7 @@ exhaustive flag and JSON-key tables, defer to
 | Run the whole thing end-to-end | `pipeline` |
 | Just train (and auto-evaluate) a model | `fit` |
 | Score an existing model on held-out data | `evaluate` |
-| Compute per-base attributions | `attribute` |
+| Compute per-base attributions (DeepLIFT/SHAP, or ISM via `algorithm`) | `attribute` |
 | Call seqlets from attributions | `seqlets` |
 | Measure a model's response to inserted motifs | `marginalize` |
 | Sample GC-matched negative regions | `negatives` |

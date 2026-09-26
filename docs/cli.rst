@@ -673,8 +673,9 @@ JSON schema:
    * - ``compile`` / ``compile_mode``
      - ``true`` / ``"max-autotune"``
      - Passed through to :meth:`cherimoya.Cherimoya.load`. Also
-       accepted by ``attribute`` and ``marginalize``. See the
-       pipeline table above.
+       accepted by ``marginalize``, and by ``attribute`` when
+       ``algorithm`` is ``"saturation_mutagenesis"``. See the pipeline
+       table above.
    * - ``exclusion_lists``
      - ``null``
      - Optional regions to exclude.
@@ -702,6 +703,10 @@ cherimoya attribute
 CLI flags:
 
 * ``-p, --parameters`` (required) — path to an attribute JSON.
+
+Computes DeepLIFT/SHAP attributions by default, or saturation
+mutagenesis with ``"algorithm": "saturation_mutagenesis"``; see
+:doc:`tutorials/attribution`.
 
 JSON schema: the ``attribute_parameters`` table above, plus
 ``model``, ``sequences``, ``loci`` and ``exclusion_lists``.
