@@ -256,14 +256,19 @@ CLI
   64 rather than inheriting the top-level 512. For DeepLIFT/SHAP each
   item is a sequence-reference pair run forward and backward: on a
   9-layer, 128-filter model at 2114 bp, 512 pairs peaked at 124 GB of GPU
-  memory and 64 at 15.5 GB, with the same wall time.
+  memory and 64 at 15.5 GB, with the same wall time. Saturation
+  mutagenesis is slower at 64: 8.7 s per call against 7.6 s at 512 over
+  128 loci.
 
-* Under DeepLIFT/SHAP the attribute step loads the model with
-  ``compile=False`` whatever ``compile`` says. The backward hooks make
-  the compiled forward recompile until Dynamo's recompile limit, which
-  added about 45 s of warm-up in one measured run and gave the same
-  attributions (to ~1e-11). ``compile`` and ``compile_mode`` still apply to saturation
-  mutagenesis.
+* The attribute step no longer compiles the model by default: its
+  ``compile`` key defaults to ``false``, and the pipeline's
+  ``attribute_parameters`` sets ``false`` rather than inheriting the
+  top-level ``true``. Across batch sizes 16–512 and all four
+  ``torch.compile`` modes, neither algorithm ran faster compiled in
+  steady state, and compiling added 6–70 s to the first call.
+  ``"compile": true`` still compiles for saturation mutagenesis. Under
+  DeepLIFT/SHAP the model is never compiled, whatever ``compile`` says;
+  its backward hooks break the compiled forward.
 
 * A new ``group`` key (default ``0``) selects which signal group of a
   multi-group model the attribute step attributes, through the

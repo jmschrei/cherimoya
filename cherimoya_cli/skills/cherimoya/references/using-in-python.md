@@ -117,8 +117,9 @@ The same two settings are JSON keys on `evaluate`, `attribute` and
 `marginalize`, and at the top level of a `pipeline` JSON where one value reaches
 every step that loads a model: `{"compile": false}`,
 `{"compile_mode": "max-autotune-no-cudagraphs"}`. Reach for them when a CLI run
-hits a compile or CUDA-graph traceback. `attribute` ignores both under
-DeepLIFT/SHAP, its default, and always loads the model uncompiled.
+hits a compile or CUDA-graph traceback. `attribute` is the exception: it
+defaults to `compile: false` (neither algorithm ran faster compiled) and never
+compiles under DeepLIFT/SHAP.
 
 ### Things to tell users about checkpoints
 

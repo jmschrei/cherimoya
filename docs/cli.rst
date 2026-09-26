@@ -144,8 +144,8 @@ JSON schema (top-level keys, with defaults from
      - Whether every step that loads a model wraps its forward in
        ``torch.compile``. Set to ``false`` for an eager forward — the
        fix for a ``torch.compile`` or CUDA-graph error. The attribute
-       step ignores it under DeepLIFT/SHAP and always loads eagerly,
-       since DeepLIFT's backward hooks cannot be traced by Inductor.
+       step does not inherit it: ``attribute_parameters`` sets its own
+       ``compile`` (``false``).
    * - ``compile_mode``
      - ``"max-autotune"``
      - The ``mode`` passed to ``torch.compile``. Useful alternatives are
@@ -410,9 +410,14 @@ attribute_parameters
      - ``"deep_lift_shap"`` (DeepLIFT/SHAP against dinucleotide-shuffled
        references, with Cherimoya's DeepLIFT rules registered) or
        ``"saturation_mutagenesis"``. Both write arrays of the same
-       shape. DeepLIFT/SHAP always loads the model uncompiled;
-       ``compile`` and ``compile_mode`` apply only to saturation
-       mutagenesis.
+       shape.
+   * - ``compile`` / ``compile_mode``
+     - ``false`` / ``"max-autotune"``
+     - Whether to ``torch.compile`` the model, for saturation mutagenesis
+       only; DeepLIFT/SHAP always loads it uncompiled, since its backward
+       hooks break the compiled forward. Off by default because neither
+       algorithm ran faster compiled, and compiling added 6–70 s to the
+       first call.
    * - ``batch_size``
      - 64
      - Batch size. For DeepLIFT/SHAP this counts sequence-reference
@@ -674,7 +679,8 @@ JSON schema:
      - ``true`` / ``"max-autotune"``
      - Passed through to :meth:`cherimoya.Cherimoya.load`. Also
        accepted by ``marginalize``, and by ``attribute`` when
-       ``algorithm`` is ``"saturation_mutagenesis"``. See the pipeline
+       ``algorithm`` is ``"saturation_mutagenesis"`` (where ``compile``
+       defaults to ``false``). See the pipeline
        table above.
    * - ``exclusion_lists``
      - ``null``

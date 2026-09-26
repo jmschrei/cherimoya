@@ -30,8 +30,9 @@ def run(args):
 
 	###
 
-	# DeepLIFT's backward hooks make the compiled forward recompile per
-	# block until it falls back to eager, so compiling only adds warm-up.
+	# `compile` defaults to false here: neither algorithm ran faster
+	# compiled, and compiling added 6-70 s to the first call. DeepLIFT is
+	# never compiled; its backward hooks break the compiled forward.
 	compiled = parameters["compile"] and algorithm == "saturation_mutagenesis"
 	model = Cherimoya.load(parameters["model"], device=parameters["device"],
 		compile=compiled,

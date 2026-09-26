@@ -71,9 +71,13 @@ default, ``0``, is the whole output.
   Cherimoya's DeepLIFT rules registered. ``batch_size`` counts
   sequence-reference pairs, each run forward and backward.
 * ``"saturation_mutagenesis"`` — ``tangermeme.saturation_mutagenesis``,
-  forward passes only, three per attributed position. ``compile`` and
-  ``compile_mode`` apply only to this algorithm; DeepLIFT/SHAP always
-  loads the model uncompiled.
+  forward passes only, three per attributed position.
+
+The model is loaded uncompiled by default. ``"compile": true`` compiles
+it for saturation mutagenesis only; DeepLIFT/SHAP never compiles, since
+its backward hooks break the compiled forward. Neither algorithm ran
+faster compiled in our measurements, and compiling lengthened the first
+call.
 
 The CLI automatically:
 
@@ -163,14 +167,15 @@ Saturation mutagenesis (ISM) makes forward passes only and needs
 nothing registered, at the cost of three forward passes per attributed
 position: on a 9-layer model over a 2114 bp window, DeepLIFT/SHAP takes
 about 5 ms against 73 ms for a central-400 bp ISM, both measured on one
-H200 at batch 8. ISM runs on the compiled model, and only the positions
-between ``start`` and ``end`` are mutated:
+H200 at batch 8. Only the positions between ``start`` and ``end`` are
+mutated:
 
 .. code-block:: python
 
    from tangermeme.saturation_mutagenesis import saturation_mutagenesis
 
-   model = ControlWrapper(Cherimoya.load("my_model.torch", device="cuda"))
+   model = ControlWrapper(Cherimoya.load("my_model.torch", device="cuda",
+       compile=False))
    wrapper = LogCountWrapper(model, group=0)
 
    mid = X.shape[-1] // 2

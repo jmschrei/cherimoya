@@ -292,8 +292,9 @@ cost of that speedup.
 From the CLI the same two settings are the ``compile`` and
 ``compile_mode`` JSON keys, accepted by ``evaluate``, ``attribute``,
 ``marginalize`` and at the top level of a ``pipeline`` JSON, where one
-value reaches every step that loads a model. ``attribute`` ignores them
-under DeepLIFT/SHAP, its default, and always loads eagerly::
+value reaches every step that loads a model — except ``attribute``,
+which defaults to ``compile: false`` and never compiles under
+DeepLIFT/SHAP::
 
     {"compile": false}
     {"compile_mode": "max-autotune-no-cudagraphs"}

@@ -122,7 +122,7 @@ default_attribute_parameters = {
 	'sequences': None,
 	'loci': None,
 	'model': None,
-	'compile': True,
+	'compile': False,
 	'compile_mode': 'max-autotune',
 	'algorithm': 'deep_lift_shap',
 	'output': 'counts',
@@ -280,6 +280,7 @@ default_pipeline_parameters = {
 	# Attribution parameters
 	'attribute_parameters': {
 		'batch_size': 64,
+		'compile': False,
 		'chroms': training_chroms + validation_chroms,
 		'algorithm': 'deep_lift_shap',
 		'output': 'counts',

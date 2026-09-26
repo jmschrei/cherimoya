@@ -73,7 +73,7 @@ def _captured_load_kwargs(command, tmp_path, **overrides):
 ##
 
 
-@pytest.mark.parametrize("command", sorted(ALL_DEFAULTS))
+@pytest.mark.parametrize("command", ["evaluate", "marginalize"])
 def test_default_is_compiled(command, tmp_path):
 	"""Omitting the keys preserves the pre-existing behaviour: the same
 	settings `Cherimoya.load` uses on its own."""
@@ -82,6 +82,15 @@ def test_default_is_compiled(command, tmp_path):
 
 	assert captured["compile"] is True
 	assert captured["compile_mode"] == "max-autotune"
+
+
+def test_attribute_default_is_uncompiled(tmp_path):
+	"""`attribute` defaults to an eager model: neither algorithm ran
+	faster compiled, and compiling only lengthened the first call."""
+
+	captured = _captured_load_kwargs("attribute", tmp_path)
+
+	assert captured["compile"] is False
 
 
 @pytest.mark.parametrize("command", sorted(ALL_DEFAULTS))

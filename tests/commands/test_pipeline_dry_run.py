@@ -60,3 +60,5 @@ def test_dry_run_attribute_json_uses_deep_lift_shap_settings(tmp_path,
 	assert step["group"] == 0
 	assert step["n_shuffles"] == 20
 	assert step["random_state"] == 0
+	# The top-level `compile: true` is not inherited.
+	assert step["compile"] is False
