@@ -871,3 +871,38 @@ def test_group_depths_differs_from_a_pooled_mean():
 
 	assert not torch.allclose(depths, pooled.expand(2))
 	assert torch.allclose(depths.sum(), pooled)
+
+
+def test_group_depths_averaged_over_equal_shards_match_the_full_batch():
+	"""Under DDP each device sees a quarter of the batch. Averaging the four
+	devices' depths before the floor at 1, which is what `reduce` is for,
+	must give the depths of the whole batch -- what the fixed loss weights
+	divide by on one device."""
+
+	from cherimoya.cherimoya import _group_depths
+
+	g = torch.Generator().manual_seed(0)
+	y = torch.randint(0, 6, (16, 3, 20), generator=g).float()
+	y[:4, 0] = 0  # one shard with no reads in the first group
+	groups = [1, 2]
+
+	per_shard = []
+	for shard in y.chunk(4):
+		_group_depths(shard, groups, reduce=lambda d: per_shard.append(d) or d)
+	mean = torch.stack(per_shard).mean(dim=0)
+
+	sharded = _group_depths(y.chunk(4)[0], groups, reduce=lambda d: mean)
+	assert torch.allclose(sharded, _group_depths(y, groups))
+
+	# Flooring each shard before averaging would lift the empty shard to 1.
+	floored_first = torch.stack([d.clamp(min=1.0) for d in per_shard]).mean(0)
+	assert not torch.allclose(floored_first, _group_depths(y, groups))
+
+
+def test_group_depths_without_a_reduction_is_unchanged():
+	from cherimoya.cherimoya import _group_depths
+
+	g = torch.Generator().manual_seed(1)
+	y = torch.randint(0, 6, (8, 3, 20), generator=g).float()
+	assert torch.equal(_group_depths(y, [1, 2], reduce=None),
+		_group_depths(y, [1, 2]))

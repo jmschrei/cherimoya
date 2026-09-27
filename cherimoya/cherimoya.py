@@ -89,7 +89,7 @@ class EMA:
 		self._backup = {}
 
 
-def _group_depths(y, signal_groups):
+def _group_depths(y, signal_groups, reduce=None):
 	"""Batch-mean observed counts for each signal group.
 
 	The profile MNLL is a sum of per-read log-likelihoods, so it scales with
@@ -110,6 +110,11 @@ def _group_depths(y, signal_groups):
 	signal_groups: list of int
 		Channels belonging to each group, in order.
 
+	reduce: callable or None, optional
+		Applied to the per-group means before the floor. Data-parallel
+		training passes one that averages them across devices, so that the
+		depths are those of the whole global batch. Default is None.
+
 
 	Returns
 	-------
@@ -123,7 +128,11 @@ def _group_depths(y, signal_groups):
 		depths.append(y[:, lo:lo + width].sum(dim=(1, 2)).float().mean())
 		lo += width
 
-	return torch.stack(depths).clamp(min=1.0)
+	depths = torch.stack(depths)
+	if reduce is not None:
+		depths = reduce(depths)
+
+	return depths.clamp(min=1.0)
 
 
 class Cherimoya(torch.nn.Module):

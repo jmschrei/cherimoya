@@ -339,7 +339,17 @@ class CherimoyaModule(lightning.LightningModule):
 
 		if self.loss_weights is not None:
 			w0, w1 = self.loss_weights
-			depths = _group_depths(y, self.model.signal_groups)
+
+			# The depths divide the loss, so a device's share of the batch
+			# must use the depths of the whole global batch or the averaged
+			# gradient would not be the one-device gradient. Every device
+			# holds the same number of examples, so the mean of their means
+			# is the global mean.
+			reduce = None
+			if self.trainer.world_size > 1:
+				reduce = lambda d: self.all_gather(d).mean(dim=0)
+
+			depths = _group_depths(y, self.model.signal_groups, reduce=reduce)
 			return (w0 * profile_loss / depths).sum() + (w1 * count_loss).sum()
 
 		lw0, lw1 = self.model.lw0, self.model.lw1

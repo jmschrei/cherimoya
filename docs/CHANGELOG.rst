@@ -469,7 +469,9 @@ Training
   :class:`~cherimoya.io.PeakNegativeSampler` accepts the
   ``(epoch, index)`` pairs it yields. Validation is split across the
   devices without padding and the metrics are computed over the whole
-  validation set.
+  validation set. With fixed ``loss_weights``, the per-group read depths
+  the profile loss is divided by are averaged across the devices, so they
+  are those of the global batch, as on one device.
 
   Lightning starts every rank after the first by re-running the current
   command. ``cherimoya fit`` therefore prints and evaluates on rank 0
