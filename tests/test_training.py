@@ -348,6 +348,45 @@ def test_fit_writes_the_best_and_final_ema_checkpoints(tmp_path):
 			assert torch.equal(p, q)
 
 
+def _assert_same_payload(a, b):
+	assert a.keys() == b.keys() == {'config', 'state_dict'}
+	assert a['config'] == b['config']
+	assert type(a['state_dict']) is type(b['state_dict'])
+	assert list(a['state_dict']) == list(b['state_dict'])
+	for key in a['state_dict']:
+		assert torch.equal(a['state_dict'][key], b['state_dict'][key]), key
+	assert a['state_dict']._metadata == b['state_dict']._metadata
+
+
+@pytest.mark.parametrize("n_controls", [0, 2])
+def test_fit_checkpoints_are_what_cherimoya_save_writes(tmp_path, n_controls):
+	"""Training writes its checkpoints through Lightning, and the files must
+	be exactly what `Cherimoya.save` writes for the same weights -- the same
+	config, keys, tensors and state-dict metadata -- so that nothing about
+	saving or loading changes for anyone reading them."""
+
+	training_data, X_valid, y_valid, X_ctl_valid = _data([1, 2], 4,
+		n_controls)
+	module = _lightning_fit(tmp_path, _model([1, 2], n_controls),
+		training_data, X_valid, y_valid, max_epochs=2,
+		X_ctl_valid=X_ctl_valid)
+
+	# After training the model holds the EMA weights, which is what both
+	# files were written from on the last epoch.
+	module.model.save(str(tmp_path / "reference.torch"))
+	reference = torch.load(tmp_path / "reference.torch", weights_only=True)
+
+	final = torch.load(tmp_path / "lit.final.torch", weights_only=True)
+	_assert_same_payload(final, reference)
+
+	metrics = pandas.read_csv(tmp_path / "lit.metrics.csv")
+	best = torch.load(tmp_path / "lit.torch", weights_only=True)
+	if metrics['saved'].iloc[-1] == 1.0:
+		_assert_same_payload(best, reference)
+	else:
+		assert best['state_dict']._metadata == reference['state_dict']._metadata
+
+
 def test_fit_writes_one_metrics_column_per_group(tmp_path):
 	signal_groups = [1, 2]
 	training_data, X_valid, y_valid, _ = _data(signal_groups, 4)

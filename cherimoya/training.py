@@ -12,6 +12,7 @@ across them by :class:`~cherimoya.io.ShardedEpochSampler` and DDP averages
 the gradients, so every step sees the examples one device would have.
 """
 
+import copy
 import os
 import time
 import warnings
@@ -515,24 +516,18 @@ class CherimoyaModule(lightning.LightningModule):
 		self.ema.apply_shadow(self.model)
 
 	def on_save_checkpoint(self, checkpoint):
-		# The state dict is taken with the shadow swapped in, rather than by
-		# substituting shadow tensors by parameter name, because
-		# `CheriBlock` renames a key on its way into the state dict. The
-		# values are cloned since the swap back overwrites them in place.
+		# The EMA weights are what gets saved, in exactly the object
+		# `Cherimoya.save` writes. The copy is deep because the swap back
+		# overwrites the parameters in place, and a deep copy of the state
+		# dict keeps its `_metadata`, which `load_state_dict` reads.
 		swap = self.ema is not None and not self.ema._backup
 		if swap:
 			self.ema.apply_shadow(self.model)
 
-		state_dict = type(self.model.state_dict())(
-			(key, value.clone()) for key, value in self.model.state_dict().items())
+		checkpoint['cherimoya'] = copy.deepcopy(self.model._checkpoint())
 
 		if swap:
 			self.ema.restore(self.model)
-
-		checkpoint['cherimoya'] = {
-			'config': self.model._init_kwargs(),
-			'state_dict': state_dict,
-		}
 
 
 def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,

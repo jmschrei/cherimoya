@@ -307,11 +307,19 @@ class Cherimoya(torch.nn.Module):
 			The destination file path.
 		"""
 
-		payload = {
+		torch.save(self._checkpoint(), path)
+
+	def _checkpoint(self):
+		"""The object :meth:`save` writes: the config and the state dict.
+
+		Training writes its checkpoints from this too, so that every file
+		holds the same thing however it was produced.
+		"""
+
+		return {
 			'config': self._init_kwargs(),
 			'state_dict': self.state_dict(),
 		}
-		torch.save(payload, path)
 
 	@classmethod
 	def load(cls, path, device='cpu', compile=True,
