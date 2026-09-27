@@ -906,3 +906,20 @@ def test_group_depths_without_a_reduction_is_unchanged():
 	y = torch.randint(0, 6, (8, 3, 20), generator=g).float()
 	assert torch.equal(_group_depths(y, [1, 2], reduce=None),
 		_group_depths(y, [1, 2]))
+
+
+def test_importing_cherimoya_turns_on_cudnn_benchmark():
+	"""`import cherimoya` has always left `torch.backends.cudnn.benchmark`
+	on, through its import of bpnetlite, which sets it. CUDA convolutions
+	choose their kernels by it, so code that predicts after importing
+	cherimoya gets different numbers without it. Checked in a fresh
+	interpreter, since this test process has imported everything already."""
+
+	import subprocess
+	import sys
+
+	code = ("import torch; assert not torch.backends.cudnn.benchmark; "
+		"import cherimoya; print(torch.backends.cudnn.benchmark)")
+	out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+		text=True, check=True).stdout.strip()
+	assert out == "True"
