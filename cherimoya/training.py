@@ -277,6 +277,7 @@ class CherimoyaModule(lightning.LightningModule):
 		self._lw_frozen = loss_weights is not None
 
 		self.ema = None
+		self.final_checkpoint = None
 		self._lw0_grad = None
 		self._iteration = 0
 		self._best_valid = float("-inf")
@@ -536,6 +537,14 @@ class CherimoyaModule(lightning.LightningModule):
 	def on_train_end(self):
 		self.ema.apply_shadow(self.model)
 
+		# Written here rather than after `Trainer.fit` returns, because
+		# Lightning moves the model to the CPU when fitting ends, and the file
+		# should store the tensors where training left them, as
+		# `Cherimoya.save` on the trained model always has.
+		if self.final_checkpoint is not None:
+			self.trainer.save_checkpoint(self.final_checkpoint,
+				weights_only=True)
+
 	def on_save_checkpoint(self, checkpoint):
 		# The EMA weights are what gets saved, in exactly the object
 		# `Cherimoya.save` writes. The copy is deep because the swap back
@@ -625,6 +634,7 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 		X_ctl_valid=X_ctl_valid, **kwargs)
 
 	name = model.name
+	module.final_checkpoint = "{}.final.torch".format(name)
 	directory = os.path.dirname(name) or os.getcwd()
 
 	checkpoint = ModelCheckpoint(dirpath=directory,
@@ -654,7 +664,5 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 			warnings.filterwarnings("ignore", message=message)
 
 		trainer.fit(module)
-		trainer.save_checkpoint("{}.final.torch".format(name),
-			weights_only=True)
 
 	return trainer

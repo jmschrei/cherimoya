@@ -467,3 +467,30 @@ def test_setup_turns_off_dynamo_ddp_graph_splitting_under_ddp(monkeypatch,
 	module.setup("fit")
 
 	assert torch._dynamo.config.optimize_ddp is expected
+
+
+@pytest.mark.cuda
+def test_checkpoints_record_the_training_device(tmp_path):
+	"""The loop this replaces saved both checkpoints from the model on the
+	GPU, so the files' tensors were stored as CUDA tensors, which is what
+	`torch.load` without a `map_location` hands back. Lightning moves the
+	model to the CPU when fitting ends, so the final checkpoint has to be
+	written before that for the file to be the same."""
+
+	# 16 filters rather than 8: the Triton kernels need at least 16 channels.
+	training_data, X_valid, y_valid, _ = _data([1], 4)
+	model = Cherimoya(n_filters=16, n_layers=2, signal_groups=[1],
+		verbose=False, compile=False, random_state=0)
+	model.name = str(tmp_path / "gpu")
+	fit(model, training_data, X_valid, y_valid, max_epochs=1,
+		accelerator='gpu', devices=1, batch_size=BATCH_SIZE, num_workers=0)
+
+	for filename in ("gpu.torch", "gpu.final.torch"):
+		locations = set()
+
+		def record(storage, location):
+			locations.add(location)
+			return storage
+
+		torch.load(tmp_path / filename, map_location=record, weights_only=True)
+		assert locations == {"cuda:0"}, filename
