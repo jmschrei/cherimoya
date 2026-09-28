@@ -331,6 +331,17 @@ class CherimoyaModule(lightning.LightningModule):
 
 		return [muon, adam, lw], schedulers
 
+	def setup(self, stage):
+		# Under DDP, torch.compile splits the graph at DDP's gradient buckets.
+		# With the model's CUDA-graph compile mode, that path fails when one
+		# rank recompiles for a validation batch of its own size, leaving the
+		# others waiting on it until the NCCL timeout, so it is turned off
+		# and the forward compiles as it does on one device. DDP still
+		# averages the gradients through its own hooks.
+		if self.trainer.world_size > 1:
+			import torch._dynamo
+			torch._dynamo.config.optimize_ddp = False
+
 	def on_fit_start(self):
 		self.ema = EMA(self.model, decay=self.ema_decay)
 

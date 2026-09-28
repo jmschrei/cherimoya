@@ -20,6 +20,7 @@ from cherimoya.io import PeakNegativeSampler, channel_permutation_from_groups
 from cherimoya.losses import _mixture_loss
 from cherimoya.performance import calculate_performance_measures
 from cherimoya.training import fit, _split_parameters, _shard_bounds
+from cherimoya.training import CherimoyaModule
 
 
 torch.manual_seed(0)
@@ -443,3 +444,26 @@ def test_validation_shards_cover_every_row_once(n, world_size):
 		start, stop = _shard_bounds(n, rank, world_size)
 		rows.extend(range(start, stop))
 	assert rows == list(range(n))
+
+
+@pytest.mark.parametrize("world_size,expected", [(1, True), (2, False)])
+def test_setup_turns_off_dynamo_ddp_graph_splitting_under_ddp(monkeypatch,
+	world_size, expected):
+	"""Under DDP, torch.compile splits the graph at DDP's gradient buckets
+	(`torch._dynamo.config.optimize_ddp`). With the model's CUDA-graph
+	compile mode, that path failed when one rank recompiled for a
+	validation batch of its own size, and the other ranks waited on it until
+	the NCCL timeout. Training on several devices turns it off; one device
+	leaves the setting alone."""
+
+	import types
+	import torch._dynamo
+
+	monkeypatch.setattr(torch._dynamo.config, "optimize_ddp", True)
+
+	training_data, X_valid, y_valid, _ = _data([1], 4)
+	module = CherimoyaModule(_model([1]), training_data, X_valid, y_valid)
+	module._trainer = types.SimpleNamespace(world_size=world_size)
+	module.setup("fit")
+
+	assert torch._dynamo.config.optimize_ddp is expected
