@@ -174,6 +174,22 @@ ChIP-seq target with a few tens of thousands of peaks and the default
 modern data-center GPU. See :doc:`benchmarks` for measured forward
 times.
 
+.. admonition:: A note on compatibility with GPU architecture ``sm_70``
+
+   To run on an ``sm_70`` GPU such as the V100, install ``torch`` from the
+   CUDA 12.6 index before installing Cherimoya:
+
+   .. code-block:: bash
+
+      uv pip install torch --index-url https://download.pytorch.org/whl/cu126
+      uv pip install cherimoya
+
+   Check that ``sm_70`` is listed:
+
+   .. code-block:: bash
+
+      python -c "import torch; print(torch.cuda.get_arch_list())"
+
 
 Smoke test
 ----------
