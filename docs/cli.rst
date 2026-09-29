@@ -401,9 +401,20 @@ Unspecified keys fall back to the fit-level defaults.
        More than one trains with DDP. See `Training on several devices`_.
    * - ``verbose``
      - ``false``
-     - Print the run's setup and show Lightning's progress bar and
-       model summary. Left ``null`` here, the pipeline's top-level value
-       is used.
+     - Print the run's setup, Lightning's model summary, and a table with
+       one row per epoch (the columns of ``Epoch``, ``Iteration``,
+       ``Training Time``, ``Validation Time``, ``Training MNLL``,
+       ``Training Count MSE``, ``Validation MNLL``, ``Validation Profile
+       Pearson``, ``Validation Count Pearson``, ``Validation Count MSE`` and
+       ``Saved?``), and allow a progress bar. Left ``null`` here, the
+       pipeline's top-level value is used.
+   * - ``progress_bar``
+     - ``null``
+     - With ``verbose``, whether to draw Lightning's progress bar, with the
+       latest validation profile and count Pearson to its right. ``null``
+       draws it only when stdout is a terminal or a Jupyter kernel, so a
+       run redirected to a file logs just the table. Several runs sharing
+       one terminal overwrite each other's bars; set ``false`` for them.
    * - ``random_state``
      - 0
      - Base RNG seed. See :ref:`what a seed fixes <reproducibility>`.

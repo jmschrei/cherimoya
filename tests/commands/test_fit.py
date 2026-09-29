@@ -115,6 +115,30 @@ def test_fit_maps_device_to_a_lightning_accelerator(fit_json, device,
 	assert captured['devices'] == 2
 
 
+@pytest.mark.parametrize("value", [None, False, True])
+def test_fit_forwards_progress_bar(fit_json, value):
+	cfg = json.loads(open(fit_json).read())
+	cfg['progress_bar'] = value
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	assert _run_capturing_training_fit(fit_json)['progress_bar'] is value
+
+
+def test_fit_json_without_progress_bar_merges_to_none(tmp_path):
+	from cherimoya_cli.defaults import default_fit_parameters
+	from cherimoya_cli.utils import merge_parameters
+
+	cfg = dict(default_fit_parameters)
+	cfg.update(sequences='fake.fa', loci='fake.bed', negatives='fake.bed',
+		signals=['fake.bw'])
+	del cfg['progress_bar']
+	path = tmp_path / "fit.json"
+	path.write_text(json.dumps(cfg))
+
+	assert merge_parameters(str(path), default_fit_parameters)[
+		'progress_bar'] is None
+
+
 def test_fit_schedules_count_the_partial_batch(fit_json):
 	"""8 examples in batches of 16 is one step per epoch for the schedule,
 	as a DataLoader counts it, with the default 2 warmup epochs and the

@@ -494,3 +494,72 @@ def test_checkpoints_record_the_training_device(tmp_path):
 
 		torch.load(tmp_path / filename, map_location=record, weights_only=True)
 		assert locations == {"cuda:0"}, filename
+
+
+def test_verbose_prints_the_epoch_table(tmp_path, capsys):
+	"""`verbose` prints the table the training log always printed: its header,
+	then one row per epoch, with the values the metrics file records."""
+
+	training_data, X_valid, y_valid, _ = _data([1, 2], 4)
+	model = _model([1, 2])
+	model.name = str(tmp_path / "table")
+	fit(model, training_data, X_valid, y_valid, max_epochs=2, accelerator='cpu',
+		batch_size=BATCH_SIZE, num_workers=0, verbose=True, progress_bar=False)
+
+	lines = capsys.readouterr().out.splitlines()
+	start = lines.index("\t".join(["Epoch", "Iteration", "Training Time",
+		"Validation Time", "Training MNLL", "Training Count MSE",
+		"Validation MNLL", "Validation Profile Pearson",
+		"Validation Count Pearson", "Validation Count MSE", "Saved?"]))
+	rows = [line.split("\t") for line in lines[start + 1:]
+		if line.count("\t") == 10]
+	assert len(rows) == 2
+
+	metrics = pandas.read_csv(tmp_path / "table.metrics.csv")
+	for epoch, row in enumerate(rows):
+		assert row[0] == str(epoch)
+		assert row[1] == str(int(metrics.iteration[epoch]))
+		assert float(row[4]) == pytest.approx(metrics.train_profile_mnll[epoch],
+			abs=1e-4)
+		assert float(row[8]) == pytest.approx(metrics.valid_count_pearson[epoch],
+			abs=1e-4)
+		assert row[10] == str(metrics.saved[epoch] == 1.0)
+
+
+def test_quiet_without_verbose(tmp_path, capsys):
+	training_data, X_valid, y_valid, _ = _data([1], 4)
+	model = _model([1])
+	model.name = str(tmp_path / "quiet")
+	fit(model, training_data, X_valid, y_valid, max_epochs=1, accelerator='cpu',
+		batch_size=BATCH_SIZE, num_workers=0)
+
+	assert "Validation Count Pearson" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("progress_bar,expected", [(True, True),
+	(False, False)])
+def test_progress_bar_can_be_forced(tmp_path, progress_bar, expected):
+	training_data, X_valid, y_valid, _ = _data([1], 4)
+	model = _model([1])
+	model.name = str(tmp_path / "bar")
+	trainer = fit(model, training_data, X_valid, y_valid, max_epochs=1,
+		accelerator='cpu', batch_size=BATCH_SIZE, num_workers=0, verbose=True,
+		progress_bar=progress_bar)
+
+	assert (trainer.progress_bar_callback is not None) is expected
+
+
+def test_progress_bar_by_default_only_for_a_terminal_or_a_notebook(
+	monkeypatch):
+	"""A bar redirected to a file writes a redraw per step, so by default it
+	is drawn only when someone is watching: a terminal or a Jupyter kernel.
+	Under pytest stdout is captured, which is neither."""
+
+	import sys
+	from cherimoya.training import _show_progress_bar
+
+	monkeypatch.delitem(sys.modules, 'ipykernel', raising=False)
+	assert _show_progress_bar(None) is False
+
+	monkeypatch.setitem(sys.modules, 'ipykernel', object())
+	assert _show_progress_bar(None) is True

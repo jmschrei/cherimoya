@@ -298,6 +298,7 @@ def run(args):
 		accelerator=accelerator,
 		devices=parameters["devices"],
 		verbose=parameters["verbose"],
+		progress_bar=parameters["progress_bar"],
 		batch_size=parameters["batch_size"],
 		num_workers=parameters["num_workers"],
 		n_warmup_steps=steps_per_epoch * n_warmup_epochs,

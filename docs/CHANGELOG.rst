@@ -67,9 +67,13 @@ Removed (**breaking**)
        - ``valid_profile_pearson_g{i}`` / ``valid_count_pearson_g{i}``
 
   Lightning adds a ``step`` column, its own step counter; ``iteration``
-  is the number of training batches. The per-epoch table the summary
-  log printed to stdout under ``verbose`` is gone; ``verbose`` now
-  switches Lightning's progress bar and model summary. The
+  is the number of training batches. ``verbose`` still prints the
+  per-epoch table, with the same header and columns as before; when
+  Lightning's progress bar is drawn, each row is printed above it, and
+  the latest validation profile and count Pearson sit to its right. A new
+  ``progress_bar`` fit parameter (default ``null``) draws the bar only
+  when stdout is a terminal or a Jupyter kernel, so output redirected to
+  a file holds the table without a bar redraw per step. The
   ``Cherimoya(verbose=...)`` argument is unused and kept only because
   every saved checkpoint's config passes it.
 

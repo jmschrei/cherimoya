@@ -45,6 +45,23 @@ _PRECISION = {
 	'float16': '16-mixed',
 }
 
+# The per-epoch table printed when `verbose` is set: the columns and header
+# the training log printed before the move to Lightning, each paired with the
+# metric it reads.
+_TABLE = [
+	("Epoch", "epoch"),
+	("Iteration", "iteration"),
+	("Training Time", "train_time"),
+	("Validation Time", "valid_time"),
+	("Training MNLL", "train_profile_mnll"),
+	("Training Count MSE", "train_count_mse"),
+	("Validation MNLL", "valid_profile_mnll"),
+	("Validation Profile Pearson", "valid_profile_pearson"),
+	("Validation Count Pearson", "valid_count_pearson"),
+	("Validation Count MSE", "valid_count_mse"),
+	("Saved?", "saved"),
+]
+
 _INPUT_DTYPE = {
 	'bf16-mixed': torch.bfloat16,
 	'16-mixed': torch.float16,
@@ -242,13 +259,18 @@ class CherimoyaModule(lightning.LightningModule):
 
 	ema_decay: float, optional
 		Decay of the EMA of the weights. Default is 0.999.
+
+	verbose: bool, optional
+		Whether to print a table with one row per epoch: the header when
+		fitting starts, then each epoch's training and validation measures.
+		Rows go above the progress bar when there is one. Default is False.
 	"""
 
 	def __init__(self, model, training_data, X_valid, y_valid,
 		X_ctl_valid=None, batch_size=64, num_workers=1, n_warmup_steps=0,
 		n_decay_steps=1, muon_lr=0.025, muon_wd=0.03, adam_lr=0.001,
 		adam_wd=0.0, lw_lr=0.001, lw_wd=0.0, lw_momentum=0.9,
-		loss_weights=None, ema_decay=0.999):
+		loss_weights=None, ema_decay=0.999, verbose=False):
 		super().__init__()
 		self.automatic_optimization = False
 
@@ -267,6 +289,7 @@ class CherimoyaModule(lightning.LightningModule):
 		self.lw_lr, self.lw_wd, self.lw_momentum = lw_lr, lw_wd, lw_momentum
 		self.loss_weights = loss_weights
 		self.ema_decay = ema_decay
+		self.verbose = verbose
 
 		# Fixed weights take `lw0`/`lw1` out of the loss entirely. Turning
 		# off their gradient here, before DDP wraps the model, is what lets
@@ -345,6 +368,8 @@ class CherimoyaModule(lightning.LightningModule):
 
 	def on_fit_start(self):
 		self.ema = EMA(self.model, decay=self.ema_decay)
+		if self.verbose:
+			self.print("\t".join(name for name, _ in _TABLE))
 
 	def _loss(self, y, profile_loss, count_loss):
 		"""The scalar training loss from the per-group loss terms."""
@@ -526,8 +551,28 @@ class CherimoyaModule(lightning.LightningModule):
 		# callbacks read `valid_count_pearson`.
 		self._epoch_row['iteration'] = float(self._iteration)
 		for key, value in self._epoch_row.items():
-			self.log(key, value, on_step=False, on_epoch=True)
+			# The latest validation Pearsons also sit to the right of the
+			# progress bar through the next epoch.
+			self.log(key, value, on_step=False, on_epoch=True,
+				prog_bar=key in ('valid_profile_pearson', 'valid_count_pearson'))
 		self._epoch_row = {}
+
+		# `print` goes through the progress bar when there is one, which
+		# writes the line above the bar, and prints on rank 0 only.
+		if self.verbose:
+			metrics = dict(self.trainer.callback_metrics, epoch=self.current_epoch)
+			row = []
+			for _, key in _TABLE:
+				value = metrics[key]
+				value = value.item() if hasattr(value, 'item') else value
+				if key == 'saved':
+					value = bool(value)
+				elif key in ('epoch', 'iteration'):
+					value = int(value)
+				else:
+					value = round(float(value), 4)
+				row.append(str(value))
+			self.print("\t".join(row))
 
 		# The gradient has been averaged across devices, so every rank
 		# makes the same call.
@@ -560,9 +605,21 @@ class CherimoyaModule(lightning.LightningModule):
 			self.ema.restore(self.model)
 
 
+def _show_progress_bar(progress_bar):
+	"""Whether to draw the progress bar: as asked, or, when `progress_bar` is
+	None, only if stdout is a terminal or a Jupyter kernel. A bar redirected
+	to a file writes a carriage-return redraw on every step."""
+
+	if progress_bar is not None:
+		return bool(progress_bar)
+
+	import sys
+	return sys.stdout.isatty() or 'ipykernel' in sys.modules
+
+
 def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 	max_epochs=50, early_stopping=None, dtype='float32', accelerator='auto',
-	devices=1, verbose=False, **kwargs):
+	devices=1, verbose=False, progress_bar=None, **kwargs):
 	"""Train a Cherimoya model and write its checkpoints and metrics.
 
 	Three files are written next to ``model.name``: ``{name}.torch``, the
@@ -608,8 +665,16 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 		device. Default is 1.
 
 	verbose: bool, optional
-		Whether to show Lightning's progress bar and messages. Default is
-		False.
+		Whether to print the per-epoch table of training and validation
+		measures (see :class:`CherimoyaModule`) and Lightning's model
+		summary, and to allow a progress bar. Default is False.
+
+	progress_bar: bool or None, optional
+		Whether to draw Lightning's progress bar when `verbose` is set. None
+		draws it only when stdout is a terminal or a Jupyter kernel, so that
+		output redirected to a file holds just the table. Several runs that
+		share one terminal overwrite each other's bars; pass False for them.
+		Default is None.
 
 	**kwargs
 		Passed to :class:`CherimoyaModule`.
@@ -633,7 +698,7 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 				len(training_data), batch_size))
 
 	module = CherimoyaModule(model, training_data, X_valid, y_valid,
-		X_ctl_valid=X_ctl_valid, **kwargs)
+		X_ctl_valid=X_ctl_valid, verbose=verbose, **kwargs)
 
 	name = model.name
 	module.final_checkpoint = "{}.final.torch".format(name)
@@ -658,7 +723,8 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 		logger=_MetricsLogger("{}.metrics.csv".format(name)),
 		callbacks=callbacks, plugins=[_CherimoyaCheckpointIO()],
 		benchmark=True, inference_mode=False, num_sanity_val_steps=0,
-		use_distributed_sampler=False, enable_progress_bar=verbose,
+		use_distributed_sampler=False,
+		enable_progress_bar=verbose and _show_progress_bar(progress_bar),
 		enable_model_summary=verbose, default_root_dir=directory)
 
 	with warnings.catch_warnings():
