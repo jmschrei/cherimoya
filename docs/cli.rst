@@ -649,62 +649,20 @@ keys ``sequences``, ``loci``, ``negatives``, ``signals``,
 (default ``"performance.tsv"``). On completion, ``fit`` also writes
 the resulting ``evaluate`` JSON and invokes the evaluate step.
 
-Training runs through :func:`cherimoya.training.fit` and writes three
+Training runs through :func:`cherimoya.training.fit` and writes four
 files next to ``name``:
 
 * ``{name}.torch`` — the EMA weights from the epoch with the highest
-  ``valid_count_pearson``.
+  mean validation count Pearson.
 * ``{name}.final.torch`` — the EMA weights at the end of training.
-* ``{name}.metrics.csv`` — the metrics file described below.
+* ``{name}.log`` — one tab-separated row per epoch of training and
+  validation measures, with the columns listed under ``verbose`` above.
+* ``{name}.detailed.log`` — the same, plus one profile and one count
+  Pearson column per signal group.
 
 Both checkpoints load with :meth:`cherimoya.Cherimoya.load`.
-
-
-The metrics file
-~~~~~~~~~~~~~~~~
-
-``{name}.metrics.csv`` is written by Lightning's ``CSVLogger``: comma
-separated, one row per epoch, rewritten after every epoch, with the
-columns sorted alphabetically. The validation columns are computed
-with the EMA weights over the whole validation set.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 35 65
-
-   * - Column
-     - Contents
-   * - ``epoch``
-     - Epoch index, starting at 0.
-   * - ``step``
-     - Lightning's own step counter. Use ``iteration`` for the number
-       of training batches.
-   * - ``iteration``
-     - Training batches taken so far.
-   * - ``train_time`` / ``valid_time``
-     - Seconds spent training / validating in the epoch.
-   * - ``train_profile_mnll``
-     - Mean over the epoch's batches of the profile loss, averaged
-       across signal groups.
-   * - ``train_count_mse``
-     - The same average of the count loss.
-   * - ``valid_profile_mnll`` / ``valid_count_mse``
-     - Validation profile and count loss, averaged across signal
-       groups.
-   * - ``valid_profile_pearson``
-     - Mean over signal groups of the group's profile Pearson.
-   * - ``valid_count_pearson``
-     - Mean over signal groups of the group's count Pearson. This
-       selects the ``{name}.torch`` checkpoint and drives
-       ``early_stopping``.
-   * - ``saved``
-     - ``1.0`` if ``valid_count_pearson`` improved on every earlier
-       epoch and ``{name}.torch`` was rewritten, else ``0.0``.
-   * - ``valid_profile_pearson_g{i}`` / ``valid_count_pearson_g{i}``
-     - The profile and count Pearson of signal group ``i``, one pair of
-       columns per group.
-
-:doc:`multi_task` describes how the per-group averages are formed.
+:doc:`multi_task` describes the two logs and how the per-group averages
+are formed.
 
 
 Training on several devices
@@ -714,9 +672,9 @@ With ``devices`` other than 1, training uses DDP. ``batch_size`` is
 the global batch and must be divisible by the number of devices; each
 device takes an equal contiguous slice of every global batch, so
 each step sees exactly the examples one device would. A trailing
-partial global batch is dropped, on one device or several. Validation is split across the
-devices without padding, and the metrics are computed over the whole
-validation set.
+partial global batch is dropped, on one device or several. Validation
+is split across the devices without padding, and the metrics are
+computed over the whole validation set.
 
 Lightning starts every rank after the first by re-running the current
 command, so everything in ``cherimoya fit`` before training runs once

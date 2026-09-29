@@ -98,7 +98,7 @@ inline and write no snapshot.
 | 0.1 MACS3 peak calling | `loci` is `null` | `{name}_peaks.narrowPeak` |
 | 0.2 `bam2bw` signal → bigWig | signals aren't already bigWig (`.sam/.bam/.bed[.gz]/.tsv[.gz]`) | `{name}.+.bw`/`{name}.-.bw` (stranded) or `{name}.bw` (unstranded); controls → `{name}.control.*.bw` |
 | 0.3 negative sampling | `negatives` is `null` | `{name}.negatives.bed` |
-| 1 train | always (unless `model` set) | `{name}.torch`, `{name}.final.torch`, `{name}.metrics.csv`, `{name}.performance.tsv` |
+| 1 train | always (unless `model` set) | `{name}.torch`, `{name}.final.torch`, `{name}.log`, `{name}.detailed.log`, `{name}.performance.tsv` |
 | 2 attribute (DeepLIFT/SHAP) | always | `{name}.attributions.{ohe,attr}.npz`, `{name}.attributions.idxs.npy` |
 | 3.1 seqlets | always | `{name}.seqlets.bed` |
 | 3.2 tomtom-lite annotation | `motifs` is set | `{name}.seqlets_annotated.bed`, `{name}.motif_seqlet_count.tsv` |

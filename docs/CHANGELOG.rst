@@ -35,48 +35,6 @@ Removed (**breaking**)
   ``Trainer.save_checkpoint`` for the final one), with a checkpoint IO
   plugin that stores only that payload.
 
-* ``{name}.log`` and ``{name}.detailed.log`` are replaced by one file,
-  ``{name}.metrics.csv``, written by Lightning's ``CSVLogger``: comma
-  separated rather than tab separated, one row per epoch, columns sorted
-  alphabetically. **A script that parses either log must be updated.**
-  The columns are renamed:
-
-  .. list-table::
-     :header-rows: 1
-     :widths: 50 50
-
-     * - Old column
-       - New column
-     * - ``Epoch``
-       - ``epoch``
-     * - ``Iteration``
-       - ``iteration``
-     * - ``Training Time`` / ``Validation Time``
-       - ``train_time`` / ``valid_time``
-     * - ``Training MNLL`` / ``Training Count MSE``
-       - ``train_profile_mnll`` / ``train_count_mse``
-     * - ``Validation MNLL`` / ``Validation Count MSE``
-       - ``valid_profile_mnll`` / ``valid_count_mse``
-     * - ``Validation Profile Pearson``
-       - ``valid_profile_pearson``
-     * - ``Validation Count Pearson``
-       - ``valid_count_pearson``
-     * - ``Saved?``
-       - ``saved`` (``1.0`` / ``0.0``)
-     * - ``ProfilePearson_g{i}`` / ``CountPearson_g{i}``
-       - ``valid_profile_pearson_g{i}`` / ``valid_count_pearson_g{i}``
-
-  Lightning adds a ``step`` column, its own step counter; ``iteration``
-  is the number of training batches. ``verbose`` still prints the
-  per-epoch table, with the same header and columns as before; when
-  Lightning's progress bar is drawn, each row is printed above it, and
-  the latest validation profile and count Pearson sit to its right. A new
-  ``progress_bar`` fit parameter (default ``null``) draws the bar only
-  when stdout is a terminal or a Jupyter kernel, so output redirected to
-  a file holds the table without a bar redraw per step. The
-  ``Cherimoya(verbose=...)`` argument is unused and kept only because
-  every saved checkpoint's config passes it.
-
 * ``cherimoya batch`` is removed, along with
   ``cherimoya_cli/commands/batch.py``, its subparser, its CLI reference
   section and the "Batch mode" section of the pipeline tutorial. It fanned
@@ -498,6 +456,18 @@ Training
 * A training set smaller than one global batch now raises
   ``ValueError`` before training starts, instead of warning and
   writing nan training losses for every epoch.
+
+* ``verbose`` still prints the per-epoch table, with the same header and
+  columns as ``{name}.log`` and one row per epoch; when Lightning's
+  progress bar is drawn, each row is printed above it, and the latest
+  validation profile and count Pearson sit to its right. A new ``progress_bar`` fit
+  parameter (default ``null``) draws the bar only when stdout is a
+  terminal or a Jupyter kernel, so output redirected to a file holds the
+  table without a bar redraw per step; ``true`` or ``false`` force it on
+  or off, and ``false`` suits several runs sharing one terminal, whose
+  bars would overwrite each other. The ``Cherimoya(verbose=...)``
+  argument is unused and kept only because every saved checkpoint's
+  config passes it.
 
 * **The Kendall loss weights can be replaced by constants.**
   :meth:`cherimoya.Cherimoya.fit` takes a ``loss_weights`` tuple, exposed

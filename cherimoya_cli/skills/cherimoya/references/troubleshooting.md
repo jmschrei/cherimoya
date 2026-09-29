@@ -143,5 +143,5 @@ the save/load format.
 
 Not a mismatch. The saved checkpoint holds the **EMA-applied** weights, which
 produced the best validation numbers. Compare against the **EMA validation** row
-in `{name}.metrics.csv`, not the mid-epoch training loss. See the checkpoint note in
+in `{name}.log`, not the mid-epoch training loss. See the checkpoint note in
 `references/interpreting-outputs.md`.

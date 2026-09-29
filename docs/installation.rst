@@ -80,8 +80,7 @@ Cherimoya checks.
        megakernel.
    * - ``lightning`` (≥ 2.6.1)
      - The training loop in :mod:`cherimoya.training`: the ``Trainer``,
-       multi-GPU DDP, checkpointing, early stopping and the per-epoch
-       metrics file.
+       multi-GPU DDP, checkpointing and early stopping.
    * - ``numpy`` (≥ 1.14), ``scipy`` (≥ 1.0), ``pandas`` (≥ 1.3.3)
      - Numerical computing and tabular data handling.
    * - ``h5py`` (≥ 3.7)
@@ -101,9 +100,9 @@ Cherimoya checks.
        ``seqlet.recursive_seqlets``, ``utils.example_to_fasta_coords``
        and ``match.extract_matching_loci``.
    * - ``bpnet-lite`` (≥ 1.0.0)
-     - The multinomial NLL profile loss (``MNLLLoss``) used during
-       fitting, and ``marginalization_report`` used by the marginalize
-       subcommand.
+     - The multinomial NLL profile loss (``MNLLLoss``) and training
+       ``Logger`` used during fitting, and ``marginalization_report``
+       used by the marginalize subcommand.
    * - ``macs3``
      - Peak calling, invoked by the ``pipeline`` subcommand.
    * - ``bam2bw`` (≥ 0.4.1)

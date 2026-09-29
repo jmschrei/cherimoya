@@ -23,9 +23,9 @@ import torch
 import lightning
 from lightning.pytorch.callbacks import EarlyStopping
 from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.plugins.io import TorchCheckpointIO
 
+from bpnetlite.logging import Logger
 from torch.optim import Muon
 from torch.optim.lr_scheduler import ConstantLR
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -45,22 +45,13 @@ _PRECISION = {
 	'float16': '16-mixed',
 }
 
-# The per-epoch table printed when `verbose` is set: the columns and header
-# the training log printed before the move to Lightning, each paired with the
-# metric it reads.
-_TABLE = [
-	("Epoch", "epoch"),
-	("Iteration", "iteration"),
-	("Training Time", "train_time"),
-	("Validation Time", "valid_time"),
-	("Training MNLL", "train_profile_mnll"),
-	("Training Count MSE", "train_count_mse"),
-	("Validation MNLL", "valid_profile_mnll"),
-	("Validation Profile Pearson", "valid_profile_pearson"),
-	("Validation Count Pearson", "valid_count_pearson"),
-	("Validation Count MSE", "valid_count_mse"),
-	("Saved?", "saved"),
-]
+# The columns of the training log, `{name}.log`, which is also the table
+# printed under `verbose`. `{name}.detailed.log` adds a profile and a count
+# Pearson column per signal group.
+_LOG_COLUMNS = ["Epoch", "Iteration", "Training Time", "Validation Time",
+	"Training MNLL", "Training Count MSE", "Validation MNLL",
+	"Validation Profile Pearson", "Validation Count Pearson",
+	"Validation Count MSE", "Saved?"]
 
 _INPUT_DTYPE = {
 	'bf16-mixed': torch.bfloat16,
@@ -68,12 +59,13 @@ _INPUT_DTYPE = {
 }
 
 # Warnings Lightning raises about a layout that is deliberate here: the
-# checkpoint and the metrics file are written into a directory that
-# usually holds other files, the step count is small next to Lightning's
-# logging interval, and the worker count is the one the user chose.
+# checkpoint is written into a directory that usually holds other files,
+# the logs are written by the module rather than a Lightning logger, the
+# step count is small next to Lightning's logging interval, and the worker
+# count is the one the user chose.
 _QUIET = [
 	"Checkpoint directory .* exists and is not empty",
-	"Experiment logs directory .* exists and is not empty",
+	".*but have no logger configured.*",
 	"The number of training batches .* is smaller than the logging interval",
 	".*does not have many workers.*",
 ]
@@ -167,27 +159,6 @@ class _CherimoyaCheckpointIO(TorchCheckpointIO):
 		torch.save(checkpoint['cherimoya'], path)
 
 
-class _MetricsLogger(CSVLogger):
-	"""A `CSVLogger` that writes one flat file, `{name}.metrics.csv`.
-
-	`CSVLogger` fixes the file name to `metrics.csv` inside a versioned
-	directory; this keeps its writer and points it at the given path, next
-	to the checkpoint. The file is rewritten after every epoch.
-	"""
-
-	def __init__(self, path):
-		super().__init__(save_dir=os.path.dirname(path) or ".", name="",
-			version="", flush_logs_every_n_steps=1)
-		self._metrics_path = path
-
-	@property
-	def experiment(self):
-		experiment = super().experiment
-		if self._experiment is not None:
-			self._experiment.metrics_file_path = self._metrics_path
-		return experiment
-
-
 class CherimoyaModule(lightning.LightningModule):
 	"""A Lightning module that trains a Cherimoya model.
 
@@ -261,9 +232,9 @@ class CherimoyaModule(lightning.LightningModule):
 		Decay of the EMA of the weights. Default is 0.999.
 
 	verbose: bool, optional
-		Whether to print a table with one row per epoch: the header when
-		fitting starts, then each epoch's training and validation measures.
-		Rows go above the progress bar when there is one. Default is False.
+		Whether to print the training log as it is written: the header when
+		fitting starts, then one row per epoch, above the progress bar when
+		there is one. Default is False.
 	"""
 
 	def __init__(self, model, training_data, X_valid, y_valid,
@@ -305,7 +276,7 @@ class CherimoyaModule(lightning.LightningModule):
 		self._iteration = 0
 		self._best_valid = float("-inf")
 		self._valid_outputs = []
-		self._epoch_row = {}
+		self._valid_row = None
 
 	def train_dataloader(self):
 		sampler = ShardedEpochSampler(len(self.training_data), self.batch_size,
@@ -368,8 +339,20 @@ class CherimoyaModule(lightning.LightningModule):
 
 	def on_fit_start(self):
 		self.ema = EMA(self.model, decay=self.ema_decay)
+
+		# The training logs, in the format they have always had. They print
+		# nothing themselves; `verbose` prints through `self.print` so that
+		# rows go above the progress bar.
+		groups = range(self.model.n_groups)
+		self._log = Logger(_LOG_COLUMNS, verbose=False)
+		self._detailed_log = Logger(_LOG_COLUMNS
+			+ ["ProfilePearson_g{}".format(i) for i in groups]
+			+ ["CountPearson_g{}".format(i) for i in groups], verbose=False)
+		self._log.start()
+		self._detailed_log.start()
+
 		if self.verbose:
-			self.print("\t".join(name for name, _ in _TABLE))
+			self.print("\t".join(_LOG_COLUMNS))
 
 	def _loss(self, y, profile_loss, count_loss):
 		"""The scalar training loss from the per-group loss terms."""
@@ -446,7 +429,7 @@ class CherimoyaModule(lightning.LightningModule):
 		self._epoch_tic = time.time()
 
 	def on_validation_epoch_start(self):
-		self._epoch_row['train_time'] = time.time() - self._epoch_tic
+		self._train_time = time.time() - self._epoch_tic
 		self._valid_tic = time.time()
 		self._valid_outputs = []
 		self.ema.apply_shadow(self.model)
@@ -528,51 +511,50 @@ class CherimoyaModule(lightning.LightningModule):
 
 		valid_count_pearson = count_pearson.mean()
 
-		row = self._epoch_row
-		row['valid_profile_mnll'] = profile_loss.mean().item()
-		row['valid_count_mse'] = count_loss.mean().item()
-		row['valid_profile_pearson'] = float(numpy.mean(per_group_profile))
-		row['valid_count_pearson'] = torch.tensor(valid_count_pearson)
-		row['saved'] = float(valid_count_pearson > self._best_valid)
-		for i, value in enumerate(per_group_profile):
-			row['valid_profile_pearson_g{}'.format(i)] = value
-		for i, value in enumerate(count_pearson):
-			row['valid_count_pearson_g{}'.format(i)] = float(value)
+		# The validation half of this epoch's log row, with the types the
+		# log has always written: the count Pearson stays a numpy float32.
+		self._valid_row = [time.time() - self._valid_tic,
+			profile_loss.mean().item(), float(numpy.mean(per_group_profile)),
+			valid_count_pearson, count_loss.mean().item(),
+			(valid_count_pearson > self._best_valid).item()]
+		self._valid_groups = per_group_profile + [float(v) for v in
+			count_pearson.tolist()]
 
 		self._best_valid = max(self._best_valid, valid_count_pearson)
-		row['valid_time'] = time.time() - self._valid_tic
 
 		self.ema.restore(self.model)
 
 	def on_train_epoch_end(self):
-		# Validation has already run for this epoch; logging its results
-		# here, with the training averages, puts one row per epoch in the
-		# metrics file, and is where the checkpoint and early-stopping
-		# callbacks read `valid_count_pearson`.
-		self._epoch_row['iteration'] = float(self._iteration)
-		for key, value in self._epoch_row.items():
-			# The latest validation Pearsons also sit to the right of the
-			# progress bar through the next epoch.
-			self.log(key, value, on_step=False, on_epoch=True,
-				prog_bar=key in ('valid_profile_pearson', 'valid_count_pearson'))
-		self._epoch_row = {}
+		# Validation has already run for this epoch. The checkpoint and
+		# early-stopping callbacks read `valid_count_pearson` from here, and
+		# the latest validation Pearsons sit to the right of the progress
+		# bar through the next epoch.
+		valid_time, profile_mnll, profile_pearson, count_pearson, count_mse, \
+			saved = self._valid_row
+		for key, value in (("valid_profile_pearson", profile_pearson),
+				("valid_count_pearson", torch.tensor(count_pearson))):
+			self.log(key, value, on_step=False, on_epoch=True, prog_bar=True)
+
+		metrics = self.trainer.callback_metrics
+		row = [self.current_epoch, self._iteration, self._train_time,
+			valid_time, metrics['train_profile_mnll'].item(),
+			metrics['train_count_mse'].item(), profile_mnll, profile_pearson,
+			count_pearson, count_mse, saved]
+
+		# Written by rank 0 after every epoch, as the log always was.
+		if self.trainer.is_global_zero:
+			name = self.model.name
+			self._log.add(row)
+			self._detailed_log.add(row + self._valid_groups)
+			self._log.save("{}.log".format(name))
+			self._detailed_log.save("{}.detailed.log".format(name))
 
 		# `print` goes through the progress bar when there is one, which
-		# writes the line above the bar, and prints on rank 0 only.
+		# writes the line above the bar, and prints on rank 0 only. The row
+		# is formatted as the training log has always printed it.
 		if self.verbose:
-			metrics = dict(self.trainer.callback_metrics, epoch=self.current_epoch)
-			row = []
-			for _, key in _TABLE:
-				value = metrics[key]
-				value = value.item() if hasattr(value, 'item') else value
-				if key == 'saved':
-					value = bool(value)
-				elif key in ('epoch', 'iteration'):
-					value = int(value)
-				else:
-					value = round(float(value), 4)
-				row.append(str(value))
-			self.print("\t".join(row))
+			self.print("\t".join(map(str, [round(x, 4) if isinstance(x, float)
+				else x for x in row])))
 
 		# The gradient has been averaged across devices, so every rank
 		# makes the same call.
@@ -622,12 +604,12 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 	devices=1, verbose=False, progress_bar=None, **kwargs):
 	"""Train a Cherimoya model and write its checkpoints and metrics.
 
-	Three files are written next to ``model.name``: ``{name}.torch``, the
+	Four files are written next to ``model.name``: ``{name}.torch``, the
 	EMA weights from the epoch with the highest mean validation count
 	Pearson; ``{name}.final.torch``, the EMA weights at the end of
-	training; and ``{name}.metrics.csv``, one row per epoch of training
-	and validation measures, including one profile and one count Pearson
-	column per signal group.
+	training; ``{name}.log``, one tab-separated row per epoch of training
+	and validation measures; and ``{name}.detailed.log``, the same with
+	one profile and one count Pearson column per signal group.
 
 	Parameters
 	----------
@@ -720,7 +702,7 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 	trainer = lightning.Trainer(accelerator=accelerator, devices=devices,
 		strategy='ddp' if devices != 1 else 'auto',
 		precision=_PRECISION[dtype], max_epochs=max_epochs,
-		logger=_MetricsLogger("{}.metrics.csv".format(name)),
+		logger=False,
 		callbacks=callbacks, plugins=[_CherimoyaCheckpointIO()],
 		benchmark=True, inference_mode=False, num_sanity_val_steps=0,
 		use_distributed_sampler=False,

@@ -27,6 +27,18 @@ torch.manual_seed(0)
 
 
 BATCH_SIZE = 4
+
+# The training log's column for each measure the reference loop records.
+LOG_NAMES = {'train_profile_mnll': 'Training MNLL',
+	'train_count_mse': 'Training Count MSE',
+	'valid_profile_mnll': 'Validation MNLL',
+	'valid_count_mse': 'Validation Count MSE',
+	'valid_profile_pearson': 'Validation Profile Pearson',
+	'valid_count_pearson': 'Validation Count Pearson'}
+LOG_COLUMNS = ["Epoch", "Iteration", "Training Time", "Validation Time",
+	"Training MNLL", "Training Count MSE", "Validation MNLL",
+	"Validation Profile Pearson", "Validation Count Pearson",
+	"Validation Count MSE", "Saved?"]
 N_WARMUP_STEPS = 3
 N_DECAY_STEPS = 5
 LR = dict(muon_lr=0.025, muon_wd=0.03, adam_lr=1e-3, adam_wd=0.0,
@@ -288,15 +300,16 @@ def test_lightning_matches_the_reference_loop_bitwise_on_cpu(tmp_path,
 			module.model.named_parameters())[name])
 		assert torch.equal(live, p), name
 
-	# The logged values are float32, written out in full.
-	metrics = pandas.read_csv(tmp_path / "lit.metrics.csv",
+	# The training log, read back with every digit it wrote.
+	log = pandas.read_csv(tmp_path / "lit.log", sep="\t",
 		float_precision='round_trip')
-	assert len(metrics) == max_epochs
+	assert len(log) == max_epochs
 	for epoch, row in enumerate(rows):
 		for key, value in row.items():
-			logged = numpy.float32(metrics[key].iloc[epoch])
+			logged = numpy.float32(log[LOG_NAMES[key]].iloc[epoch])
 			assert logged == numpy.float32(value), (epoch, key)
-		assert metrics['iteration'].iloc[epoch] == 4 * (epoch + 1)
+		assert log['Iteration'].iloc[epoch] == 4 * (epoch + 1)
+		assert log['Epoch'].iloc[epoch] == epoch
 
 
 @pytest.mark.parametrize("dtype,expected", [('float32', torch.float32),
@@ -332,9 +345,9 @@ def test_fit_writes_the_best_and_final_ema_checkpoints(tmp_path):
 	module = _lightning_fit(tmp_path, _model(signal_groups), training_data,
 		X_valid, y_valid, max_epochs=3)
 
-	metrics = pandas.read_csv(tmp_path / "lit.metrics.csv")
-	assert metrics['saved'].iloc[0] == 1.0
-	assert metrics['saved'].sum() >= 1
+	log = pandas.read_csv(tmp_path / "lit.log", sep="\t")
+	assert bool(log['Saved?'].iloc[0])
+	assert log['Saved?'].sum() >= 1
 
 	final = Cherimoya.load(str(tmp_path / "lit.final.torch"), compile=False)
 	for name, p in final.named_parameters():
@@ -344,7 +357,7 @@ def test_fit_writes_the_best_and_final_ema_checkpoints(tmp_path):
 
 	best = Cherimoya.load(str(tmp_path / "lit.torch"), compile=False)
 	assert best.signal_groups == signal_groups
-	if metrics['saved'].iloc[-1] == 1.0:
+	if bool(log['Saved?'].iloc[-1]):
 		for p, q in zip(best.parameters(), final.parameters()):
 			assert torch.equal(p, q)
 
@@ -380,25 +393,37 @@ def test_fit_checkpoints_are_what_cherimoya_save_writes(tmp_path, n_controls):
 	final = torch.load(tmp_path / "lit.final.torch", weights_only=True)
 	_assert_same_payload(final, reference)
 
-	metrics = pandas.read_csv(tmp_path / "lit.metrics.csv")
+	log = pandas.read_csv(tmp_path / "lit.log", sep="\t")
 	best = torch.load(tmp_path / "lit.torch", weights_only=True)
-	if metrics['saved'].iloc[-1] == 1.0:
+	if bool(log['Saved?'].iloc[-1]):
 		_assert_same_payload(best, reference)
 	else:
 		assert best['state_dict']._metadata == reference['state_dict']._metadata
 
 
-def test_fit_writes_one_metrics_column_per_group(tmp_path):
+def test_fit_writes_the_training_logs_in_their_format(tmp_path):
+	"""`{name}.log` and `{name}.detailed.log` keep the columns and layout
+	they have always had: tab-separated, the summary columns in order, and
+	the detailed log adding one ProfilePearson and one CountPearson column
+	per signal group. Nothing else is written beside the checkpoints."""
+
 	signal_groups = [1, 2]
 	training_data, X_valid, y_valid, _ = _data(signal_groups, 4)
 	_lightning_fit(tmp_path, _model(signal_groups), training_data, X_valid,
-		y_valid, max_epochs=1)
+		y_valid, max_epochs=2)
 
-	columns = set(pandas.read_csv(tmp_path / "lit.metrics.csv").columns)
-	for i in range(len(signal_groups)):
-		assert "valid_profile_pearson_g{}".format(i) in columns
-		assert "valid_count_pearson_g{}".format(i) in columns
-	assert "valid_count_pearson_g2" not in columns
+	summary = (tmp_path / "lit.log").read_text().splitlines()
+	detailed = (tmp_path / "lit.detailed.log").read_text().splitlines()
+	assert summary[0].split("\t") == LOG_COLUMNS
+	assert detailed[0].split("\t") == LOG_COLUMNS + ["ProfilePearson_g0",
+		"ProfilePearson_g1", "CountPearson_g0", "CountPearson_g1"]
+	assert len(summary) == len(detailed) == 3
+	assert summary[1].split("\t")[-1] == "True"
+	for line_s, line_d in zip(summary[1:], detailed[1:]):
+		assert line_d.split("\t")[:len(LOG_COLUMNS)] == line_s.split("\t")
+
+	assert sorted(p.name for p in tmp_path.iterdir()) == ["lit.detailed.log",
+		"lit.final.torch", "lit.log", "lit.torch"]
 
 
 def test_early_stopping_ends_the_run(tmp_path):
@@ -413,9 +438,9 @@ def test_early_stopping_ends_the_run(tmp_path):
 		max_epochs=10, early_stopping=2, accelerator='cpu',
 		batch_size=BATCH_SIZE, num_workers=0)
 
-	metrics = pandas.read_csv(tmp_path / "early.metrics.csv")
-	assert len(metrics) == 3
-	assert list(metrics['saved']) == [1.0, 0.0, 0.0]
+	log = pandas.read_csv(tmp_path / "early.log", sep="\t")
+	assert len(log) == 3
+	assert list(log['Saved?']) == [True, False, False]
 	assert trainer.current_epoch == 3
 
 
@@ -498,7 +523,7 @@ def test_checkpoints_record_the_training_device(tmp_path):
 
 def test_verbose_prints_the_epoch_table(tmp_path, capsys):
 	"""`verbose` prints the table the training log always printed: its header,
-	then one row per epoch, with the values the metrics file records."""
+	then one row per epoch, the rows `{name}.log` records."""
 
 	training_data, X_valid, y_valid, _ = _data([1, 2], 4)
 	model = _model([1, 2])
@@ -507,23 +532,21 @@ def test_verbose_prints_the_epoch_table(tmp_path, capsys):
 		batch_size=BATCH_SIZE, num_workers=0, verbose=True, progress_bar=False)
 
 	lines = capsys.readouterr().out.splitlines()
-	start = lines.index("\t".join(["Epoch", "Iteration", "Training Time",
-		"Validation Time", "Training MNLL", "Training Count MSE",
-		"Validation MNLL", "Validation Profile Pearson",
-		"Validation Count Pearson", "Validation Count MSE", "Saved?"]))
+	start = lines.index("\t".join(LOG_COLUMNS))
 	rows = [line.split("\t") for line in lines[start + 1:]
 		if line.count("\t") == 10]
 	assert len(rows) == 2
 
-	metrics = pandas.read_csv(tmp_path / "table.metrics.csv")
+	# The printed row is the log's row, rounded as the log has always
+	# printed it.
+	log = pandas.read_csv(tmp_path / "table.log", sep="\t", dtype=str)
 	for epoch, row in enumerate(rows):
-		assert row[0] == str(epoch)
-		assert row[1] == str(int(metrics.iteration[epoch]))
-		assert float(row[4]) == pytest.approx(metrics.train_profile_mnll[epoch],
+		assert row[0] == log['Epoch'][epoch] == str(epoch)
+		assert row[1] == log['Iteration'][epoch]
+		assert float(row[4]) == pytest.approx(float(log['Training MNLL'][epoch]),
 			abs=1e-4)
-		assert float(row[8]) == pytest.approx(metrics.valid_count_pearson[epoch],
-			abs=1e-4)
-		assert row[10] == str(metrics.saved[epoch] == 1.0)
+		assert row[8] == log['Validation Count Pearson'][epoch]
+		assert row[10] == log['Saved?'][epoch]
 
 
 def test_quiet_without_verbose(tmp_path, capsys):

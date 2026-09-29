@@ -77,9 +77,8 @@ Loading
    running training weights. :func:`cherimoya.training.fit` applies
    the EMA shadow before every save, both for the best-by-validation
    checkpoint and the final-epoch checkpoint. This is what produces the
-   smoothed validation numbers reported in ``{name}.metrics.csv``; the
-   model you load and use at inference is the same one those numbers
-   describe.
+   smoothed validation numbers reported in the training log; the model
+   you load and use at inference is the same one those numbers describe.
 
 The loader:
 
@@ -108,9 +107,9 @@ Best-of and final checkpoints
 Both are written in the ``model.save(...)`` format and are loadable
 with ``Cherimoya.load(...)``.
 
-The ``{model.name}.metrics.csv`` file written alongside the
-checkpoints is a comma-separated table with one row per epoch. It is
-not used by the loader; it is for your own inspection.
+The ``.log`` file emitted alongside the checkpoints is a plain TSV
+with one row per epoch. It is not used by the loader; it is for your
+own inspection.
 
 
 Compatibility

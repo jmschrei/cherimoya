@@ -223,8 +223,8 @@ What ``fit`` does internally:
 * Saves ``{model.name}.torch`` whenever validation count Pearson
   improves, and ``{model.name}.final.torch`` at the very end (also
   with EMA weights applied).
-* Writes ``{model.name}.metrics.csv`` with the training and validation
-  metrics per epoch. The columns are described in :doc:`../cli`.
+* Saves ``{model.name}.log`` with the training and validation metrics
+  per epoch.
 
 After ``fit`` returns, ``model`` holds the EMA weights, and
 ``trainer.checkpoint_callback.best_model_score`` is the best

@@ -158,10 +158,10 @@ the ``cherimoya`` CLI:
        leaks into a saved checkpoint's config.
    * - ``tests/test_training.py``
      - Lightning training against a reference loop, bitwise on CPU;
-       the best and final EMA checkpoints; the metrics file's
-       per-group columns; early stopping; the guards against a
-       training set smaller than one batch and an unknown ``dtype``;
-       validation shards covering every row once.
+       the best and final EMA checkpoints; the columns and layout of
+       ``{name}.log`` and ``{name}.detailed.log``; early stopping; the
+       guards against a training set smaller than one batch and an
+       unknown ``dtype``; validation shards covering every row once.
    * - ``tests/test_io.py``
      - ``PeakGenerator`` and ``PeakNegativeSampler`` reproducibility,
        per-epoch determinism, multi-worker equivalence, and

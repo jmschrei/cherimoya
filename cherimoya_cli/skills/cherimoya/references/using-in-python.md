@@ -125,8 +125,8 @@ compiles under DeepLIFT/SHAP.
 
 - **Saved weights are the EMA shadow.** `cherimoya.training.fit(...)` applies
   the EMA average before saving, so a loaded model reproduces the **EMA
-  validation** numbers in `{name}.metrics.csv` — not any mid-epoch training
-  loss. Expected, not drift.
+  validation** numbers in the log — not any mid-epoch training loss. Expected,
+  not drift.
 - From a pipeline run, load **`{name}.torch`** (best validation count Pearson);
   `{name}.final.torch` is the final-epoch EMA snapshot. See
   `references/interpreting-outputs.md`.

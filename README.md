@@ -108,7 +108,7 @@ Any input path can be remote (S3, HTTPS, etc.); the pipeline streams reads throu
 cherimoya pipeline -p pipeline.json
 ```
 
-This calls peaks with MACS3, samples GC-matched negatives, trains a Cherimoya model, computes attributions with DeepLIFT/SHAP, calls seqlets, annotates them with tomtom-lite, and runs TF-MoDISco. The outputs land in the working directory: a `.torch` model checkpoint and a per-epoch metrics file (`.metrics.csv`), per-track bigWigs, a DeepLIFT/SHAP attribution array (`.npz`), a seqlet table with tomtom-lite annotations, and a TF-MoDISco results H5. Each sub-step writes its own JSON snapshot so individual stages can be re-run in isolation with the `negatives`, `fit`, `evaluate`, `attribute`, `marginalize`, or `seqlets` subcommands. See [the CLI reference](https://cherimoya.readthedocs.io/en/latest/cli.html) for the full command list and JSON schema.
+This calls peaks with MACS3, samples GC-matched negatives, trains a Cherimoya model, computes attributions with DeepLIFT/SHAP, calls seqlets, annotates them with tomtom-lite, and runs TF-MoDISco. The outputs land in the working directory: a `.torch` model checkpoint and training log, per-track bigWigs, a DeepLIFT/SHAP attribution array (`.npz`), a seqlet table with tomtom-lite annotations, and a TF-MoDISco results H5. Each sub-step writes its own JSON snapshot so individual stages can be re-run in isolation with the `negatives`, `fit`, `evaluate`, `attribute`, `marginalize`, or `seqlets` subcommands. See [the CLI reference](https://cherimoya.readthedocs.io/en/latest/cli.html) for the full command list and JSON schema.
 
 ### Python API and saving/loading
 

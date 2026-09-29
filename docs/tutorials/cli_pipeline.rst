@@ -113,7 +113,7 @@ What this does, in order:
 3. **GC-matched negative sampling** (skipped if ``negatives`` is set).
 4. **Model training** — writes ``{name}.torch`` (best checkpoint by
    validation count Pearson) and ``{name}.final.torch`` (EMA weights
-   at end of training), plus ``{name}.metrics.csv``.
+   at end of training), plus ``{name}.log``.
 5. **Attribution** via DeepLIFT/SHAP (or saturation mutagenesis, with
    ``algorithm``), kept over the central 400 bp of each example, saved as ``{name}.attributions.{ohe,attr}.npz``
    and ``{name}.attributions.idxs.npy``.
@@ -241,11 +241,13 @@ directory (with ``{name}`` from the ``-n`` flag in step 1):
      - Best-by-validation-count-Pearson checkpoint (config + state_dict).
    * - ``{name}.final.torch``
      - Final EMA-applied checkpoint at end of training.
-   * - ``{name}.metrics.csv``
-     - Per-epoch training and validation metrics (comma-separated),
-       including one ``valid_profile_pearson_g{i}`` and one
-       ``valid_count_pearson_g{i}`` column per signal group. The
-       columns are listed in :doc:`../cli`.
+   * - ``{name}.log``
+     - Per-epoch training and validation metrics (TSV). Same
+       columns regardless of how many signal groups the model has.
+   * - ``{name}.detailed.log``
+     - Same as ``{name}.log`` plus one ``ProfilePearson_g{i}`` and
+       one ``CountPearson_g{i}`` column per signal group, for
+       offline per-modality analysis. Never printed to stdout.
    * - ``{name}.performance.tsv``
      - Final held-out chromosome metrics. One TSV row per signal
        group, in ``signal_groups`` order; single-group models

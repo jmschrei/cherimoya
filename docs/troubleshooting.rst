@@ -335,5 +335,5 @@ running training weights. That is intentional and is what produces
 the best validation numbers during training. There is no mismatch to
 fix — the model you load is the correct one. Confirming:
 :func:`cherimoya.training.fit` applies the EMA shadow before saving,
-so the comparison should be against the *EMA* validation numbers in
-``{name}.metrics.csv``, not the mid-epoch training-loss number.
+so the comparison should be against the *EMA* number printed in the
+training log, not the mid-epoch training-loss number.

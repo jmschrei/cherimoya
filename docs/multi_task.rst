@@ -85,8 +85,8 @@ Cherimoya enforces this contract everywhere:
   outweigh an unstranded ATAC group with one channel.
 * **Validation metrics and best-model selection**. Both the headline
   profile Pearson and the headline count Pearson are means across
-  groups, not across channels. The metrics file
-  (``{name}.metrics.csv``) also records the per-group breakdown.
+  groups, not across channels. A detail log (``{name}.detailed.log``)
+  also records the per-group breakdown.
 * **Outlier filtering**. The PeakGenerator computes a 99th-percentile
   threshold per group and drops a locus if it's an outlier in *any*
   group, so a high-count TF can't mask outliers in a co-trained
@@ -438,26 +438,31 @@ modality (often ATAC). A single global threshold would be dominated
 by the larger modality and would silently let the smaller modality's
 outliers through.
 
-Validation metrics and the metrics file
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Validation metrics and the two training logs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Training writes ``{name}.metrics.csv``, a comma-separated table with
-one row per epoch. The headline Pearson columns are means across
-groups, so they read the same way for any configuration:
+Two log files are written every epoch.
 
-* ``valid_profile_pearson`` is the mean over groups of (mean over
-  channels in that group of profile Pearson).
-* ``valid_count_pearson`` is the mean over groups of the per-group
-  count Pearson.
+``{name}.log`` — the summary log, printed to stdout when
+``verbose=True`` and saved to disk as a tab-separated table. Same
+columns regardless of how many groups the model has, so it stays
+readable for any configuration. The two Pearson columns are means
+across groups:
+
+* **Validation Profile Pearson** is the mean over groups of (mean
+  over channels in that group of profile Pearson).
+* **Validation Count Pearson** is the mean over groups of the
+  per-group count Pearson.
 
 Each group contributes one number to each mean, so no modality is
 double-counted because it happens to be stranded.
 
 The two training columns are epoch averages:
 
-* ``train_profile_mnll`` is the mean, over every full batch in the
-  epoch, of that batch's profile loss averaged across groups.
-* ``train_count_mse`` is the same average of the batch's count loss.
+* **Training MNLL** is the mean, over every full batch in the epoch,
+  of that batch's profile loss averaged across groups.
+* **Training Count MSE** is the same average of the batch's count
+  loss.
 
 Both are the unweighted mean across groups of the raw per-group loss,
 not the Kendall-weighted sum the optimizer descends, which is what
@@ -468,11 +473,12 @@ the end of the epoch with the EMA weights, so a small gap between the
 training and validation MNLL is expected even on data the model fits
 well.
 
-The same file also holds one ``valid_profile_pearson_g{i}`` and one
-``valid_count_pearson_g{i}`` column per signal group, for
+``{name}.detailed.log`` — saved to disk only (never printed). Same
+columns as the summary log, plus one ``ProfilePearson_g{i}`` and one
+``CountPearson_g{i}`` column per signal group, for offline
 per-modality analysis. For a model with three groups you get three
-extra profile columns and three extra count columns; for a model
-with three hundred groups you get six hundred. Use these columns when
+extra Profile columns and three extra Count columns; for a model
+with three hundred groups you get six hundred. Use this file when
 you need to see whether one particular modality is failing while the
 others train fine.
 
@@ -502,5 +508,5 @@ the model checkpoint identifies each row's modality.
 
 Best-model selection (which epoch's weights get saved as the
 ``{name}.torch`` checkpoint) uses the mean-across-groups count
-Pearson — the same scalar as the ``valid_count_pearson`` column of
-``{name}.metrics.csv``.
+Pearson — the same scalar shown in the summary log's "Validation
+Count Pearson" column.
