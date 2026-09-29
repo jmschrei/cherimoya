@@ -586,3 +586,45 @@ def test_progress_bar_by_default_only_for_a_terminal_or_a_notebook(
 
 	monkeypatch.setitem(sys.modules, 'ipykernel', object())
 	assert _show_progress_bar(None) is True
+
+
+def test_fit_shows_neither_the_srun_warning_nor_the_litlogger_tip(tmp_path,
+	monkeypatch, caplog):
+	"""Lightning warns on any machine where `srun` exists but did not launch
+	the process, and logs an advertisement for its LitLogger whenever that
+	logger is not in use. Neither says anything about the run. `srun` is
+	made to exist here so that the warning fires on machines without SLURM.
+	The control, a bare Trainer, shows both are really raised."""
+
+	import logging
+	import shutil
+	import warnings as _warnings
+
+	import lightning
+
+	real_which = shutil.which
+	monkeypatch.setattr(shutil, "which",
+		lambda cmd, *a, **k: "/usr/bin/srun" if cmd == "srun"
+		else real_which(cmd, *a, **k))
+	caplog.set_level(logging.INFO)
+
+	def shown():
+		srun = [w for w in caught if "srun" in str(w.message)]
+		tip = [r for r in caplog.records if "litlogger" in r.getMessage()]
+		return bool(srun), bool(tip)
+
+	with _warnings.catch_warnings(record=True) as caught:
+		_warnings.simplefilter("always")
+		lightning.Trainer(accelerator='cpu', logger=False,
+			enable_progress_bar=False, enable_model_summary=False)
+	assert shown() == (True, True)
+
+	caplog.clear()
+	training_data, X_valid, y_valid, _ = _data([1], 4)
+	model = _model([1])
+	model.name = str(tmp_path / "quiet")
+	with _warnings.catch_warnings(record=True) as caught:
+		_warnings.simplefilter("always")
+		fit(model, training_data, X_valid, y_valid, max_epochs=1,
+			accelerator='cpu', batch_size=BATCH_SIZE, num_workers=0)
+	assert shown() == (False, False)

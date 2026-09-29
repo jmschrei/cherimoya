@@ -13,6 +13,7 @@ the gradients, so every step sees the examples one device would have.
 """
 
 import copy
+import logging
 import os
 import time
 import warnings
@@ -62,13 +63,24 @@ _INPUT_DTYPE = {
 # checkpoint is written into a directory that usually holds other files,
 # the logs are written by the module rather than a Lightning logger, the
 # step count is small next to Lightning's logging interval, and the worker
-# count is the one the user chose.
+# count is the one the user chose. The last is raised on any machine where
+# SLURM's `srun` exists but did not launch the process, which says nothing
+# about the run.
 _QUIET = [
 	"Checkpoint directory .* exists and is not empty",
 	".*but have no logger configured.*",
 	"The number of training batches .* is smaller than the logging interval",
 	".*does not have many workers.*",
+	"The `srun` command is available on your system but is not used.*",
 ]
+
+
+class _DropLitLoggerTip(logging.Filter):
+	"""Drops the advertisement for Lightning's LitLogger, which Lightning
+	logs whenever a Trainer is built without that logger."""
+
+	def filter(self, record):
+		return "litlogger" not in record.getMessage()
 
 
 def _split_parameters(model):
@@ -699,20 +711,29 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 			mode='max', patience=early_stopping,
 			check_on_train_epoch_end=True))
 
-	trainer = lightning.Trainer(accelerator=accelerator, devices=devices,
-		strategy='ddp' if devices != 1 else 'auto',
-		precision=_PRECISION[dtype], max_epochs=max_epochs,
-		logger=False,
-		callbacks=callbacks, plugins=[_CherimoyaCheckpointIO()],
-		benchmark=True, inference_mode=False, num_sanity_val_steps=0,
-		use_distributed_sampler=False,
-		enable_progress_bar=verbose and _show_progress_bar(progress_bar),
-		enable_model_summary=verbose, default_root_dir=directory)
+	# Both filters cover building the Trainer as well as fitting, since
+	# Lightning raises the `srun` warning and logs the LitLogger tip while the
+	# Trainer is constructed. They are removed when fitting ends.
+	rank_zero_log = logging.getLogger("lightning.pytorch.utilities.rank_zero")
+	tip_filter = _DropLitLoggerTip()
+	rank_zero_log.addFilter(tip_filter)
 
-	with warnings.catch_warnings():
-		for message in _QUIET:
-			warnings.filterwarnings("ignore", message=message)
+	try:
+		with warnings.catch_warnings():
+			for message in _QUIET:
+				warnings.filterwarnings("ignore", message=message)
 
-		trainer.fit(module)
+			trainer = lightning.Trainer(accelerator=accelerator,
+				devices=devices, strategy='ddp' if devices != 1 else 'auto',
+				precision=_PRECISION[dtype], max_epochs=max_epochs,
+				logger=False, callbacks=callbacks,
+				plugins=[_CherimoyaCheckpointIO()], benchmark=True,
+				inference_mode=False, num_sanity_val_steps=0,
+				use_distributed_sampler=False,
+				enable_progress_bar=verbose and _show_progress_bar(progress_bar),
+				enable_model_summary=verbose, default_root_dir=directory)
+			trainer.fit(module)
+	finally:
+		rank_zero_log.removeFilter(tip_filter)
 
 	return trainer
