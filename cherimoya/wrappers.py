@@ -7,6 +7,8 @@ A set of wrappers to help in using Cherimoya models.
 
 import torch
 
+from tangermeme.deep_lift_shap import BilinearOp
+
 
 class ControlWrapper(torch.nn.Module):
 	"""A wrapper that supplies an all-zero control track when none is given.
@@ -84,24 +86,34 @@ def _check_group(model, group):
 
 
 class _ProfileLogitScaling(torch.nn.Module):
-	"""A non-linear scaling of profile logits, isolated for Captum.
+	"""The non-linear part of :class:`ProfileWrapper`, written as modules.
 
-	This module performs the non-linear part of :class:`ProfileWrapper` —
-	multiplying logits by their own softmax — in its own ``forward`` so that
-	Captum can register it as a non-linear operation. Captum classifies each
-	registered module as linear or non-linear; the wrapper's inputs are the
-	one-hot sequence (run through the model) rather than the logits being
-	modified, so the non-linear logit operations must be quarantined here
-	for attribution methods that walk the module graph.
+	The wrapper multiplies its mean-centered logits by their own softmax.
+	That product is shape-preserving but not elementwise: the softmax
+	normalizes over every position, so changing one logit changes the
+	output at all of them. A DeepLIFT rule that treats the operation as
+	elementwise, such as tangermeme's rescale rule, gives each position's
+	change in output to that position's logit alone. Its multiplier,
+	the change in output over the change in logit, grows without bound as
+	a logit's change shrinks, and where a logit does not move at all the
+	change in output there is lost.
+
+	So the operation is a ``torch.nn.Softmax`` followed by a tangermeme
+	``BilinearOp`` for the product. tangermeme has a rule for each, so this
+	module needs no entry in
+	:func:`cherimoya.deep_lift_shap.attribution_ops`. A rule registered for
+	this module itself takes the place of those two, because a module's
+	backward hook replaces the gradient its children computed.
 	"""
 
 	def __init__(self):
 		super().__init__()
 		self.softmax = torch.nn.Softmax(dim=-1)
+		self.product = BilinearOp("...,...->...")
 
 	def forward(self, logits):
 		y_softmax = self.softmax(logits)
-		return logits * y_softmax
+		return self.product(logits, y_softmax)
 
 
 class ProfileWrapper(torch.nn.Module):

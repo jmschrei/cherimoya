@@ -572,9 +572,9 @@ Attribution
 * Adds :mod:`cherimoya.deep_lift_shap`, the DeepLIFT rules a Cherimoya
   model needs before ``tangermeme.deep_lift_shap.deep_lift_shap`` can
   attribute it correctly. ``deep_lift_shap`` corrects the module types
-  it knows and treats the rest as linear, and two of Cherimoya's layers
-  are neither known nor linear, so this is a correctness question rather
-  than a performance one. ``attribution_ops()`` returns both rules for
+  it knows and treats the rest as linear, and ``FusedDilatedConvNorm``
+  is neither known nor linear, so this is a correctness question rather
+  than a performance one. ``attribution_ops()`` returns its rule for
   ``additional_nonlinear_ops``. Requires ``tangermeme >= 1.5.0``, where
   the closed-form normalization rule it reuses was added.
 
@@ -612,14 +612,33 @@ Attribution
   decomposed model in every process. Check agreement against a
   decomposed model rather than the delta when validating on GPU.
 
-* ``attribution_ops`` also registers the profile head's
-  ``_ProfileLogitScaling`` with tangermeme's elementwise rescale rule.
-  Left unregistered it is treated as linear, which on a 2-layer model
-  leaves a convergence delta of 8.0e-04 against a prediction of 3.7e-04
-  — the error exceeds the signal, so the attributions carry no
-  information about their own scale. Registering it brings the delta to
-  1.3e-09. ``conv_norm_op`` alone does not reach this; the count head is
-  unaffected.
+* The profile head's product of its logits and their softmax is now a
+  tangermeme ``BilinearOp``, so DeepLIFT/SHAP through
+  :class:`cherimoya.ProfileWrapper` converges with tangermeme's own rules
+  and ``attribution_ops`` needs no entry for it. As a bare multiplication
+  it was treated as linear, which on a 2-layer model leaves a convergence
+  delta of 8.0e-04 against a prediction of 3.7e-04 — the error exceeds
+  the signal, so the attributions carry no information about their own
+  scale. With ``BilinearOp`` and no rules registered at all the delta is
+  1.6e-09. Forward outputs and ordinary gradients are bitwise unchanged,
+  and the count head is unaffected.
+
+  An earlier revision of this work registered ``_ProfileLogitScaling``
+  with tangermeme's elementwise rescale rule instead (#83). The softmax
+  couples positions, and that rule gives each position's change in
+  output to that position's own logit, so it drops the change wherever a
+  logit does not move (a conservation error of 0.13 on the example in
+  #83), and its
+  multiplier, the change in output over the change in logit, reached
+  95,000 times its median on a trained CTCF ChIP-seq model. On six
+  trained models (fold 0, 50 validation peaks, 20 dinucleotide shuffles,
+  CPU, fp32), the median per-locus Pearson correlation between profile
+  attributions and *in silico* saturation mutagenesis (ISM) rose from
+  0.399-0.449 to 0.651-0.721 for two ATAC-seq and one DNase-seq model,
+  and from 0.828-0.880 to 0.875-0.894 for three TF ChIP-seq models
+  (Wilcoxon signed-rank p <= 2.6e-09 for each). On the CTCF model the
+  largest difference between CPU and CUDA attributions fell from 6.9e-02
+  to 7.9e-06 of the largest attribution. Thanks @bjmt!
 
 * ``_cheri_conv`` splits the 3-tap depthwise dilated convolution out of
   ``_cheri_conv_norm_cpu``, so the CPU reference and ``conv_norm_op``

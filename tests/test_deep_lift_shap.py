@@ -287,15 +287,14 @@ def test_attribution_ops_converges_on_one_signal_group(wrapper):
 
 
 def test_attribution_ops_fixes_the_profile_head(small_model):
-	"""The profile head is wrong by more than its own output untreated.
+	"""The profile head converges without a rule of its own.
 
 	`_ProfileLogitScaling` multiplies the logits by their own softmax,
-	which is elementwise and shape-preserving but not linear. Left
-	unregistered it is treated as linear, and on this model that leaves a
-	convergence delta larger than the prediction being explained -- so the
-	attributions carry no information about their own scale. The conv-norm
-	rule alone does not reach it; both entries of `attribution_ops` are
-	needed.
+	which is shape-preserving but not elementwise: changing one logit
+	moves the softmax weight at every position. It is written as a
+	`torch.nn.Softmax` and a tangermeme `BilinearOp`, which tangermeme
+	already has rules for, so `attribution_ops` needs no entry for it and
+	the conv-norm rule alone is enough.
 	"""
 
 	length = 2 * small_model.trimming + 64
@@ -306,14 +305,68 @@ def test_attribution_ops_fixes_the_profile_head(small_model):
 	with torch.no_grad():
 		scale = float(model(X).abs().mean())
 
-	unregistered = _worst_delta(model, X, references, None)
 	conv_only = _worst_delta(model, X, references,
 		{FusedDilatedConvNorm: conv_norm_op})
 	both = _worst_delta(model, X, references, attribution_ops())
 
-	assert unregistered > scale
-	assert conv_only > scale
-	assert both < unregistered / 1e4
+	assert conv_only < scale / 1e4
+	assert both < scale / 1e4
+
+
+class _LinearProfile(torch.nn.Module):
+	"""A linear stand-in for a Cherimoya with one profile channel.
+
+	The logit at each position is a weight on the base there, and the count
+	head is zero. Being linear, the model adds nothing to a convergence
+	delta, so any error comes from `ProfileWrapper`'s own tail. Because a
+	logit depends only on its own base, a test can choose which logits
+	change between a sequence and its reference.
+	"""
+
+	def __init__(self):
+		super().__init__()
+		self.weight = torch.nn.Parameter(torch.tensor([2.0, 0.0, 1.0, 1.0],
+			dtype=torch.float64), requires_grad=False)
+
+	def forward(self, X, X_ctl=None):
+		logits = (X * self.weight[:, None]).sum(dim=1, keepdim=True)
+		return logits, torch.zeros(X.shape[0], 1, dtype=X.dtype)
+
+
+def test_profile_wrapper_converges_where_logits_do_not_move():
+	"""Regression test for #83: attributions sum to the change in output
+	when some centered logits are the same in a sequence and its reference.
+
+	The profile head's softmax couples positions, so a position whose logit
+	does not move still changes its output. `_ProfileLogitScaling` was
+	registered with tangermeme's elementwise rescale rule, which gives each
+	position's change in output to that position's own logit and falls back
+	to the gradient where the logit moved by less than 1e-6, so the change
+	at an unmoved position was dropped: a conservation error of 0.032 here.
+
+	The reference edits the first three bases, changing their logits by -2,
+	+1 and +1. The mean is unchanged, so the centered logit is unchanged at
+	every other position, while the softmax normalizer is not.
+	"""
+
+	X = torch.zeros(1, 4, 8, dtype=torch.float64)
+	X[0, [0, 1, 1, 2, 3, 0, 2, 3], range(8)] = 1    # ACCGTAGT
+	references = torch.zeros(1, 1, 4, 8, dtype=torch.float64)
+	references[0, 0, [1, 2, 3, 2, 3, 0, 2, 3], range(8)] = 1    # CGTGTAGT
+
+	model = ProfileWrapper(_LinearProfile())
+	logits = model.model(torch.cat([X, references[:, 0]]))[0]
+	assert logits[0].mean() == logits[1].mean()
+
+	multipliers = deep_lift_shap(model, X, references=references,
+		raw_outputs=True, device='cpu', warning_threshold=float("inf"),
+		additional_nonlinear_ops=attribution_ops())
+
+	with torch.no_grad():
+		output_diff = float(model(X) - model(references[:, 0]))
+	contribution = float(((X - references[:, 0]) * multipliers[:, 0]).sum())
+
+	assert abs(output_diff - contribution) < 1e-12
 
 
 @pytest.mark.cuda

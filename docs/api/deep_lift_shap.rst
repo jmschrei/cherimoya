@@ -3,15 +3,18 @@ cherimoya.deep_lift_shap
 
 .. module:: cherimoya.deep_lift_shap
 
-DeepLIFT rules for the two layers of a Cherimoya model that need one.
+DeepLIFT rules for the layer of a Cherimoya model that needs one.
 ``tangermeme.deep_lift_shap.deep_lift_shap`` attaches a rule to each module
 type it knows and treats everything else as linear, so attributing a
-Cherimoya model without registering these is a correctness question rather
-than a performance one — the attributions come back with no guarantee that
-they sum to the change in the prediction.
+Cherimoya model without registering this one is a correctness question
+rather than a performance one — the attributions come back with no
+guarantee that they sum to the change in the prediction. The non-linear
+part of the profile head, in :class:`~cherimoya.ProfileWrapper`, is a
+``torch.nn.Softmax`` and a tangermeme ``BilinearOp``, which tangermeme
+already has rules for.
 
 This is only needed for DeepLIFT/SHAP. ``cherimoya attribute`` registers
-both rules itself when ``algorithm`` is ``"deep_lift_shap"``, its default.
+the rules itself when ``algorithm`` is ``"deep_lift_shap"``, its default.
 Saturation mutagenesis makes forward passes only and registers nothing.
 
 Requires ``tangermeme >= 1.5.0``, which is where the closed-form
@@ -23,7 +26,7 @@ attribution_ops
 
 .. autofunction:: attribution_ops
 
-Start here. It returns both rules in the dictionary
+Start here. It returns the rules in the dictionary
 ``additional_nonlinear_ops`` expects::
 
     from tangermeme.deep_lift_shap import deep_lift_shap

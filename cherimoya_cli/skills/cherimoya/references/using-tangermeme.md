@@ -1,8 +1,8 @@
 # Analyzing a Cherimoya model with tangermeme
 
 Post-training analysis — attributions via DeepLIFT/SHAP (`deep_lift_shap`,
-which `cherimoya attribute` runs by default and which needs two rules
-registered — see below) or saturation mutagenesis (ISM), marginalization,
+which `cherimoya attribute` runs by default and which needs
+`attribution_ops()` registered — see below) or saturation mutagenesis (ISM), marginalization,
 variant-effect scoring, and sequence design — lives in **tangermeme**, not
 Cherimoya. Cherimoya's only job is to expose the right single tensor from its
 `(profile, log-count)` output.
@@ -57,13 +57,12 @@ wrapper = LogCountWrapper(ControlWrapper(model))
 # variant effect, ledidi design, ...).
 ```
 
-## DeepLIFT/SHAP needs two rules registered
+## DeepLIFT/SHAP needs `attribution_ops()` registered
 
 ISM needs nothing. `deep_lift_shap` does: it corrects the module types it knows
-and silently treats the rest as linear, and two of Cherimoya's layers are
-neither known nor linear. Without them the attributions carry no guarantee that
-they sum to the change in the prediction, and for the profile head the error
-exceeds the prediction itself. Always pass `attribution_ops()`:
+and silently treats the rest as linear, and `FusedDilatedConvNorm` is neither
+known nor linear. Without its rule the attributions carry no guarantee that they
+sum to the change in the prediction. Always pass `attribution_ops()`:
 
 ```python
 from tangermeme.deep_lift_shap import deep_lift_shap
@@ -77,6 +76,11 @@ Two more things it needs. Load the model with `compile=False` — DeepLIFT's
 backward hooks replace gradients, which Inductor cannot trace, so a compiled
 model graph-breaks and runs slightly slower for the same answer. And
 `attribution_ops()` requires `tangermeme >= 1.5.0`.
+
+Do not add `_ProfileLogitScaling: _nonlinear` to the dictionary, as bpnet-lite
+code does for its own profile wrapper. The profile head's softmax and product
+already have tangermeme rules, and a rule on the module holding them takes their
+place with an elementwise rule that cannot represent the softmax (issue #83).
 
 One GPU caveat: the convergence delta is not a reliable check there. On a
 small model it can land three orders of magnitude higher in some processes than

@@ -2,17 +2,19 @@
 # Author: Jacob Schreiber <jmschreiber91@gmail.com>
 
 """
-DeepLIFT rules for the layers of a Cherimoya model that need one.
+DeepLIFT rules for the layer of a Cherimoya model that needs one.
 
 `tangermeme.deep_lift_shap.deep_lift_shap` attaches a rule to each module
-type it knows how to correct and treats everything else as linear. Two of
-Cherimoya's layers are neither in that table nor linear, so attributing a
-Cherimoya model without registering them is not a performance question but
+type it knows how to correct and treats everything else as linear.
+`FusedDilatedConvNorm` is neither in that table nor linear, so attributing
+a Cherimoya model without registering it is not a performance question but
 a correctness one: the attributions come back with no guarantee that they
-sum to the change in the prediction.
+sum to the change in the prediction. The non-linear part of the profile
+head, in `ProfileWrapper`, is built from modules tangermeme already has
+rules for.
 
-Pass `attribution_ops()` as `additional_nonlinear_ops` and both are
-covered::
+Pass `attribution_ops()` as `additional_nonlinear_ops` and the whole model
+is covered::
 
     from tangermeme.deep_lift_shap import deep_lift_shap
 
@@ -35,12 +37,10 @@ from __future__ import annotations
 import torch
 
 from tangermeme._deep_lift_utils import _layer_normalization_helper
-from tangermeme._deep_lift_utils import _nonlinear
 
 from .cheri import CONV_NORM_EPS
 from .cheri import FusedDilatedConvNorm
 from .cheri import _cheri_conv
-from .wrappers import _ProfileLogitScaling
 
 
 class _ConvNormView:
@@ -165,13 +165,13 @@ def attribution_ops() -> dict:
 	`tangermeme.pisa.pisa`. A fresh dictionary is returned each call, so
 	adding a rule of your own to it does not affect the next caller.
 
-	Two entries. `FusedDilatedConvNorm` gets `conv_norm_op`, described
-	above. `_ProfileLogitScaling`, which the profile head multiplies its
-	logits by their own softmax in, gets tangermeme's elementwise rescale
-	rule -- it is elementwise and shape-preserving, which is what that rule
-	requires. The count head does not need the second entry, but including
-	it costs nothing, since a rule for a module the model does not contain
-	is never dispatched.
+	One entry: `FusedDilatedConvNorm` gets `conv_norm_op`, described
+	above. The profile head needs none. `ProfileWrapper` multiplies its
+	logits by their own softmax through a `torch.nn.Softmax` and a
+	tangermeme `BilinearOp`, and tangermeme has a rule for each. Do not add
+	a rule for `_ProfileLogitScaling`, the module holding those two: it
+	would take the place of both, and an elementwise rule cannot represent
+	a softmax, which couples every position to every other.
 
 
 	Returns
@@ -182,5 +182,4 @@ def attribution_ops() -> dict:
 
 	return {
 		FusedDilatedConvNorm: conv_norm_op,
-		_ProfileLogitScaling: _nonlinear,
 	}

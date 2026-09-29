@@ -91,10 +91,10 @@ profile wrapper's scalar — so compare the reported deltas with the
 size of the predictions before deciding what they mean.
 
 The known cause is calling ``deep_lift_shap`` in Python without
-``additional_nonlinear_ops=attribution_ops()``: two of Cherimoya's
-layers need rules, and for the profile head the error then exceeds the
-prediction itself (see :doc:`api/deep_lift_shap`). ``cherimoya
-attribute`` always registers them.
+``additional_nonlinear_ops=attribution_ops()``: ``FusedDilatedConvNorm``
+needs a rule, and how far the attributions miss without it depends on
+the model and the inputs (see :doc:`api/deep_lift_shap`). ``cherimoya
+attribute`` always registers it.
 
 
 The first iteration is very slow, then it speeds up

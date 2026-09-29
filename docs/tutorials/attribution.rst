@@ -147,12 +147,10 @@ across the channel axis:
    importance = (X_attr * X[:, :, mid - 200:mid + 200]).sum(dim=1)
 
 ``additional_nonlinear_ops=attribution_ops()`` is required, not an
-optimization. ``FusedDilatedConvNorm`` and the profile head's logit
-scaling are neither linear nor in tangermeme's table, so without them
-the attributions carry no guarantee that they sum to the change in the
-prediction — and for the profile head the error exceeds the prediction
-itself. See :doc:`../api/deep_lift_shap` for what each rule does and
-why.
+optimization. ``FusedDilatedConvNorm`` is neither linear nor in
+tangermeme's table, so without its rule the attributions carry no
+guarantee that they sum to the change in the prediction. See
+:doc:`../api/deep_lift_shap` for what the rule does and why.
 
 tangermeme's ``deep_lift_shap`` attributes output ``target=0`` of the
 model it is given. ``LogCountWrapper`` without ``group`` returns one
