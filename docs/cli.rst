@@ -401,8 +401,8 @@ Unspecified keys fall back to the fit-level defaults.
        More than one trains with DDP. See `Training on several devices`_.
    * - ``verbose``
      - ``false``
-     - Print the run's setup, Lightning's model summary, and a table with
-       one row per epoch (the columns of ``Epoch``, ``Iteration``,
+     - Print the run's setup and a table with one row per epoch (the
+       columns ``Epoch``, ``Iteration``,
        ``Training Time``, ``Validation Time``, ``Training MNLL``,
        ``Training Count MSE``, ``Validation MNLL``, ``Validation Profile
        Pearson``, ``Validation Count Pearson``, ``Validation Count MSE`` and

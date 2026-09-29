@@ -63,24 +63,28 @@ _INPUT_DTYPE = {
 # checkpoint is written into a directory that usually holds other files,
 # the logs are written by the module rather than a Lightning logger, the
 # step count is small next to Lightning's logging interval, and the worker
-# count is the one the user chose. The last is raised on any machine where
-# SLURM's `srun` exists but did not launch the process, which says nothing
-# about the run.
+# count is the one the user chose. The sync_dist advice is for values that
+# differ across ranks, and the validation Pearsons are computed from the
+# gathered predictions, so every rank already holds the same ones. The srun
+# warning is raised on any machine where SLURM's `srun` exists but did not
+# launch the process, and the last two by Lightning's own code under newer
+# torch; none says anything about the run.
 _QUIET = [
 	"Checkpoint directory .* exists and is not empty",
 	".*but have no logger configured.*",
 	"The number of training batches .* is smaller than the logging interval",
 	".*does not have many workers.*",
+	"It is recommended to use `self.log\\('valid_.*sync_dist=True.*",
 	"The `srun` command is available on your system but is not used.*",
+	".*isinstance\\(treespec, LeafSpec\\)` is deprecated.*",
+	".*torch.distributed.nn.functional.all_gather is deprecated.*",
 ]
 
-
-class _DropLitLoggerTip(logging.Filter):
-	"""Drops the advertisement for Lightning's LitLogger, which Lightning
-	logs whenever a Trainer is built without that logger."""
-
-	def filter(self, record):
-		return "litlogger" not in record.getMessage()
+# Lightning's loggers, whose INFO messages (devices available, the
+# distributed setup, why fitting stopped, a LitLogger advertisement) are
+# held back during fit so that the output is what the training loop always
+# printed: the per-epoch table under `verbose`, and nothing otherwise.
+_LIGHTNING_LOGGERS = ["lightning.pytorch", "lightning.fabric"]
 
 
 def _split_parameters(model):
@@ -660,8 +664,9 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 
 	verbose: bool, optional
 		Whether to print the per-epoch table of training and validation
-		measures (see :class:`CherimoyaModule`) and Lightning's model
-		summary, and to allow a progress bar. Default is False.
+		measures (see :class:`CherimoyaModule`) and to allow a progress bar.
+		Lightning's own messages are not shown either way, only its
+		warnings. Default is False.
 
 	progress_bar: bool or None, optional
 		Whether to draw Lightning's progress bar when `verbose` is set. None
@@ -711,12 +716,13 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 			mode='max', patience=early_stopping,
 			check_on_train_epoch_end=True))
 
-	# Both filters cover building the Trainer as well as fitting, since
-	# Lightning raises the `srun` warning and logs the LitLogger tip while the
-	# Trainer is constructed. They are removed when fitting ends.
-	rank_zero_log = logging.getLogger("lightning.pytorch.utilities.rank_zero")
-	tip_filter = _DropLitLoggerTip()
-	rank_zero_log.addFilter(tip_filter)
+	# Both cover building the Trainer as well as fitting, since Lightning
+	# warns and logs while the Trainer is constructed, and both are undone
+	# when fitting ends.
+	loggers = [logging.getLogger(name) for name in _LIGHTNING_LOGGERS]
+	levels = [logger.level for logger in loggers]
+	for logger in loggers:
+		logger.setLevel(logging.WARNING)
 
 	try:
 		with warnings.catch_warnings():
@@ -731,9 +737,10 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 				inference_mode=False, num_sanity_val_steps=0,
 				use_distributed_sampler=False,
 				enable_progress_bar=verbose and _show_progress_bar(progress_bar),
-				enable_model_summary=verbose, default_root_dir=directory)
+				enable_model_summary=False, default_root_dir=directory)
 			trainer.fit(module)
 	finally:
-		rank_zero_log.removeFilter(tip_filter)
+		for logger, level in zip(loggers, levels):
+			logger.setLevel(level)
 
 	return trainer
