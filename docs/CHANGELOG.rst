@@ -471,7 +471,12 @@ Training
   devices without padding and the metrics are computed over the whole
   validation set. With fixed ``loss_weights``, the per-group read depths
   the profile loss is divided by are averaged across the devices, so they
-  are those of the global batch, as on one device.
+  are those of the global batch, as on one device. Training on more than
+  one device sets ``torch._dynamo.config.optimize_ddp = False`` in the
+  training process: with the model's CUDA-graph compile mode, the DDP
+  graph splitting it controls failed when one rank recompiled for a
+  validation batch of its own size, and the other ranks waited on it until
+  the NCCL timeout.
 
   Lightning starts every rank after the first by re-running the current
   command. ``cherimoya fit`` therefore prints and evaluates on rank 0
