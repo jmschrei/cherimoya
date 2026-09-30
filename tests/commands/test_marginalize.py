@@ -1,8 +1,8 @@
-# This file is named for cherimoya_cli/commands/marginalize.py but does not
-# cover all of it. It checks that the locus shuffle is seeded; the model load,
-# the extract_loci call, and the report itself are untested here.
-"""Wiring tests for `cherimoya marginalize` — confirms the shuffle honors
-``random_state`` without building a real model or report."""
+# This file is named for cherimoya_cli/commands/marginalize.py. It checks the
+# locus shuffle's seeding, the `n_loci` cap, and what reaches `extract_loci`,
+# with the model and the report stubbed out; the report itself is untested.
+"""Wiring tests for `cherimoya marginalize`, without building a real model
+or report."""
 
 import argparse
 import json

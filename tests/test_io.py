@@ -184,7 +184,7 @@ def test_getitem_is_pure_within_an_epoch():
 	# Now go back. This will wrap and prepare the next epoch — the value
 	# at idx=3 in the *next* epoch may differ. Compare within the same
 	# epoch instead by re-indexing forward.
-	second = sampler[8]
+	sampler[8]
 	again_at_3 = sampler[3]   # wraps to a new epoch
 	# In the same epoch (epoch 0), the idx=3 result must reproduce when
 	# we rebuild a fresh sampler.

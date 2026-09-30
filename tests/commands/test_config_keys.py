@@ -1,12 +1,13 @@
-"""Tests that every declared CLI default is a key something reads.
+"""Tests that every key the pipeline declares for a step is one the step's
+subcommand declares too.
 
-A default that nothing reads is worse than no default: it appears in the
-generated JSON and in the CLI reference, so setting it looks like it
-should do something. Two have already shipped that way --
+A declared key that the subcommand does not know is worse than none: it
+appears in the generated JSON and in the CLI reference, so setting it looks
+like it should do something. Two have already shipped that way --
 `marginalize_parameters.output_folder`, which the command spells
 `output_filename`, and `fit_parameters.count_loss_weight`, which nothing
-has ever read -- so the invariant is pinned for every step rather than
-for the two that happened to be found.
+has ever read. This does not check that a subcommand reads each of its own
+defaults.
 """
 
 import pytest

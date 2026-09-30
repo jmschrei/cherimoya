@@ -10,15 +10,6 @@ the common case and the only one that reaches the annotation step.
 ##
 
 
-def test_dry_run_with_motifs_completes(tmp_path, run_pipeline):
-	"""With a motif database set, the run reaches the end. The seqlet
-	annotation step used to read its own output with `pandas.read_csv`
-	outside the `dry_run` guard, so it raised FileNotFoundError on a
-	file no subprocess had been allowed to write."""
-
-	run_pipeline(motifs=str(tmp_path / "m.meme"))
-
-
 def test_dry_run_with_motifs_writes_no_annotation_outputs(tmp_path,
 		run_pipeline):
 	"""A dry run emits the step JSONs and nothing else -- in particular

@@ -1,7 +1,5 @@
 """Tests for the Cherimoya model construction and forward pass."""
 
-import os
-
 import pytest
 import torch
 

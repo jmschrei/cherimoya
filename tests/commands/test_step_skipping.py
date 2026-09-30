@@ -59,21 +59,31 @@ def test_pipeline_without_motifs_returns(run_pipeline):
 	assert run_pipeline(motifs=None) is None
 
 
-def test_pipeline_json_returns(tmp_path):
-	"""`pipeline-json` ended with a bare `sys.exit()` after writing its
-	output, which is indistinguishable from a failure to a caller."""
+def test_pipeline_json_returns_and_writes_the_flags(tmp_path):
+	"""`pipeline-json` returns rather than exiting, and the JSON it writes
+	holds the flags over the pipeline defaults."""
 
 	from cherimoya_cli.commands import pipeline_json
+	from cherimoya_cli.defaults import default_pipeline_parameters
 
 	out = tmp_path / "pipeline.json"
 	args = argparse.Namespace(
-		sequences="g.fa", peaks=None, negatives=None, inputs=["s.bw"],
-		controls=None, name="demo", motifs=None, unstranded=False,
-		fragments=False, pos_shift=0, neg_shift=0, paired_end=False,
-		scale_factor=1, output=str(out))
+		sequences="g.fa", peaks=["p.bed"], negatives=None, inputs=["s.bw"],
+		controls=None, name="demo", motifs="m.meme", unstranded=True,
+		fragments=False, pos_shift=4, neg_shift=-4, paired_end=True,
+		scale_factor=2.0, output=str(out))
 
 	assert pipeline_json.run(args) is None
-	assert out.exists()
+	cfg = json.loads(out.read_text())
+
+	assert (cfg["sequences"], cfg["loci"], cfg["negatives"], cfg["signals"],
+		cfg["name"], cfg["motifs"]) == ("g.fa", ["p.bed"], None, ["s.bw"],
+		"demo", "m.meme")
+	assert {k: cfg["preprocessing_parameters"][k] for k in ("unstranded",
+		"pos_shift", "neg_shift", "paired_end", "scale_factor")} == {
+		"unstranded": True, "pos_shift": 4, "neg_shift": -4,
+		"paired_end": True, "scale_factor": 2.0}
+	assert cfg["fit_parameters"] == default_pipeline_parameters["fit_parameters"]
 
 
 ##
