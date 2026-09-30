@@ -5,7 +5,6 @@
 def run(args):
 
 	import numpy
-	import torch
 
 	from bpnetlite.marginalize import marginalization_report
 	from tangermeme.io import extract_loci

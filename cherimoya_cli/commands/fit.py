@@ -173,12 +173,11 @@ def run(args):
 	# the per-group sizes. The flat list is what extract_loci and the
 	# `bam2bw`-style tooling need; the group sizes determine the
 	# channel permutation used under RC and the number of count
-	# predictions. We deliberately do NOT mutate ``parameters['signals']``
-	# here — the structured form (e.g. ``[[plus.bw, minus.bw]]``) is what
-	# the downstream evaluate JSON needs to re-parse the grouping
-	# correctly. Mutating to the flat form here would silently
-	# re-interpret a stranded pair as two unstranded channels in the
-	# evaluate step.
+	# predictions. ``parameters`` keeps the structured form (e.g.
+	# ``[[plus.bw, minus.bw]]``) because the evaluate JSONs are copied from
+	# it, and evaluate reads the control grouping from there for
+	# reverse-complement averaging. The signal grouping it takes from the
+	# checkpoint.
 	signal_files, signal_groups = normalize_signal_groups(parameters["signals"])
 	control_files, control_groups = normalize_signal_groups(parameters["controls"])
 

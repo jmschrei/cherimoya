@@ -50,7 +50,6 @@ def _validate_inputs(parameters):
 def run(args):
 	import argparse
 	import json
-	import os
 	import subprocess
 	import sys
 
@@ -97,8 +96,8 @@ def run(args):
 	# the underlying files regardless of how they're grouped for the
 	# model. The downstream fit step receives the *original* grouped
 	# form via the pipeline JSON, so grouping is preserved end-to-end.
-	signal_files, signal_groups = normalize_signal_groups(parameters["signals"])
-	control_files, control_groups = normalize_signal_groups(parameters["controls"])
+	signal_files, _ = normalize_signal_groups(parameters["signals"])
+	control_files, _ = normalize_signal_groups(parameters["controls"])
 
 	def _run_step(cmd_fn, json_path):
 		"""Invoke a CLI step in-process by calling its run(args) directly."""

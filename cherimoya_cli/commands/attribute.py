@@ -5,7 +5,6 @@
 def run(args):
 
 	import numpy
-	import torch
 
 	from tangermeme.deep_lift_shap import deep_lift_shap
 	from tangermeme.io import extract_loci
