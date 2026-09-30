@@ -220,6 +220,7 @@ def run(args):
 		control_groups=control_groups,
 	).dataset
 
+	# Centered as the training peaks are; negatives have no summit column.
 	valid_data = extract_loci(
 		sequences=parameters["sequences"],
 		signals=signal_files,
@@ -229,6 +230,7 @@ def run(args):
 		in_window=parameters["in_window"],
 		out_window=parameters["out_window"],
 		max_jitter=0,
+		summits=parameters["summits"],
 		exclusion_lists=parameters["exclusion_lists"],
 		ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
 		verbose=parameters["verbose"],

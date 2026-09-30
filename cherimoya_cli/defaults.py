@@ -107,6 +107,7 @@ default_evaluate_parameters = {
 	'verbose': False,
 	'chroms': validation_chroms,
 	'reverse_complement_average': False,
+	'summits': False,
 	'device': 'cuda',
 	'dtype': 'float32',
 	'exclusion_lists': None,

@@ -50,7 +50,8 @@ def _make_fake_extract_loci(n_loci, n_signal_ch, in_window, out_window,
 	g = torch.Generator().manual_seed(seed)
 
 	def fake(loci, sequences, signals, in_signals, chroms, in_window,
-			out_window, exclusion_lists, max_jitter, ignore, verbose):
+			out_window, exclusion_lists, max_jitter, ignore, verbose,
+			summits=False):
 		n = n_negatives if loci == "negatives.bed" else n_loci
 		X = torch.randn(n, 4, in_window, generator=g)
 		y = torch.randint(0, 5, (n, n_signal_ch, out_window),

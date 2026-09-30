@@ -78,6 +78,7 @@ def _run_capturing_training_fit(fit_json):
 
 	# One validation peak, and two validation negatives.
 	def fake_extract_loci(**kwargs):
+		captured.setdefault('extract', {})[kwargs['loci']] = kwargs
 		n = 2 if kwargs['loci'] == 'fake_negatives.bed' else 1
 		return torch.zeros(n, 4, 16), torch.zeros(n, 1, 8)
 
@@ -976,3 +977,17 @@ def test_fit_builds_the_model_with_the_compile_setting(fit_json):
 
 	model = _run_capturing_training_fit(fit_json)['model']
 	assert model._compile is False
+
+
+def test_fit_centers_validation_peaks_as_training_does(fit_json):
+	"""With `summits`, the validation peaks are centered on the summit like
+	the training peaks; the negatives, which have no summit, are not."""
+
+	cfg = json.loads(open(fit_json).read())
+	cfg['summits'] = True
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	captured = _run_capturing_training_fit(fit_json)
+	assert captured['peak_generator']['summits'] is True
+	assert captured['extract']['fake.bed']['summits'] is True
+	assert captured['extract']['fake_negatives.bed'].get('summits', False) is False

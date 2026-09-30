@@ -58,6 +58,7 @@ def run(args):
 		compile=parameters["compile"],
 		compile_mode=parameters["compile_mode"])
 
+	# Centered as the training peaks are; negatives have no summit column.
 	examples = extract_loci(
 		sequences=parameters["sequences"],
 		signals=parameters["signals"],
@@ -67,6 +68,7 @@ def run(args):
 		in_window=parameters["in_window"],
 		out_window=parameters["out_window"],
 		exclusion_lists=parameters["exclusion_lists"],
+		summits=parameters["summits"],
 		max_jitter=0,
 		ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
 		verbose=parameters["verbose"],
