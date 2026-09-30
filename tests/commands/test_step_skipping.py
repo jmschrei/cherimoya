@@ -109,3 +109,32 @@ def test_pipeline_json_accepts_all_four():
 
 	assert args.sequences == "g.fa"
 	assert args.output == "p.json"
+
+
+def test_pipeline_skip_runs_no_step(tmp_path, run_pipeline):
+	"""A top-level `skip` ends the pipeline before any step, including the
+	preprocessing and MoDISco commands that have no `skip` of their own."""
+
+	from unittest import mock
+
+	with mock.patch("subprocess.run") as subprocess_run:
+		run_pipeline(skip=True, dry_run=False, loci=None)
+
+	subprocess_run.assert_not_called()
+	assert not (tmp_path / "demo.fit.json").exists()
+
+
+def test_pipeline_skips_annotation_when_asked(tmp_path, run_pipeline):
+	from unittest import mock
+
+	with mock.patch("subprocess.run") as subprocess_run, \
+			mock.patch("cherimoya_cli.commands.fit.run"), \
+			mock.patch("cherimoya_cli.commands.attribute.run"), \
+			mock.patch("cherimoya_cli.commands.seqlets.run"), \
+			mock.patch("cherimoya_cli.commands.marginalize.run"):
+		run_pipeline(motifs=str(tmp_path / "m.meme"), dry_run=False,
+			annotation_parameters={"skip": True})
+
+	commands = [call.args[0][0] for call in subprocess_run.call_args_list]
+	assert "ttl" not in commands
+	assert "modisco" in commands

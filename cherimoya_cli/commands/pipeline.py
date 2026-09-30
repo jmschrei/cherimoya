@@ -74,6 +74,9 @@ def run(args):
 	from ..utils import _extract_set, _check_set, merge_parameters
 
 	parameters = merge_parameters(args.parameters, default_pipeline_parameters)
+	if parameters["skip"]:
+		return
+
 	preprocess_parameters = merge_parameters(
 		parameters["preprocessing_parameters"],
 		default_pipeline_parameters["preprocessing_parameters"],
@@ -350,7 +353,7 @@ def run(args):
 		annotation_parameters, default_annotation_parameters
 	)
 
-	if annotation_parameters["motifs"] is not None:
+	if annotation_parameters["motifs"] is not None and not annotation_parameters["skip"]:
 		if parameters["verbose"]:
 			print("\nStep 3.2: Seqlet annotation")
 
