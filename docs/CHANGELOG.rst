@@ -122,6 +122,11 @@ Added
 Bug fixes
 ~~~~~~~~~
 
+* :func:`~cherimoya.io.PeakGenerator` failed inside tangermeme when
+  ``negatives`` was ``None``. It now builds a peaks-only training set,
+  which needs ``negative_ratio=0``; a nonzero ratio raises the sampler's
+  ``ValueError`` asking for negatives or a ratio of 0.
+
 * **The pipeline's marginalization inserted motifs into the peaks.**
   The marginalize step copied the top-level ``loci`` before the
   fallback to ``negatives`` was checked, so the fallback never applied.

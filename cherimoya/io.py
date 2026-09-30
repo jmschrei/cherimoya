@@ -504,11 +504,12 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 		three columns: chrom, start, and end. Alternatively, this can be a list
 		of such objects whose coordinates will be interleaved.
 
-	negatives: str or pandas.DataFrame or list/tuple of such
+	negatives: str or pandas.DataFrame or list/tuple of such, or None
 		A BED-formatted file containing negative coordinates. This can be either
 		the string path to the BED file or a pandas DataFrame object containing
 		three columns: chrom, start, and end. Alternatively, this can be a list
-		of such objects whose coordinates will be interleaved.
+		of such objects whose coordinates will be interleaved. If None, the
+		training set is peaks only, which requires `negative_ratio` to be 0.
 
 	sequences: str or dictionary
 		Either the path to a fasta file to read from or a dictionary where the
@@ -709,11 +710,24 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 		outlier_idxs |= group_counts > group_threshold
 		offset += g
 
-	X_bg = extract_loci(loci=negatives, sequences=sequences,
-		signals=signals, in_signals=controls, chroms=chroms, in_window=in_window,
-		out_window=out_window, max_jitter=0, min_counts=min_counts,
-		max_counts=max_counts, summits=False, exclusion_lists=exclusion_lists,
-		ignore=list('QWERYUIOPSDFHJKLZXVBNM'), return_mask=True, verbose=verbose)
+	# Without negatives, empty tensors of the negatives' shapes stand in, and
+	# the sampler refuses a nonzero `negative_ratio`.
+	if negatives is None:
+		X_bg = [torch.zeros(0, *X_peaks[0].shape[1:-1], in_window,
+			dtype=X_peaks[0].dtype), torch.zeros(0, *X_peaks[1].shape[1:-1],
+			out_window, dtype=X_peaks[1].dtype)]
+		if controls is not None:
+			X_bg.append(torch.zeros(0, *X_peaks[2].shape[1:-1], in_window,
+				dtype=X_peaks[2].dtype))
+		X_bg.append(torch.zeros(0, dtype=torch.bool))
+	else:
+		X_bg = extract_loci(loci=negatives, sequences=sequences,
+			signals=signals, in_signals=controls, chroms=chroms,
+			in_window=in_window, out_window=out_window, max_jitter=0,
+			min_counts=min_counts, max_counts=max_counts, summits=False,
+			exclusion_lists=exclusion_lists,
+			ignore=list('QWERYUIOPSDFHJKLZXVBNM'), return_mask=True,
+			verbose=verbose)
 
 	if verbose:
 		n_filtered_peaks = len(X_peaks[-1]) - X_peaks[-1].sum() + outlier_idxs.sum()

@@ -692,6 +692,38 @@ def test_peak_generator_threads_structured_signals_into_sampler():
 	assert torch.equal(loader.dataset.signal_perm, expected)
 
 
+@pytest.mark.parametrize("controls", [None, ["ctl.bw"]])
+def test_peak_generator_without_negatives_trains_on_peaks(controls):
+	"""negatives=None builds a peaks-only sampler rather than handing None
+	to extract_loci, which it only calls for the peaks."""
+
+	calls = []
+	fake = _fake_extract_loci_factory(n=6)
+
+	def recording(**kwargs):
+		calls.append(kwargs["loci"])
+		return fake(**kwargs)
+
+	with _patch_extract_loci(recording):
+		loader = PeakGenerator(**_minimal_peakgen_kwargs(negatives=None,
+			signals=["s.bw"], controls=controls))
+
+	sampler = loader.dataset
+	assert calls == ["ignored.bed"]
+	assert sampler.n_negatives == 0 and len(sampler) == 6
+	for i in range(len(sampler)):
+		item = sampler[i]
+		assert item[-1] == 1
+		assert item[0].shape == (4, 16)
+
+
+def test_peak_generator_without_negatives_refuses_a_negative_ratio():
+	with _patch_extract_loci(_fake_extract_loci_factory(n=6)):
+		with pytest.raises(ValueError, match="set negative_ratio to 0"):
+			PeakGenerator(**_minimal_peakgen_kwargs(negatives=None,
+				signals=["s.bw"], negative_ratio=0.25))
+
+
 def test_peak_generator_signal_groups_disagrees_raises():
 	"""Explicit signal_groups must match what the signals shape
 	implies. Otherwise the user is silently saying contradictory

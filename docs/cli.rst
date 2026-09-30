@@ -676,7 +676,10 @@ and ``{name}.validation.performance.tsv``, and on the
 ``test_chroms``, writing ``{name}.test.evaluate.json`` and
 ``{name}.test.performance.tsv``. The validation numbers come from the
 chromosomes that chose the checkpoint; the test numbers do not. Each
-evaluate JSON can be rerun with ``cherimoya evaluate -p``.
+evaluate JSON can be rerun with ``cherimoya evaluate -p``. With
+``negatives`` set to ``null`` and ``negative_ratio`` to 0, ``fit``
+trains on the peaks alone, and the validation measures that use
+negatives are empty.
 
 Training runs through :func:`cherimoya.training.fit` and writes four
 files next to ``name``:
