@@ -187,17 +187,18 @@ class PeakNegativeSampler(torch.utils.data.Dataset):
 		A tensor of signals to predict, usually base-pair resolution
 		integer counts.
 
-	peak_controls: torch.tensor, shape=(n, t, out_window+2*mj) or None,
+	peak_controls: torch.tensor, shape=(n, t, in_window+2*mj) or None,
 			optional
 		Optional control input track for peak examples.
 
-	negative_sequences: torch.tensor, shape=(n, 4, in_window+2*mj)
-		One-hot encoded negative sequences.
+	negative_sequences: torch.tensor, shape=(n, 4, in_window)
+		One-hot encoded negative sequences. Negatives are not jittered and
+		are read from offset 0, so a wider array would be off-center.
 
-	negative_signals: torch.tensor, shape=(n, t, out_window+2*mj)
+	negative_signals: torch.tensor, shape=(n, t, out_window)
 		Negative sequence signals.
 
-	negative_controls: torch.tensor or None, optional
+	negative_controls: torch.tensor, shape=(n, t, in_window) or None, optional
 		Optional control input track for negative examples.
 
 	negative_ratio: float, optional

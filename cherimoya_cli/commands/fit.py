@@ -19,7 +19,8 @@ def _max_epochs_for_min_steps(max_epochs, steps_per_epoch, min_total_steps):
 		The number of epochs requested in the parameters.
 
 	steps_per_epoch: int
-		Batches in one pass over the training data, i.e. `len(training_data)`.
+		Batches in one pass over the training data, counting a trailing
+		partial batch: `ceil(len(training_data) / batch_size)`.
 
 	min_total_steps: int or None
 		The minimum number of optimizer steps the run should take. None

@@ -187,6 +187,14 @@ class Cherimoya(torch.nn.Module):
 		which moved to :func:`cherimoya.training.fit`, and is kept because
 		every saved checkpoint's config passes it. Default is True.
 
+	compile: bool, optional
+		Whether to wrap the forward in ``torch.compile``. A runtime
+		setting, not saved in the checkpoint. Default is True.
+
+	compile_mode: str, optional
+		The ``mode`` passed to ``torch.compile``; ignored when `compile`
+		is False. Default is ``'max-autotune'``.
+
 	random_state: int or None, optional
 		Seed for the weight initialization. Every parameter in the model
 		is either overwritten by one of the ``trunc_normal_`` calls
@@ -405,12 +413,10 @@ class Cherimoya(torch.nn.Module):
 	def _forward_impl(self, X, X_ctl=None):
 		"""A forward pass of the model.
 
-		This method takes in a nucleotide sequence X, a corresponding
-		per-position value from a control track, and a per-locus value
-		from the control track and makes predictions for the profile
-		and for the counts. This per-locus value is usually the
-		log(sum(X_ctl_profile)+1) when the control is an experimental
-		read track but can also be the output from another model.
+		This method takes in a nucleotide sequence X and, for a model
+		with control tracks, the per-position control signal X_ctl, and
+		makes predictions for the profile and for the counts. The model
+		derives what it needs from X_ctl itself.
 
 		Parameters
 		----------
