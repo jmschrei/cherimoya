@@ -1,4 +1,4 @@
-<img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/cherimoya.png">
+<img src="https://raw.githubusercontent.com/jmschrei/cherimoya/main/imgs/cherimoya.png">
 
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/cherimoya?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/cherimoya)
 [![PyPI Version](https://img.shields.io/pypi/v/cherimoya.svg)](https://pypi.org/project/cherimoya/)
@@ -16,7 +16,7 @@ Cherimoya is a compact deep learning model for predicting genomic modalities mea
 > [!NOTE]
 > Check out the [Cherimoya Accessibility aTlas (CATv1)](https://huggingface.co/programmable-genomics/CATv1), a collection of ~7,500 Cherimoya models trained on ~1,500 DNase- and ATAC-seq experiments from ENCODE!
 
-<img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/cheri-model.png">
+<img src="https://raw.githubusercontent.com/jmschrei/cherimoya/main/imgs/cheri-model.png">
 
 ### Design highlights
 
@@ -56,7 +56,7 @@ GPU acceleration requires Triton and a CUDA-capable device; a pure-PyTorch CPU f
 
 ### The Cheri Block
 
-<img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/cheri-block.png">
+<img src="https://raw.githubusercontent.com/jmschrei/cherimoya/main/imgs/cheri-block.png">
 
 Each block performs a 3-tap dilated depthwise convolution, a per-example layer normalization, a linear expansion to `expansion × n_filters` channels, a GELU non-linearity, a contraction back to `n_filters` channels, and a residual connection scaled by a small fixed constant (`residual_scale`, default `0.15`). The convolution and normalization are fused into a custom Triton kernel; under `torch.no_grad()` the entire block (including the MLP) collapses into a second fused megakernel for inference. The default 9-layer model uses dilations `1, 2, 4, ..., 256`, giving a receptive field of 1117 bp and a 2114 → 1000 bp input/output by default. See [the architecture docs](https://cherimoya.readthedocs.io/en/latest/architecture.html) for receptive field math, kernel internals, and the rationale for each design choice.
 
@@ -74,13 +74,13 @@ On the default model at fp32, the three paths agree on the profile logits to wit
 
 ### Multi-GPU training
 
-<img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/multi-gpu-speedup.png" width=60%>
+<img src="https://raw.githubusercontent.com/jmschrei/cherimoya/main/imgs/multi-gpu-speedup.png" width=60%>
 
 Training runs on PyTorch Lightning, so setting `devices` in the fit JSON (or passing `devices=` to `cherimoya.training.fit`) trains on several GPUs with DDP. `batch_size` stays the global batch, split evenly across the GPUs, so every step sees the same examples as on one GPU. The figure shows the training speedup at the default global batch of 64 on H200 GPUs, for one ATAC-seq experiment (2,322 steps per epoch). Larger models scale further, because each GPU's share of the batch is more work: the 512-filter model reaches 3.1–3.3× on 4 GPUs and the 12-layer model with a 9,282 bp input window 4.0–4.6× on 8, while the default model gains at most 2.4×. Giving each GPU 64 examples instead scales 7.0–7.7× on 8 GPUs, at the cost of a larger global batch that changes the training. See [training on several devices](https://cherimoya.readthedocs.io/en/latest/cli.html#training-on-several-devices) for how to set it up.
 
 ### End-to-end CLI pipeline
 
-<img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/pipeline.png" width=70%>
+<img src="https://raw.githubusercontent.com/jmschrei/cherimoya/main/imgs/pipeline.png" width=70%>
 
 The CLI strings the full pipeline — peak calling, signal extraction, training, attribution, seqlet calling, motif discovery — into a single reproducible run. Each step is parameterized through a JSON file, which serves both as a runtime config and a permanent record of what was run. The user-supplied JSON is merged with sensible defaults, so practical configs are short.
 
