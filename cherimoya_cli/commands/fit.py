@@ -89,6 +89,7 @@ def _loss_balance_summary(loss_weights, lw_lr, lw_wd, lw_momentum):
 def run(args):
 	import argparse
 	import copy
+	import hashlib
 	import os
 	import json
 
@@ -127,10 +128,18 @@ def run(args):
 	# read rank 0's draw from `PL_GLOBAL_SEED`, which `seed_everything`
 	# sets before they start; rank 0 itself always draws, so a value left
 	# in the environment by an earlier run in the same process is ignored.
+	# Under `srun` every rank starts at once, so there is no draw to
+	# inherit, and each derives the same seed from the job step instead.
 	if parameters["random_state"] is None:
 		seed = None
 		if int(os.environ.get("LOCAL_RANK", 0)) > 0:
 			seed = os.environ.get("PL_GLOBAL_SEED")
+		elif int(os.environ.get("SLURM_NTASKS", 1)) > 1:
+			step = "{}.{}".format(os.environ.get("SLURM_JOB_ID"),
+				os.environ.get("SLURM_STEP_ID", 0))
+			seed = int(hashlib.sha256(step.encode()).hexdigest(), 16) % (2**31 - 1)
+			say("Derived random_state={} from SLURM job step {}; set it in the "
+				"JSON to repeat this run.".format(seed, step))
 
 		if seed is None:
 			seed = int(numpy.random.randint(0, 2**31 - 1))

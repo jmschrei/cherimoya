@@ -2,6 +2,7 @@
 # Contact: Jacob Schreiber <jmschreiber91@gmail.com>
 
 import math
+import warnings
 
 import numpy
 import pandas
@@ -449,6 +450,22 @@ def test_early_stopping_ends_the_run(tmp_path):
 	assert len(log) == 3
 	assert list(log['Saved?']) == [True, False, False]
 	assert trainer.current_epoch == 3
+
+
+@pytest.mark.parametrize("loss_weights", [None, (1.333, 0.274)])
+def test_fit_does_not_warn_about_the_scheduler_order(tmp_path, loss_weights):
+	"""With fixed `loss_weights` the `lw` optimizer never steps, so stepping
+	its schedule made PyTorch warn that a scheduler stepped before its
+	optimizer."""
+
+	training_data, X_valid, y_valid, _ = _data([1, 2], 4)
+	with warnings.catch_warnings(record=True) as caught:
+		warnings.simplefilter("always")
+		_lightning_fit(tmp_path, _model([1, 2]), training_data, X_valid,
+			y_valid, max_epochs=1, loss_weights=loss_weights)
+
+	messages = [str(w.message) for w in caught]
+	assert not [m for m in messages if "lr_scheduler.step()" in m]
 
 
 def test_fit_refuses_a_training_set_smaller_than_one_batch(tmp_path):

@@ -179,6 +179,33 @@ def test_fit_first_rank_ignores_a_seed_left_in_the_environment(fit_json,
 	assert "Drew random_state={}".format(drawn) in capsys.readouterr().out
 
 
+def _srun_seed(fit_json, monkeypatch, procid, step):
+	cfg = json.loads(open(fit_json).read())
+	cfg['random_state'] = None
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	monkeypatch.delenv("LOCAL_RANK", raising=False)
+	monkeypatch.setenv("SLURM_NTASKS", "2")
+	monkeypatch.setenv("SLURM_JOB_ID", "4242")
+	monkeypatch.setenv("SLURM_STEP_ID", str(step))
+	monkeypatch.setenv("SLURM_PROCID", str(procid))
+
+	captured = _run_capturing_training_fit(fit_json)
+	return captured['peak_generator']['random_state']
+
+
+def test_fit_srun_ranks_derive_the_same_seed(fit_json, monkeypatch, capsys):
+	"""`srun` starts every rank at once, so no rank can inherit another's
+	draw. Each derives the seed from the job step, so they agree, and a new
+	`srun` gets a new seed."""
+
+	first = _srun_seed(fit_json, monkeypatch, procid=0, step=0)
+	assert "Derived random_state={}".format(first) in capsys.readouterr().out
+
+	assert _srun_seed(fit_json, monkeypatch, procid=1, step=0) == first
+	assert _srun_seed(fit_json, monkeypatch, procid=0, step=1) != first
+
+
 def test_default_fit_parameters_default_num_workers_is_one():
 	from cherimoya_cli.defaults import (
 		default_fit_parameters,
