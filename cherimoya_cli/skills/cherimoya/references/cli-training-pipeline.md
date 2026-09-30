@@ -70,8 +70,9 @@ Common novice edits — always explain the change you make:
   - Results match a one-GPU run statistically, not bitwise.
   - It must run from a terminal or batch script, not a Jupyter notebook.
   - Under SLURM, run `srun cherimoya fit -p my_run.fit.json` (not `pipeline`)
-    with `--ntasks-per-node` equal to `devices` on one node, and keep
-    `random_state` an integer.
+    with `--ntasks-per-node` equal to `devices` on one node. With
+    `random_state: null`, every rank derives the same seed from the SLURM
+    job step and rank 0 prints it.
   The pipeline runs the fit step as a separate `python -m cherimoya_cli fit`
   process. Details: <https://cherimoya.readthedocs.io/en/latest/cli.html#training-on-several-devices>.
 - **Want to watch training?** `fit_parameters.verbose: true` prints the

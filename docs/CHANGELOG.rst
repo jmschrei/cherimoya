@@ -438,7 +438,9 @@ Training
   Lightning starts every rank after the first by re-running the current
   command. ``cherimoya fit`` therefore prints and evaluates on rank 0
   only, and with ``random_state: null`` the other ranks use the seed
-  rank 0 drew. In ``cherimoya pipeline``, a ``devices`` other than 1
+  rank 0 drew. Under ``srun``, which starts every rank at once, each rank
+  instead derives the same seed from ``SLURM_JOB_ID`` and
+  ``SLURM_STEP_ID``. In ``cherimoya pipeline``, a ``devices`` other than 1
   runs the fit step as a separate ``python -m cherimoya_cli fit -p
   {name}.fit.json`` process, so that the re-run command is the fit and
   not the whole pipeline.

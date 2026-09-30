@@ -725,10 +725,12 @@ launch ``cherimoya fit`` with ``srun``::
    srun cherimoya fit -p my_run.fit.json    # with "devices": 4
 
 Lightning raises an error when ``--ntasks-per-node`` differs from
-``devices``. Keep ``random_state`` an integer (the default is 0):
-``srun`` starts every rank at once, so with ``null`` each would draw
-its own seed. Run ``cherimoya fit`` rather than ``cherimoya pipeline``
-under ``srun``, since every task runs the whole command.
+``devices``. ``srun`` starts every rank at once, so with
+``random_state`` set to ``null`` there is no draw for the others to
+inherit; each rank derives the same seed from ``SLURM_JOB_ID`` and
+``SLURM_STEP_ID`` instead, and rank 0 prints it. Run ``cherimoya fit``
+rather than ``cherimoya pipeline`` under ``srun``, since every task
+runs the whole command.
 
 
 cherimoya evaluate

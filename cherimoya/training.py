@@ -431,8 +431,13 @@ class CherimoyaModule(lightning.LightningModule):
 			if not self._lw_frozen:
 				lw.step()
 
-		for scheduler in self.lr_schedulers():
-			scheduler.step()
+		# The `lw` rate is only read while the Kendall weights are learned,
+		# and stepping its schedule without its optimizer makes PyTorch warn.
+		muon_scheduler, adam_scheduler, lw_scheduler = self.lr_schedulers()
+		muon_scheduler.step()
+		adam_scheduler.step()
+		if not self._lw_frozen:
+			lw_scheduler.step()
 
 		self.ema.update(self.model)
 		self._iteration += 1
