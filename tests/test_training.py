@@ -38,10 +38,9 @@ LOG_NAMES = {'train_profile_mnll': 'Training MNLL',
 LOG_COLUMNS = ["Epoch", "Iteration", "Training Time", "Validation Time",
 	"Training MNLL", "Training Count MSE", "Validation MNLL",
 	"Validation Profile Pearson", "Validation Count Pearson",
-	"Validation Count MSE", "Saved?",
-	"Validation Count Pearson (Peaks+Negatives)",
+	"Validation Count MSE", "Validation Count Pearson (Peaks+Negatives)",
 	"Validation Count MSE (Peaks+Negatives)", "Validation AUROC",
-	"Validation AUPRC"]
+	"Validation AUPRC", "Saved?"]
 N_WARMUP_STEPS = 3
 N_DECAY_STEPS = 5
 LR = dict(muon_lr=0.025, muon_wd=0.03, adam_lr=1e-3, adam_wd=0.0,
@@ -430,7 +429,7 @@ def test_fit_writes_the_training_logs_in_their_format(tmp_path):
 		"ProfilePearson_g1", "CountPearson_g0", "CountPearson_g1",
 		"AUROC_g0", "AUROC_g1", "AUPRC_g0", "AUPRC_g1"]
 	assert len(summary) == len(detailed) == 3
-	assert summary[1].split("\t")[10:] == ["True", "", "", "", ""]
+	assert summary[1].split("\t")[10:] == ["", "", "", "", "True"]
 	for line_s, line_d in zip(summary[1:], detailed[1:]):
 		assert line_d.split("\t")[:len(LOG_COLUMNS)] == line_s.split("\t")
 
@@ -469,10 +468,10 @@ def test_validation_negatives_add_measures_and_leave_the_rest(tmp_path,
 		logs[name] = pandas.read_csv(tmp_path / "{}.log".format(name),
 			sep="\t")
 
-	peak_columns = LOG_COLUMNS[4:11]
+	peak_columns = LOG_COLUMNS[4:10] + ["Saved?"]
 	pandas.testing.assert_frame_equal(logs["peaks"][peak_columns],
 		logs["all"][peak_columns])
-	assert logs["peaks"][LOG_COLUMNS[11:]].isna().all().all()
+	assert logs["peaks"][LOG_COLUMNS[10:14]].isna().all().all()
 
 	model = Cherimoya.load(str(tmp_path / "all.final.torch"), device='cpu')
 	_, y_hat_logcounts = predict(model, X_all, batch_size=BATCH_SIZE,
@@ -493,7 +492,7 @@ def test_validation_negatives_add_measures_and_leave_the_rest(tmp_path,
 			for i in range(len(signal_groups))]),
 	]
 
-	last = logs["all"][LOG_COLUMNS[11:]].iloc[-1].to_numpy()
+	last = logs["all"][LOG_COLUMNS[10:14]].iloc[-1].to_numpy()
 	numpy.testing.assert_allclose(last, expected, rtol=1e-4, atol=1e-5)
 
 
@@ -678,7 +677,7 @@ def test_verbose_prints_the_epoch_table(tmp_path, capsys):
 		assert float(row[4]) == pytest.approx(float(log['Training MNLL'][epoch]),
 			abs=1e-4)
 		assert row[8] == log['Validation Count Pearson'][epoch]
-		assert row[10] == log['Saved?'][epoch]
+		assert row[-1] == log['Saved?'][epoch]
 
 
 def test_quiet_without_verbose(tmp_path, capsys):

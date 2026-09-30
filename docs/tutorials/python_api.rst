@@ -178,8 +178,8 @@ the negatives on the same chromosomes and label each row:
    y_valid = torch.cat([y_valid, y_neg])
 
 Passing ``labels_valid`` to ``fit`` (below) keeps every existing
-measure and the checkpoint choice on the peaks, and fills the log's
-last four columns: the count Pearson and MSE over peaks and negatives
+measure and the checkpoint choice on the peaks, and fills the four log
+columns before ``Saved?``: the count Pearson and MSE over peaks and negatives
 together, and the AUROC and AUPRC. With controls, append the
 negatives' controls to ``X_ctl_valid`` the same way.
 

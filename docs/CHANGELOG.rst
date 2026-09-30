@@ -71,7 +71,7 @@ Removed (**breaking**)
   ``{name}.final.torch`` are written in the ``Cherimoya.save`` format and
   load with ``Cherimoya.load``, and ``{name}.log`` and
   ``{name}.detailed.log`` keep their columns, with the negatives'
-  columns (below) appended after them.
+  columns (below) added before ``Saved?``.
 
 * ``cherimoya batch`` is removed, along with
   ``cherimoya_cli/commands/batch.py``, its subparser, its CLI reference
@@ -102,11 +102,13 @@ Added
   the predicted log counts at separating peaks from negatives, per
   signal group. The existing measures, and the checkpoint and
   early-stopping criterion, are unchanged and still computed on the
-  peaks alone. Columns are appended, never reordered: ``{name}.log``
-  gains ``Validation Count Pearson (Peaks+Negatives)``, ``Validation
-  Count MSE (Peaks+Negatives)``, ``Validation AUROC`` and ``Validation
-  AUPRC`` after ``Saved?``; ``{name}.detailed.log`` gains
-  ``AUROC_g{i}`` and ``AUPRC_g{i}`` after the per-group Pearsons; and
+  peaks alone. ``{name}.log`` gains ``Validation Count Pearson
+  (Peaks+Negatives)``, ``Validation Count MSE (Peaks+Negatives)``,
+  ``Validation AUROC`` and ``Validation AUPRC`` after ``Validation Count
+  MSE``, and ``Saved?`` moves to the last column (in
+  ``{name}.detailed.log``, the last before the per-group columns); the
+  detailed log also gains ``AUROC_g{i}`` and ``AUPRC_g{i}`` after the
+  per-group Pearsons; and
   ``{name}.performance.tsv`` gains ``all_count_pearson``,
   ``all_count_spearman``, ``all_count_mse``, ``auroc`` and ``auprc``.
   Without negatives the new columns are empty in the logs and ``nan``

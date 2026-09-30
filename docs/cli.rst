@@ -425,9 +425,9 @@ Unspecified keys fall back to the fit-level defaults.
        ``Training Time``, ``Validation Time``, ``Training MNLL``,
        ``Training Count MSE``, ``Validation MNLL``, ``Validation Profile
        Pearson``, ``Validation Count Pearson``, ``Validation Count MSE``,
-       ``Saved?``, ``Validation Count Pearson (Peaks+Negatives)``,
-       ``Validation Count MSE (Peaks+Negatives)``, ``Validation AUROC``
-       and ``Validation AUPRC``), and allow a progress bar. Left ``null`` here, the
+       ``Validation Count Pearson (Peaks+Negatives)``, ``Validation Count
+       MSE (Peaks+Negatives)``, ``Validation AUROC``, ``Validation AUPRC``
+       and ``Saved?``), and allow a progress bar. Left ``null`` here, the
        pipeline's top-level value is used.
    * - ``progress_bar``
      - ``null``
@@ -695,8 +695,8 @@ files next to ``name``:
 Validation uses the ``loci`` and every ``negatives`` locus on the
 ``validation_chroms``. The validation profile measures, the count
 Pearson and MSE, and the checkpoint and early-stopping criterion are
-computed on the peaks alone. The last four columns are the count
-Pearson and MSE over peaks and negatives together, and the AUROC and
+computed on the peaks alone. The four columns before ``Saved?`` are the
+count Pearson and MSE over peaks and negatives together, and the AUROC and
 AUPRC of the predicted log counts at separating peaks from negatives,
 each averaged over the signal groups. They are empty when
 ``negatives`` is ``null`` or has no locus on the validation

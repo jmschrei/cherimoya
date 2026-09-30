@@ -33,8 +33,10 @@ correlates with truth on held-out chromosomes.
 
 ### `{name}.log` — per-epoch training curve
 One row per epoch (train/validation metrics). Validation metrics are on peaks,
-except the last four columns (count Pearson and MSE over peaks+negatives,
-AUROC, AUPRC), which are empty without negatives. Shows whether validation count
+except the four columns before `Saved?` (count Pearson and MSE over
+peaks+negatives, AUROC, AUPRC), which are empty without negatives. `Saved?`, the
+last column, marks each epoch that improved the best validation count Pearson;
+`{name}.torch` holds the last of them. Shows whether validation count
 Pearson climbed and which epoch the kept checkpoint came from. **Compare final
 results against the EMA validation numbers here, not the mid-epoch training
 loss** (see the checkpoint note below).

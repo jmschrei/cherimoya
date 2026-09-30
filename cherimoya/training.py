@@ -55,10 +55,9 @@ _PRECISION = {
 _LOG_COLUMNS = ["Epoch", "Iteration", "Training Time", "Validation Time",
 	"Training MNLL", "Training Count MSE", "Validation MNLL",
 	"Validation Profile Pearson", "Validation Count Pearson",
-	"Validation Count MSE", "Saved?",
-	"Validation Count Pearson (Peaks+Negatives)",
+	"Validation Count MSE", "Validation Count Pearson (Peaks+Negatives)",
 	"Validation Count MSE (Peaks+Negatives)", "Validation AUROC",
-	"Validation AUPRC"]
+	"Validation AUPRC", "Saved?"]
 
 _INPUT_DTYPE = {
 	'bf16-mixed': torch.bfloat16,
@@ -628,7 +627,7 @@ class CherimoyaModule(lightning.LightningModule):
 		row = [self.current_epoch, self._iteration, self._train_time,
 			valid_time, metrics['train_profile_mnll'].item(),
 			metrics['train_count_mse'].item(), profile_mnll, profile_pearson,
-			count_pearson, count_mse, saved] + negative_row
+			count_pearson, count_mse] + negative_row + [saved]
 
 		# Written by rank 0 after every epoch, as the log always was.
 		if self.trainer.is_global_zero:
