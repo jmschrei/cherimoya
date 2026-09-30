@@ -26,6 +26,8 @@ import lightning
 from lightning.pytorch.callbacks import EarlyStopping
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.plugins.io import TorchCheckpointIO
+from sklearn.metrics import average_precision_score
+from sklearn.metrics import roc_auc_score
 
 from bpnetlite.logging import Logger
 from torch.optim import Muon
@@ -53,7 +55,10 @@ _PRECISION = {
 _LOG_COLUMNS = ["Epoch", "Iteration", "Training Time", "Validation Time",
 	"Training MNLL", "Training Count MSE", "Validation MNLL",
 	"Validation Profile Pearson", "Validation Count Pearson",
-	"Validation Count MSE", "Saved?"]
+	"Validation Count MSE", "Saved?",
+	"Validation Count Pearson (Peaks+Negatives)",
+	"Validation Count MSE (Peaks+Negatives)", "Validation AUROC",
+	"Validation AUPRC"]
 
 _INPUT_DTYPE = {
 	'bf16-mixed': torch.bfloat16,
@@ -212,6 +217,15 @@ class CherimoyaModule(lightning.LightningModule):
 		Validation controls, or None if the model takes none. Default is
 		None.
 
+	labels_valid: torch.tensor or None, shape=(n,)
+		1 for each validation peak and 0 for each negative. The profile
+		measures, the count Pearson and MSE, and the checkpoint criterion
+		are computed on the peaks alone. With negatives, the last four log
+		columns hold the count Pearson and MSE over peaks and negatives
+		together, and the AUROC and AUPRC of the predicted log counts
+		separating the two; without them, they are NaN. If None, every
+		example is a peak. Default is None.
+
 	batch_size: int, optional
 		The global batch size, split evenly across devices. Also the batch
 		size each device validates with. Default is 64.
@@ -255,9 +269,9 @@ class CherimoyaModule(lightning.LightningModule):
 	"""
 
 	def __init__(self, model, training_data, X_valid, y_valid,
-		X_ctl_valid=None, batch_size=64, num_workers=1, n_warmup_steps=0,
-		n_decay_steps=1, muon_lr=0.025, muon_wd=0.03, adam_lr=0.001,
-		adam_wd=0.0, lw_lr=0.001, lw_wd=0.0, lw_momentum=0.9,
+		X_ctl_valid=None, labels_valid=None, batch_size=64, num_workers=1,
+		n_warmup_steps=0, n_decay_steps=1, muon_lr=0.025, muon_wd=0.03,
+		adam_lr=0.001, adam_wd=0.0, lw_lr=0.001, lw_wd=0.0, lw_momentum=0.9,
 		loss_weights=None, ema_decay=0.999, verbose=False):
 		super().__init__()
 		self.automatic_optimization = False
@@ -267,6 +281,9 @@ class CherimoyaModule(lightning.LightningModule):
 		self.X_valid = X_valid
 		self.y_valid = y_valid
 		self.X_ctl_valid = X_ctl_valid
+		self.labels_valid = (torch.ones(len(X_valid)) if labels_valid is None
+			else labels_valid)
+		self._has_negatives = bool((self.labels_valid == 0).any())
 
 		self.batch_size = batch_size
 		self.num_workers = num_workers
@@ -364,7 +381,9 @@ class CherimoyaModule(lightning.LightningModule):
 		self._log = Logger(_LOG_COLUMNS, verbose=False)
 		self._detailed_log = Logger(_LOG_COLUMNS
 			+ ["ProfilePearson_g{}".format(i) for i in groups]
-			+ ["CountPearson_g{}".format(i) for i in groups], verbose=False)
+			+ ["CountPearson_g{}".format(i) for i in groups]
+			+ ["AUROC_g{}".format(i) for i in groups]
+			+ ["AUPRC_g{}".format(i) for i in groups], verbose=False)
 		self._log.start()
 		self._detailed_log.start()
 
@@ -494,36 +513,58 @@ class CherimoyaModule(lightning.LightningModule):
 			self.trainer.world_size)
 
 		y = self.y_valid[start:stop]
+		peaks = self.labels_valid[start:stop] == 1
 		y_hat_logits = torch.cat([logits for logits, _ in self._valid_outputs])
 		y_hat_logcounts = torch.cat([counts for _, counts in self._valid_outputs])
 		self._valid_outputs = []
 
-		profile_loss, count_loss = _mixture_loss(y, y_hat_logits,
-			y_hat_logcounts, signal_groups=signal_groups)
+		# A rank whose block holds no peaks adds nothing to the losses.
+		profile_loss = count_loss = torch.zeros(len(signal_groups))
+		if peaks.any():
+			profile_loss, count_loss = _mixture_loss(y[peaks],
+				y_hat_logits[peaks], y_hat_logcounts[peaks],
+				signal_groups=signal_groups)
 		profile_pearson = calculate_performance_measures(y_hat_logits, y,
 			y_hat_logcounts, measures=['profile_pearson'],
 			signal_groups=signal_groups)['profile_pearson']
 
-		# The losses are means over this rank's rows, so the mean over the
-		# whole set weights each rank by its row count.
+		# The losses are means over this rank's peaks, so the mean over the
+		# whole set weights each rank by its peak count.
 		if self.trainer.world_size > 1:
-			losses = torch.stack([profile_loss, count_loss]).to(self.device)
-			losses = self.all_gather(losses * (stop - start)).sum(dim=0)
-			profile_loss, count_loss = (losses / len(self.X_valid)).cpu()
+			losses = torch.stack([profile_loss, count_loss]) * peaks.sum()
+			losses = self.all_gather(losses.to(self.device)).sum(dim=0)
+			profile_loss, count_loss = (losses / (self.labels_valid == 1).sum()
+				).cpu()
 
-		profile_pearson = self._gather_rows(profile_pearson)
+		peaks = self.labels_valid == 1
+		profile_pearson = self._gather_rows(profile_pearson)[peaks]
 		y_hat_logcounts = self._gather_rows(y_hat_logcounts)
 		observed = self._gather_rows(y.sum(dim=-1))
 
-		# The count Pearson needs only per-channel totals, so pass those as
+		# The count measures need only per-channel totals, so pass those as
 		# a profile of length one.
-		count_pearson = calculate_performance_measures(
-			torch.zeros(*observed.shape, 1), observed.unsqueeze(-1),
-			y_hat_logcounts, measures=['count_pearson'],
-			signal_groups=signal_groups)['count_pearson']
+		def count_measures(rows, measures):
+			return calculate_performance_measures(
+				torch.zeros(*observed[rows].shape, 1),
+				observed[rows].unsqueeze(-1), y_hat_logcounts[rows],
+				measures=measures, signal_groups=signal_groups)
+
+		count_pearson = count_measures(peaks, ['count_pearson'])['count_pearson']
 
 		profile_pearson = numpy.nan_to_num(profile_pearson)
 		count_pearson = numpy.nan_to_num(count_pearson)
+
+		n_groups = len(signal_groups)
+		all_pearson = all_mse = auroc = auprc = numpy.full(n_groups, numpy.nan)
+		if self._has_negatives:
+			measures = count_measures(slice(None), ['count_pearson', 'count_mse'])
+			all_pearson = numpy.nan_to_num(measures['count_pearson'])
+			all_mse = measures['count_mse'].numpy()
+			scores = y_hat_logcounts.float().numpy()
+			auroc = numpy.array([roc_auc_score(peaks, scores[:, i])
+				for i in range(n_groups)])
+			auprc = numpy.array([average_precision_score(peaks, scores[:, i])
+				for i in range(n_groups)])
 
 		# Each group's profile Pearson averages over its channels and loci.
 		per_group_profile, lo = [], 0
@@ -538,9 +579,11 @@ class CherimoyaModule(lightning.LightningModule):
 		self._valid_row = [time.time() - self._valid_tic,
 			profile_loss.mean().item(), float(numpy.mean(per_group_profile)),
 			valid_count_pearson, count_loss.mean().item(),
-			(valid_count_pearson > self._best_valid).item()]
+			(valid_count_pearson > self._best_valid).item(),
+			float(all_pearson.mean()), float(all_mse.mean()),
+			float(auroc.mean()), float(auprc.mean())]
 		self._valid_groups = per_group_profile + [float(v) for v in
-			count_pearson.tolist()]
+			count_pearson.tolist()] + auroc.tolist() + auprc.tolist()
 
 		self._best_valid = max(self._best_valid, valid_count_pearson)
 
@@ -552,16 +595,19 @@ class CherimoyaModule(lightning.LightningModule):
 		# the latest validation Pearsons sit to the right of the progress
 		# bar through the next epoch.
 		valid_time, profile_mnll, profile_pearson, count_pearson, count_mse, \
-			saved = self._valid_row
+			saved, *negative_row = self._valid_row
 		self.log("valid_profile_pearson", profile_pearson, prog_bar=True)
 		self.log("valid_count_pearson", torch.tensor(count_pearson),
 			prog_bar=True)
+		for key, value in zip(["valid_count_pearson_all",
+			"valid_count_mse_all", "valid_auroc", "valid_auprc"], negative_row):
+			self.log(key, value)
 
 		metrics = self.trainer.callback_metrics
 		row = [self.current_epoch, self._iteration, self._train_time,
 			valid_time, metrics['train_profile_mnll'].item(),
 			metrics['train_count_mse'].item(), profile_mnll, profile_pearson,
-			count_pearson, count_mse, saved]
+			count_pearson, count_mse, saved] + negative_row
 
 		# Written by rank 0 after every epoch, as the log always was.
 		if self.trainer.is_global_zero:
@@ -630,7 +676,10 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 	Pearson; ``{name}.final.torch``, the EMA weights at the end of
 	training; ``{name}.log``, one tab-separated row per epoch of training
 	and validation measures; and ``{name}.detailed.log``, the same with
-	one profile and one count Pearson column per signal group.
+	one profile Pearson, count Pearson, AUROC and AUPRC column per signal
+	group. The validation measures that use negatives are NaN unless
+	``labels_valid`` (see :class:`CherimoyaModule`) marks some examples as
+	negatives.
 
 	Parameters
 	----------

@@ -159,7 +159,9 @@ the ``cherimoya`` CLI:
    * - ``tests/test_training.py``
      - Lightning training against a reference loop, bitwise on CPU;
        the best and final EMA checkpoints; the columns and layout of
-       ``{name}.log`` and ``{name}.detailed.log``; early stopping; the
+       ``{name}.log`` and ``{name}.detailed.log``; the measures that use
+       validation negatives, and that negatives leave the peak-only
+       columns unchanged; early stopping; the
        guards against a training set smaller than one batch and an
        unknown ``dtype``; validation shards covering every row once.
    * - ``tests/test_io.py``

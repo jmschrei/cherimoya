@@ -79,7 +79,9 @@ Confirm with the user:
 ### Negatives — `negatives`
 - **`.bed`** — background regions the model also trains on. If absent, the
   pipeline samples GC-matched negatives (step 0.3). `negative_ratio` (default
-  0.25) sets negatives per peak per epoch.
+  0.25) sets negatives per peak per epoch. Every negative on the validation
+  chromosomes is also scored at validation and evaluation, for the
+  peaks+negatives count metrics and the AUROC/AUPRC.
 
 ### Motif database — `motifs`
 - **`.meme`** — MEME-format known motifs (e.g. JASPAR, HOCOMOCO). Optional;

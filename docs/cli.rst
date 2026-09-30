@@ -177,6 +177,8 @@ JSON schema (top-level keys, with defaults from
    * - ``negatives``
      - ``null``
      - BED of negatives. If null, GC-matched negatives are sampled.
+       Those on the validation chromosomes are also scored in
+       validation and evaluation (see `cherimoya fit`_).
    * - ``signals``
      - ``null``
      - Signal-track specification (BAM or bigWig files). Required.
@@ -405,8 +407,10 @@ Unspecified keys fall back to the fit-level defaults.
        columns ``Epoch``, ``Iteration``,
        ``Training Time``, ``Validation Time``, ``Training MNLL``,
        ``Training Count MSE``, ``Validation MNLL``, ``Validation Profile
-       Pearson``, ``Validation Count Pearson``, ``Validation Count MSE`` and
-       ``Saved?``), and allow a progress bar. Left ``null`` here, the
+       Pearson``, ``Validation Count Pearson``, ``Validation Count MSE``,
+       ``Saved?``, ``Validation Count Pearson (Peaks+Negatives)``,
+       ``Validation Count MSE (Peaks+Negatives)``, ``Validation AUROC``
+       and ``Validation AUPRC``), and allow a progress bar. Left ``null`` here, the
        pipeline's top-level value is used.
    * - ``progress_bar``
      - ``null``
@@ -657,8 +661,19 @@ files next to ``name``:
 * ``{name}.final.torch`` — the EMA weights at the end of training.
 * ``{name}.log`` — one tab-separated row per epoch of training and
   validation measures, with the columns listed under ``verbose`` above.
-* ``{name}.detailed.log`` — the same, plus one profile and one count
-  Pearson column per signal group.
+* ``{name}.detailed.log`` — the same, plus one profile Pearson, count
+  Pearson, AUROC and AUPRC column per signal group.
+
+Validation uses the ``loci`` and every ``negatives`` locus on the
+``validation_chroms``. The validation profile measures, the count
+Pearson and MSE, and the checkpoint and early-stopping criterion are
+computed on the peaks alone. The last four columns are the count
+Pearson and MSE over peaks and negatives together, and the AUROC and
+AUPRC of the predicted log counts at separating peaks from negatives,
+each averaged over the signal groups. They are empty when
+``negatives`` is ``null`` or has no locus on the validation
+chromosomes. The AUPRC depends on the ratio of peaks to negatives in
+the validation set.
 
 Both checkpoints load with :meth:`cherimoya.Cherimoya.load`.
 :doc:`multi_task` describes the two logs and how the per-group averages
@@ -733,6 +748,8 @@ rather than ``cherimoya pipeline`` under ``srun``, since every task
 runs the whole command.
 
 
+.. _cli-evaluate:
+
 cherimoya evaluate
 ------------------
 
@@ -758,6 +775,10 @@ JSON schema:
    * - ``loci``
      - ``null``
      - BED of evaluation loci.
+   * - ``negatives``
+     - ``null``
+     - Optional BED of negatives, scored with the loci for the
+       columns that use negatives. The key may be left out.
    * - ``controls``
      - ``null``
      - Optional list of control bigWigs (must match training). Same
@@ -801,7 +822,13 @@ JSON schema:
 The TSV columns are
 ``profile_mnll``, ``profile_jsd``, ``profile_pearson``,
 ``profile_spearman``, ``count_pearson``, ``count_spearman``,
-``count_mse``. The file has one data row per signal group, in
+``count_mse``, computed on the ``loci`` alone, then
+``all_count_pearson``, ``all_count_spearman``, ``all_count_mse``,
+computed on the loci and negatives together, and ``auroc`` and
+``auprc``, for the predicted log counts separating the loci from the
+negatives. The last five are ``nan`` without negatives. The ``fit``
+step's evaluate JSON carries its ``negatives``, so the pipeline's
+evaluation includes them. The file has one data row per signal group, in
 ``signal_groups`` order — for a single-group model (the default) this
 is a single row holding the same per-group mean that
 ``calculate_performance_measures`` returns; for a multi-group model

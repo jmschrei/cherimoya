@@ -96,6 +96,7 @@ def run(args):
 	os.environ["TORCH_CUDNN_V8_API_ENABLED"] = "1"
 
 	import numpy
+	import torch
 	import lightning
 	from lightning.pytorch.utilities import rank_zero_only
 
@@ -206,24 +207,38 @@ def run(args):
 		control_groups=control_groups,
 	).dataset
 
-	valid_data = extract_loci(
-		sequences=parameters["sequences"],
-		signals=signal_files,
-		in_signals=control_files,
-		loci=parameters["loci"],
-		chroms=parameters["validation_chroms"],
-		in_window=parameters["in_window"],
-		out_window=parameters["out_window"],
-		max_jitter=0,
-		exclusion_lists=parameters["exclusion_lists"],
-		ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
-		verbose=parameters["verbose"],
-	)
+	def extract_validation(loci):
+		return extract_loci(
+			sequences=parameters["sequences"],
+			signals=signal_files,
+			in_signals=control_files,
+			loci=loci,
+			chroms=parameters["validation_chroms"],
+			in_window=parameters["in_window"],
+			out_window=parameters["out_window"],
+			max_jitter=0,
+			exclusion_lists=parameters["exclusion_lists"],
+			ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
+			verbose=parameters["verbose"],
+		)
+
+	# Every negative on the validation chromosomes joins the validation
+	# set, labeled 0, for the measures that separate peaks from negatives.
+	valid_data = extract_validation(parameters["loci"])
+	n_valid_peaks, n_valid_negatives = len(valid_data[0]), 0
+	valid_labels = None
+	if parameters["negatives"] is not None:
+		negative_data = extract_validation(parameters["negatives"])
+		n_valid_negatives = len(negative_data[0])
+		valid_data = [torch.cat(pair) for pair in zip(valid_data, negative_data)]
+		valid_labels = torch.cat([torch.ones(n_valid_peaks),
+			torch.zeros(n_valid_negatives)])
 
 	if parameters["verbose"]:
 		say("\nTraining Set Peaks: ", training_data.peak_sequences.shape[0])
 		say("Training Set Negatives: ", training_data.negative_sequences.shape[0])
-		say("Validation Set Size: ", valid_data[0].shape[0], "\n")
+		say("Validation Set Size: ", n_valid_peaks)
+		say("Validation Set Negatives: ", n_valid_negatives, "\n")
 		say("Negative Ratio: 1:{:4.4} pos:neg\n".format(
 			parameters["negative_ratio"]))
 
@@ -301,6 +316,7 @@ def run(args):
 		valid_sequences,
 		valid_signals,
 		X_ctl_valid=valid_controls,
+		labels_valid=valid_labels,
 		max_epochs=max_epochs,
 		early_stopping=parameters["early_stopping"],
 		dtype=parameters["dtype"],

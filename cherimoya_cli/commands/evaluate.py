@@ -6,6 +6,8 @@ def run(args):
 
 	import torch
 
+	from sklearn.metrics import average_precision_score
+	from sklearn.metrics import roc_auc_score
 	from tangermeme.io import extract_loci
 	from tangermeme.predict import predict
 
@@ -39,25 +41,44 @@ def run(args):
 		"count_mse",
 	]
 
+	# Over peaks and negatives together, and NaN without negatives. The
+	# measures above are over the peaks alone.
+	negative_measure_names = [
+		"all_count_pearson",
+		"all_count_spearman",
+		"all_count_mse",
+		"auroc",
+		"auprc",
+	]
+
 	###
 
 	model = Cherimoya.load(parameters["model"], device=parameters["device"],
 		compile=parameters["compile"],
 		compile_mode=parameters["compile_mode"])
 
-	examples = extract_loci(
-		sequences=parameters["sequences"],
-		signals=parameters["signals"],
-		in_signals=parameters["controls"],
-		loci=parameters["loci"],
-		chroms=parameters["chroms"],
-		in_window=parameters["in_window"],
-		out_window=parameters["out_window"],
-		exclusion_lists=parameters["exclusion_lists"],
-		max_jitter=0,
-		ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
-		verbose=parameters["verbose"],
-	)
+	def extract(loci):
+		return extract_loci(
+			sequences=parameters["sequences"],
+			signals=parameters["signals"],
+			in_signals=parameters["controls"],
+			loci=loci,
+			chroms=parameters["chroms"],
+			in_window=parameters["in_window"],
+			out_window=parameters["out_window"],
+			exclusion_lists=parameters["exclusion_lists"],
+			max_jitter=0,
+			ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
+			verbose=parameters["verbose"],
+		)
+
+	# The negatives follow the peaks, which are the first `n_peaks` rows.
+	# The key is optional, so that JSONs written before it still run.
+	examples = extract(parameters["loci"])
+	n_peaks = len(examples[0])
+	if parameters.get("negatives") is not None:
+		examples = [torch.cat(pair) for pair in zip(examples,
+			extract(parameters["negatives"]))]
 
 	if parameters["controls"] == None:
 		X, y = examples
@@ -103,9 +124,16 @@ def run(args):
 	if model_signal_groups is None:
 		model_signal_groups = signal_groups
 
-	measures = calculate_performance_measures(
-		y_hat_logits, y, y_hat_logcounts, signal_groups=model_signal_groups
-	)
+	measures = calculate_performance_measures(y_hat_logits[:n_peaks],
+		y[:n_peaks], y_hat_logcounts[:n_peaks],
+		signal_groups=model_signal_groups)
+
+	labels = (torch.arange(len(y)) < n_peaks).numpy()
+	has_negatives = len(y) > n_peaks
+	if has_negatives:
+		all_measures = calculate_performance_measures(y_hat_logits, y,
+			y_hat_logcounts, signal_groups=model_signal_groups,
+			measures=["count_pearson", "count_spearman", "count_mse"])
 
 	# Build one row per signal group. Profile metrics come back shape
 	# (n_loci, sum(signal_groups)) — average over each group's channel
@@ -128,11 +156,22 @@ def run(args):
 				row.append(value[:, offset : offset + g].mean().item())
 			else:
 				row.append(value[i].item() if value.ndim >= 1 else value.item())
+
+		if has_negatives:
+			for name in ["count_pearson", "count_spearman", "count_mse"]:
+				value = all_measures[name]
+				row.append(value[i].item() if value.ndim >= 1 else value.item())
+			scores = y_hat_logcounts[:, i].float().numpy()
+			row.append(roc_auc_score(labels, scores))
+			row.append(average_precision_score(labels, scores))
+		else:
+			row.extend([float("nan")] * len(negative_measure_names))
+
 		rows.append(row)
 		offset += g
 
 	def _format_rows():
-		yield "\t".join(measure_names)
+		yield "\t".join(measure_names + negative_measure_names)
 		for row in rows:
 			yield "\t".join(str(v) for v in row)
 

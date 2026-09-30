@@ -123,6 +123,9 @@ GC-matched negatives
    training examples; ``tangermeme.match.extract_matching_loci``
    does the matching. Without GC-matching, the model can learn to
    predict "peak vs background" via GC alone, which is uninformative.
+   The negatives on the validation chromosomes are scored against the
+   validation peaks for the AUROC and AUPRC in the training log and
+   the evaluate TSV.
 
 Muon optimizer
    A second-order-flavored optimizer that orthogonalizes its update

@@ -453,6 +453,11 @@ across groups:
   over channels in that group of profile Pearson).
 * **Validation Count Pearson** is the mean over groups of the
   per-group count Pearson.
+* **Validation Count Pearson (Peaks+Negatives)**, **Validation Count
+  MSE (Peaks+Negatives)**, **Validation AUROC** and **Validation
+  AUPRC** are means over groups in the same way. They are the only
+  columns computed with the validation negatives, and are empty
+  without them.
 
 Each group contributes one number to each mean, so no modality is
 double-counted because it happens to be stranded.
@@ -477,11 +482,11 @@ training and validation MNLL is expected even on data the model fits
 well.
 
 ``{name}.detailed.log`` — saved to disk only (never printed). Same
-columns as the summary log, plus one ``ProfilePearson_g{i}`` and one
-``CountPearson_g{i}`` column per signal group, for offline
-per-modality analysis. For a model with three groups you get three
-extra Profile columns and three extra Count columns; for a model
-with three hundred groups you get six hundred. Use this file when
+columns as the summary log, plus one ``ProfilePearson_g{i}``, one
+``CountPearson_g{i}``, one ``AUROC_g{i}`` and one ``AUPRC_g{i}``
+column per signal group, for offline per-modality analysis. For a
+model with three groups you get twelve extra columns; for a model
+with three hundred groups you get twelve hundred. Use this file when
 you need to see whether one particular modality is failing while the
 others train fine.
 
@@ -491,7 +496,10 @@ The ``cherimoya evaluate`` performance TSV
 ``cherimoya evaluate`` writes a ``{name}.performance.tsv`` file with
 the same seven columns as before (``profile_mnll``, ``profile_jsd``,
 ``profile_pearson``, ``profile_spearman``, ``count_pearson``,
-``count_spearman``, ``count_mse``). When the loaded model has more
+``count_spearman``, ``count_mse``), computed on the peaks, followed
+by five computed with the negatives (``all_count_pearson``,
+``all_count_spearman``, ``all_count_mse``, ``auroc``, ``auprc``;
+see :ref:`cli-evaluate`). When the loaded model has more
 than one signal group the file has **one row per group**, in
 ``signal_groups`` order — row 0 holds the metrics for the first
 group, row 1 for the second, and so on. Profile metrics are pooled
@@ -500,8 +508,9 @@ over the group's channels and the validation loci); count metrics
 are read out of the per-group ``(n_groups,)`` tensors that
 ``calculate_performance_measures`` already produces.
 
-Single-group models still write exactly one data row, byte-identical
-to the prior ``.mean()``-of-everything format — a single-group model
+Single-group models still write exactly one data row, whose first
+seven columns are byte-identical to the prior ``.mean()``-of-everything
+format — a single-group model
 trained today and evaluated tomorrow produces the same TSV as the
 single-group model trained before this grouping change.
 

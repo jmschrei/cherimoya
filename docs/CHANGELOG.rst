@@ -30,7 +30,8 @@ Removed (**breaking**)
   Checkpoints and training logs are unchanged: ``{name}.torch`` and
   ``{name}.final.torch`` are written in the ``Cherimoya.save`` format and
   load with ``Cherimoya.load``, and ``{name}.log`` and
-  ``{name}.detailed.log`` keep their columns.
+  ``{name}.detailed.log`` keep their columns, with the negatives'
+  columns (below) appended after them.
 
 * ``cherimoya batch`` is removed, along with
   ``cherimoya_cli/commands/batch.py``, its subparser, its CLI reference
@@ -48,6 +49,35 @@ Removed (**breaking**)
 * ``joblib`` is dropped from ``dependencies``. ``batch.py`` was the only
   thing in the package that imported it. It usually remains installed
   anyway, as a transitive dependency of scikit-learn.
+
+Added
+~~~~~
+
+* **Validation and evaluation measures that use the negatives.**
+  ``cherimoya fit`` adds every ``negatives`` locus on the
+  ``validation_chroms`` to the validation set, and ``cherimoya
+  evaluate`` reads an optional ``negatives`` key, which the evaluate
+  JSON written by ``fit`` carries. Both then report the count Pearson
+  and MSE over peaks and negatives together and the AUROC and AUPRC of
+  the predicted log counts at separating peaks from negatives, per
+  signal group. The existing measures, and the checkpoint and
+  early-stopping criterion, are unchanged and still computed on the
+  peaks alone. Columns are appended, never reordered: ``{name}.log``
+  gains ``Validation Count Pearson (Peaks+Negatives)``, ``Validation
+  Count MSE (Peaks+Negatives)``, ``Validation AUROC`` and ``Validation
+  AUPRC`` after ``Saved?``; ``{name}.detailed.log`` gains
+  ``AUROC_g{i}`` and ``AUPRC_g{i}`` after the per-group Pearsons; and
+  ``{name}.performance.tsv`` gains ``all_count_pearson``,
+  ``all_count_spearman``, ``all_count_mse``, ``auroc`` and ``auprc``.
+  Without negatives the new columns are empty in the logs and ``nan``
+  in the TSV. A reader that indexes these files by position or checks
+  their column count needs updating; one that reads by column name does
+  not. In Python, :class:`~cherimoya.training.CherimoyaModule` and
+  :func:`~cherimoya.training.fit` take ``labels_valid``, 1 for each
+  peak row of the validation set and 0 for each negative, and
+  ``trainer.callback_metrics`` gains ``valid_count_pearson_all``,
+  ``valid_count_mse_all``, ``valid_auroc`` and ``valid_auprc``.
+  ``scikit-learn`` (≥ 1.7.2) becomes a declared dependency.
 
 Bug fixes
 ~~~~~~~~~

@@ -248,14 +248,17 @@ directory (with ``{name}`` from the ``-n`` flag in step 1):
      - Per-epoch training and validation metrics (TSV). Same
        columns regardless of how many signal groups the model has.
    * - ``{name}.detailed.log``
-     - Same as ``{name}.log`` plus one ``ProfilePearson_g{i}`` and
-       one ``CountPearson_g{i}`` column per signal group, for
-       offline per-modality analysis. Never printed to stdout.
+     - Same as ``{name}.log`` plus one ``ProfilePearson_g{i}``,
+       ``CountPearson_g{i}``, ``AUROC_g{i}`` and ``AUPRC_g{i}``
+       column per signal group, for offline per-modality analysis.
+       Never printed to stdout.
    * - ``{name}.performance.tsv``
      - Final held-out chromosome metrics. One TSV row per signal
        group, in ``signal_groups`` order; single-group models
-       write exactly one row. Same seven metric columns as the
-       summary log.
+       write exactly one row. Seven columns computed on the peaks,
+       then five computed with the negatives: the count Pearson,
+       Spearman and MSE over peaks and negatives, and the AUROC and
+       AUPRC.
    * - ``{name}.+.bw`` / ``{name}.-.bw``
      - bigWigs produced by ``bam2bw`` for the stranded signal.
    * - ``{name}.bw``

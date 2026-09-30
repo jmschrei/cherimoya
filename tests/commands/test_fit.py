@@ -68,15 +68,18 @@ def _run_capturing_training_fit(fit_json):
 		pass
 
 	def fake_fit(model, training_data, *args, **kwargs):
-		captured.update(kwargs, model=model, training_data=training_data)
+		captured.update(kwargs, model=model, training_data=training_data,
+			valid=args)
 		raise _StopFit()
 
 	def fake_peak_generator(**kwargs):
 		captured['peak_generator'] = kwargs
 		return _FakeLoader([None] * 4)
 
+	# One validation peak, and two validation negatives.
 	def fake_extract_loci(**kwargs):
-		return torch.zeros(1, 4, 16), torch.zeros(1, 1, 8)
+		n = 2 if kwargs['loci'] == 'fake_negatives.bed' else 1
+		return torch.zeros(n, 4, 16), torch.zeros(n, 1, 8)
 
 	with mock.patch("cherimoya.io.PeakGenerator",
 				side_effect=fake_peak_generator), \
@@ -99,6 +102,24 @@ def test_fit_forwards_the_loader_settings_to_training(fit_json):
 	assert captured['num_workers'] == 3
 	assert captured['batch_size'] == 16
 	assert isinstance(captured['training_data'], _FakeDataset)
+
+
+@pytest.mark.parametrize("negatives,labels", [("fake_negatives.bed",
+	[1, 0, 0]), (None, None)])
+def test_fit_validates_on_the_negatives_too(fit_json, negatives, labels):
+	"""The validation negatives follow the peaks and are labeled 0."""
+
+	cfg = json.loads(open(fit_json).read())
+	cfg['negatives'] = negatives
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	captured = _run_capturing_training_fit(fit_json)
+	X_valid, y_valid = captured['valid']
+	assert len(X_valid) == len(y_valid) == len(labels or [1])
+	if labels is None:
+		assert captured['labels_valid'] is None
+	else:
+		assert captured['labels_valid'].tolist() == labels
 
 
 @pytest.mark.parametrize("device,accelerator", [("cpu", "cpu"),

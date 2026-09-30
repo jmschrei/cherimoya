@@ -39,7 +39,10 @@ LOG_NAMES = {'train_profile_mnll': 'Training MNLL',
 LOG_COLUMNS = ["Epoch", "Iteration", "Training Time", "Validation Time",
 	"Training MNLL", "Training Count MSE", "Validation MNLL",
 	"Validation Profile Pearson", "Validation Count Pearson",
-	"Validation Count MSE", "Saved?"]
+	"Validation Count MSE", "Saved?",
+	"Validation Count Pearson (Peaks+Negatives)",
+	"Validation Count MSE (Peaks+Negatives)", "Validation AUROC",
+	"Validation AUPRC"]
 N_WARMUP_STEPS = 3
 N_DECAY_STEPS = 5
 LR = dict(muon_lr=0.025, muon_wd=0.03, adam_lr=1e-3, adam_wd=0.0,
@@ -412,8 +415,9 @@ def test_fit_writes_the_best_and_final_ema_checkpoints(tmp_path, monkeypatch,
 def test_fit_writes_the_training_logs_in_their_format(tmp_path):
 	"""`{name}.log` and `{name}.detailed.log` keep the columns and layout
 	they have always had: tab-separated, the summary columns in order, and
-	the detailed log adding one ProfilePearson and one CountPearson column
-	per signal group. Nothing else is written beside the checkpoints."""
+	the detailed log adding one ProfilePearson, CountPearson, AUROC and
+	AUPRC column per signal group. Without negatives the columns that need
+	them are empty, which pandas reads as NaN. Nothing else is written beside the checkpoints."""
 
 	signal_groups = [1, 2]
 	training_data, X_valid, y_valid, _ = _data(signal_groups, 4)
@@ -424,14 +428,74 @@ def test_fit_writes_the_training_logs_in_their_format(tmp_path):
 	detailed = (tmp_path / "lit.detailed.log").read_text().splitlines()
 	assert summary[0].split("\t") == LOG_COLUMNS
 	assert detailed[0].split("\t") == LOG_COLUMNS + ["ProfilePearson_g0",
-		"ProfilePearson_g1", "CountPearson_g0", "CountPearson_g1"]
+		"ProfilePearson_g1", "CountPearson_g0", "CountPearson_g1",
+		"AUROC_g0", "AUROC_g1", "AUPRC_g0", "AUPRC_g1"]
 	assert len(summary) == len(detailed) == 3
-	assert summary[1].split("\t")[-1] == "True"
+	assert summary[1].split("\t")[10:] == ["True", "", "", "", ""]
 	for line_s, line_d in zip(summary[1:], detailed[1:]):
 		assert line_d.split("\t")[:len(LOG_COLUMNS)] == line_s.split("\t")
 
 	assert sorted(p.name for p in tmp_path.iterdir()) == ["lit.detailed.log",
 		"lit.final.torch", "lit.log", "lit.torch"]
+
+
+@pytest.mark.parametrize("signal_groups", [[1], [1, 2]])
+def test_validation_negatives_add_measures_and_leave_the_rest(tmp_path,
+	signal_groups):
+	"""Negatives among the validation rows leave every peak-only log column
+	as it was without them, and the four columns that use them match the
+	measures computed from the final EMA weights."""
+
+	from sklearn.metrics import average_precision_score
+	from sklearn.metrics import roc_auc_score
+
+	training_data, X_valid, y_valid, _ = _data(signal_groups, 4)
+	g = torch.Generator().manual_seed(1)
+	X_neg = X_valid[torch.randperm(len(X_valid), generator=g)[:5]].flip(-1)
+	y_neg = torch.randint(0, 2, (5, *y_valid.shape[1:]), generator=g).float()
+
+	# Negatives interleaved with the peaks, not only after them.
+	order = torch.randperm(12, generator=g)
+	X_all = torch.cat([X_valid, X_neg])[order]
+	y_all = torch.cat([y_valid, y_neg])[order]
+	labels = torch.cat([torch.ones(7), torch.zeros(5)])[order]
+
+	logs = {}
+	for name, X, y, kwargs in [("peaks", X_valid, y_valid, {}),
+		("all", X_all, y_all, {"labels_valid": labels})]:
+		model = _model(signal_groups)
+		model.name = str(tmp_path / name)
+		fit(model, training_data, X, y, max_epochs=2, accelerator='cpu',
+			batch_size=BATCH_SIZE, num_workers=0, **kwargs)
+		logs[name] = pandas.read_csv(tmp_path / "{}.log".format(name),
+			sep="\t")
+
+	peak_columns = LOG_COLUMNS[4:11]
+	pandas.testing.assert_frame_equal(logs["peaks"][peak_columns],
+		logs["all"][peak_columns])
+	assert logs["peaks"][LOG_COLUMNS[11:]].isna().all().all()
+
+	model = Cherimoya.load(str(tmp_path / "all.final.torch"), device='cpu')
+	_, y_hat_logcounts = predict(model, X_all, batch_size=BATCH_SIZE,
+		device='cpu')
+
+	ends = numpy.cumsum([0] + signal_groups)
+	observed = torch.stack([y_all[:, a:b].sum(dim=(1, 2))
+		for a, b in zip(ends[:-1], ends[1:])], dim=1)
+	target = torch.log(observed + 1)
+
+	expected = [
+		numpy.mean([numpy.corrcoef(target[:, i], y_hat_logcounts[:, i])[0, 1]
+			for i in range(len(signal_groups))]),
+		((target - y_hat_logcounts) ** 2).mean().item(),
+		numpy.mean([roc_auc_score(labels, y_hat_logcounts[:, i])
+			for i in range(len(signal_groups))]),
+		numpy.mean([average_precision_score(labels, y_hat_logcounts[:, i])
+			for i in range(len(signal_groups))]),
+	]
+
+	last = logs["all"][LOG_COLUMNS[11:]].iloc[-1].to_numpy()
+	numpy.testing.assert_allclose(last, expected, rtol=1e-4, atol=1e-5)
 
 
 def test_early_stopping_ends_the_run(tmp_path):
@@ -558,7 +622,7 @@ def test_verbose_prints_the_epoch_table(tmp_path, capsys):
 	lines = capsys.readouterr().out.splitlines()
 	start = lines.index("\t".join(LOG_COLUMNS))
 	rows = [line.split("\t") for line in lines[start + 1:]
-		if line.count("\t") == 10]
+		if line.count("\t") == len(LOG_COLUMNS) - 1]
 	assert len(rows) == 2
 
 	# The printed row is the log's row, rounded as the log has always

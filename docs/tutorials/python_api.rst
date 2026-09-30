@@ -154,6 +154,35 @@ Validation data is loaded as a single block of tensors using
    X_valid, y_valid = valid_data
    # X_valid, y_valid, X_ctl_valid = valid_data   # with controls
 
+The validation measures are computed on these peaks. To also measure
+how well the predicted counts separate peaks from negatives, append
+the negatives on the same chromosomes and label each row:
+
+.. code-block:: python
+
+   import torch
+
+   X_neg, y_neg = extract_loci(
+       sequences="hg38.fa",
+       signals=["signal.+.bw", "signal.-.bw"],
+       loci="negatives.bed",
+       chroms=["chr8", "chr20"],
+       in_window=2114,
+       out_window=1000,
+       max_jitter=0,
+       ignore=list('QWERYUIOPSDFHJKLZXVBNM'),
+   )
+
+   labels_valid = torch.cat([torch.ones(len(X_valid)), torch.zeros(len(X_neg))])
+   X_valid = torch.cat([X_valid, X_neg])
+   y_valid = torch.cat([y_valid, y_neg])
+
+Passing ``labels_valid`` to ``fit`` (below) keeps every existing
+measure and the checkpoint choice on the peaks, and fills the log's
+last four columns: the count Pearson and MSE over peaks and negatives
+together, and the AUROC and AUPRC. With controls, append the
+negatives' controls to ``X_ctl_valid`` the same way.
+
 
 Training
 --------
@@ -185,6 +214,7 @@ does not.
        X_valid,
        y_valid,
        X_ctl_valid=None,            # pass control tensors here if using controls
+       labels_valid=None,           # 1 per peak row, 0 per negative (see above)
        max_epochs=max_epochs,
        early_stopping=None,         # default: train all max_epochs; an int stops
                                     # after that many epochs without count-Pearson gain
@@ -198,8 +228,9 @@ does not.
        n_decay_steps=steps_per_epoch * max(1, max_epochs - n_warmup_epochs),
    )
 
-The remaining keyword arguments are passed to
-:class:`~cherimoya.training.CherimoyaModule`: the learning rates and
+The remaining keyword arguments, ``labels_valid`` among them, are
+passed to :class:`~cherimoya.training.CherimoyaModule`: the learning
+rates and
 weight decays (``muon_lr``, ``muon_wd``, ``adam_lr``, ``adam_wd``,
 ``lw_lr``, ``lw_wd``, ``lw_momentum``), ``loss_weights`` and
 ``ema_decay``. The learning rate, weight decay, momentum and
@@ -229,8 +260,13 @@ What ``fit`` does internally:
   improves, and ``{model.name}.final.torch`` at the very end (also
   with EMA weights applied).
 * Saves ``{model.name}.log`` with the training and validation metrics
-  per epoch, and ``{model.name}.detailed.log`` with a profile and a
-  count Pearson column per signal group added.
+  per epoch, and ``{model.name}.detailed.log`` with a profile Pearson,
+  count Pearson, AUROC and AUPRC column per signal group added.
+* Computes the validation measures on peaks. Pass ``labels_valid``,
+  1 for each peak row of ``X_valid`` and 0 for each negative, to add
+  the count Pearson and MSE over peaks and negatives together and the
+  AUROC and AUPRC of the predicted log counts at telling them apart.
+  Without it, those columns are empty.
 * With ``verbose=True``, prints the same table as it is written, one
   row per epoch. ``progress_bar`` controls Lightning's progress bar:
   ``None`` (the default) draws it only when stdout is a terminal or a
@@ -251,8 +287,12 @@ trainer holds the run's results:
    trainer.callback_metrics                       # the last epoch's values of
                                                   # train_profile_mnll,
                                                   # train_count_mse,
-                                                  # valid_profile_pearson and
-                                                  # valid_count_pearson
+                                                  # valid_profile_pearson,
+                                                  # valid_count_pearson,
+                                                  # valid_count_pearson_all,
+                                                  # valid_count_mse_all,
+                                                  # valid_auroc and
+                                                  # valid_auprc
 
 ``fit`` raises a ``ValueError`` when the training set has fewer
 examples than one ``batch_size``, since no training step could be
@@ -417,3 +457,10 @@ Notes:
 * When training with controls, omitting ``controls`` at evaluation
   collapses ``count_pearson`` — the count head sees the wrong
   feature distribution.
+* ``auroc`` and ``auprc`` in the training log and the evaluate TSV
+  score the predicted log counts at separating peaks from negatives.
+  AUPRC depends on the ratio of peaks to negatives, so compare it only
+  between runs scored on the same negatives.
+  ``calculate_performance_measures(..., labels=...)`` also returns
+  ``auroc`` and ``auprc``, but for the first count output only, and
+  with every other measure recomputed over peaks and negatives.

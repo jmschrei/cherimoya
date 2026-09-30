@@ -175,6 +175,11 @@ Things to know:
   `n_warmup_steps`, `n_decay_steps`). The schedule defaults are **not** the
   CLI's, hence the two step counts above; `cherimoya fit` also raises
   `max_epochs` to reach `min_total_steps` (20000) first.
+- Validation is on peaks. To also get the count Pearson/MSE over peaks and
+  negatives and the peak-vs-negative AUROC/AUPRC, append the negatives to
+  `X_valid`/`y_valid` (and `X_ctl_valid`) and pass `labels_valid` (1 per peak
+  row, 0 per negative). The checkpoint is still chosen on the peaks' count
+  Pearson.
 - `dtype` is `'float32'`, `'bfloat16'` or `'float16'` (Lightning's `32-true`,
   `bf16-mixed`, `16-mixed`); anything else raises.
 - After `fit`, `model` holds the EMA weights **on the CPU** (Lightning moves it

@@ -6,10 +6,15 @@ model good?", and "what did it learn?" `{name}` is the `-n` value from step 1.
 ## "Did it work / is it any good?" — the model and its metrics
 
 ### `{name}.performance.tsv` — the scorecard
-One row per signal group, seven columns: `profile_mnll`, `profile_jsd`,
-`profile_pearson`, `profile_spearman`, `count_pearson`, `count_spearman`,
-`count_mse`. Computed on the **held-out validation chromosomes** (default chr8,
-chr20).
+One row per signal group. Seven columns computed on the **peaks** of the
+**held-out validation chromosomes** (default chr8, chr20): `profile_mnll`,
+`profile_jsd`, `profile_pearson`, `profile_spearman`, `count_pearson`,
+`count_spearman`, `count_mse`. Then five that also use the negatives on those
+chromosomes, `nan` when there are none: `all_count_pearson`,
+`all_count_spearman`, `all_count_mse` (over peaks and negatives together), and
+`auroc` / `auprc` (how well the predicted counts tell peaks from negatives;
+AUPRC depends on the peak:negative ratio, so compare it only between runs with
+the same negatives).
 
 Headline number: **`count_pearson`** — how well predicted per-peak total signal
 correlates with truth on held-out chromosomes.
@@ -22,13 +27,16 @@ correlates with truth on held-out chromosomes.
 (base-pair resolution) was learned, separate from total counts.
 
 ### `{name}.log` — per-epoch training curve
-One row per epoch (train/validation metrics). Shows whether validation count
+One row per epoch (train/validation metrics). Validation metrics are on peaks,
+except the last four columns (count Pearson and MSE over peaks+negatives,
+AUROC, AUPRC), which are empty without negatives. Shows whether validation count
 Pearson climbed and which epoch the kept checkpoint came from. **Compare final
 results against the EMA validation numbers here, not the mid-epoch training
 loss** (see the checkpoint note below).
 
 ### `{name}.detailed.log`
-`.log` plus per-group `ProfilePearson_g{i}` / `CountPearson_g{i}` columns —
+`.log` plus per-group `ProfilePearson_g{i}` / `CountPearson_g{i}` /
+`AUROC_g{i}` / `AUPRC_g{i}` columns —
 only relevant for multi-group (multi-task) models.
 
 ### `{name}.torch` vs `{name}.final.torch` — which checkpoint to use

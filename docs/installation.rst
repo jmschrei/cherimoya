@@ -81,6 +81,10 @@ Cherimoya checks.
    * - ``lightning`` (≥ 2.6.1)
      - The training loop in :mod:`cherimoya.training`: the ``Trainer``,
        multi-GPU DDP, checkpointing and early stopping.
+   * - ``scikit-learn`` (≥ 1.7.2)
+     - The AUROC and AUPRC of peaks against negatives, in training
+       validation, ``cherimoya evaluate`` and
+       :func:`cherimoya.performance.calculate_performance_measures`.
    * - ``numpy`` (≥ 1.14), ``scipy`` (≥ 1.0), ``pandas`` (≥ 1.3.3)
      - Numerical computing and tabular data handling.
    * - ``h5py`` (≥ 3.7)
@@ -117,17 +121,6 @@ Cherimoya checks.
 
 Optional dependencies
 ---------------------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 70
-
-   * - Package
-     - Purpose
-   * - ``scikit-learn``
-     - Required only for the ``auroc`` / ``auprc`` measures inside
-       :func:`cherimoya.performance.calculate_performance_measures`.
-       The rest of the package does not import it.
 
 Documentation build dependencies (``sphinx``, ``furo``,
 ``sphinx-copybutton``) are listed under the ``docs`` extra in
