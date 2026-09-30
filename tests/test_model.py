@@ -921,3 +921,22 @@ def test_importing_cherimoya_turns_on_cudnn_benchmark():
 	out = subprocess.run([sys.executable, "-c", code], capture_output=True,
 		text=True, check=True).stdout.strip()
 	assert out == "True"
+
+
+def test_load_and_eval_inside_inference_mode(tmp_path):
+	"""Weights created under `torch.inference_mode()` have no version
+	counter, which the eval cache reads."""
+
+	model = Cherimoya(n_filters=16, n_layers=2, compile=False, verbose=False,
+		random_state=0)
+	model.save(str(tmp_path / "m.torch"))
+	X = torch.nn.functional.one_hot(torch.randint(0, 4,
+		(2, 2 * model.trimming + 32)), 4).permute(0, 2, 1).float()
+
+	with torch.inference_mode():
+		loaded = Cherimoya.load(str(tmp_path / "m.torch"), compile=False).eval()
+		y_profile, y_counts = loaded(X)
+
+	with torch.no_grad():
+		expected = model.eval()(X)
+	assert torch.allclose(y_counts, expected[1], atol=1e-6)

@@ -203,6 +203,26 @@ def test_triton_matches_cpu_fallback():
 
 
 @pytest.mark.cuda
+@pytest.mark.triton
+@pytest.mark.parametrize("grad", [True, False])
+def test_cheri_block_accepts_a_non_contiguous_input_on_cuda(grad):
+	"""The kernels index memory as contiguous. A transposed view, as a
+	caller holding (N, C, L) tensors would pass, must give the same result
+	as its contiguous copy, on the training and the inference path."""
+
+	torch.manual_seed(0)
+	block = CheriBlock(n_filters=32, dilation=2).cuda().eval()
+	x = torch.randn(2, 32, 64, device='cuda').transpose(1, 2)
+	assert not x.is_contiguous()
+
+	with torch.set_grad_enabled(grad):
+		y = block(x)
+		y_ref = block(x.contiguous())
+
+	assert torch.equal(y, y_ref)
+
+
+@pytest.mark.cuda
 def test_cheri_block_runs_on_cuda():
 	block = CheriBlock(n_filters=16, dilation=2).cuda()
 	x = torch.randn(2, 64, 16, device='cuda')
