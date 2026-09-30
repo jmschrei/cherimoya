@@ -168,3 +168,27 @@ def test_no_shuffle_still_caps_the_extraction(tmp_path):
 		_marginalize_json(tmp_path, shuffle=False, n_loci=4))
 
 	assert captured['n_loci'] == 4
+
+
+def test_marginalize_extracts_the_model_window_and_honors_exclusions(tmp_path):
+	"""The sequences are cut at the model's `in_window` rather than
+	tangermeme's default, and excluded regions are left out."""
+
+	from cherimoya_cli.commands import marginalize as marginalize_cmd
+
+	captured = {}
+
+	def fake_extract(**kwargs):
+		captured.update(kwargs)
+		return torch.zeros(4, 4, 8)
+
+	path = _marginalize_json(tmp_path, in_window=1000,
+		exclusion_lists=["blacklist.bed"])
+	with mock.patch("cherimoya.Cherimoya") as model_cls, \
+			mock.patch("tangermeme.io.extract_loci", side_effect=fake_extract), \
+			mock.patch("bpnetlite.marginalize.marginalization_report"):
+		model_cls.load.return_value = _StubModel()
+		marginalize_cmd.run(argparse.Namespace(parameters=path))
+
+	assert captured["in_window"] == 1000
+	assert captured["exclusion_lists"] == ["blacklist.bed"]

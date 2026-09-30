@@ -473,10 +473,13 @@ def run(args):
 		parameters, default_marginalize_parameters, "marginalize_parameters"
 	)
 
-	_check_set(marginalize_parameters, "loci", parameters["negatives"])
+	# The motifs are inserted into background loci. `_extract_set` has
+	# already copied the top-level `loci`, the peaks, so the negatives are
+	# set here unless the step names its own loci.
+	marginalize_parameters["loci"] = (
+		parameters["marginalize_parameters"]["loci"] or parameters["negatives"])
 	_check_set(marginalize_parameters, "output_filename", pname + "_marginalize/")
 	_check_set(marginalize_parameters, "motifs", parameters["motifs"])
-	_check_set(marginalize_parameters, "negatives", parameters["negatives"])
 
 	name = "{}.marginalize.json".format(parameters["name"])
 

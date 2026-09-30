@@ -97,6 +97,16 @@ def test_default_in_window_is_unchanged(tmp_path):
 	assert captured['extract']['in_window'] == 2114
 
 
+def test_exclusion_lists_reach_extract_loci(tmp_path):
+	"""Excluded regions are dropped before attribution. The mask that
+	`extract_loci` returns marks them, so `seqlets` still maps each
+	attribution back to its locus."""
+
+	captured = _run_attribute(tmp_path, exclusion_lists=["blacklist.bed"])
+
+	assert captured['extract']['exclusion_lists'] == ["blacklist.bed"]
+
+
 def test_attr_window_sets_the_attributed_slice(tmp_path):
 	"""The slice handed to saturation mutagenesis is `attr_window` wide
 	and centred in the extraction window."""

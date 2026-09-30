@@ -62,3 +62,19 @@ def test_dry_run_attribute_json_uses_deep_lift_shap_settings(tmp_path,
 	assert step["random_state"] == 0
 	# The top-level `compile: true` is not inherited.
 	assert step["compile"] is False
+
+
+def test_dry_run_marginalizes_over_the_negatives(tmp_path, run_pipeline):
+	"""Motifs are inserted into background loci: the negatives, unless the
+	step names its own. The top-level `loci` are the peaks."""
+
+	import json
+
+	run_pipeline(motifs=str(tmp_path / "m.meme"))
+	with open(tmp_path / "demo.marginalize.json") as f:
+		assert json.load(f)["loci"] == [str(tmp_path / "n.bed")]
+
+	run_pipeline(motifs=str(tmp_path / "m.meme"),
+		marginalize_parameters={"loci": str(tmp_path / "x.bed")})
+	with open(tmp_path / "demo.marginalize.json") as f:
+		assert json.load(f)["loci"] == str(tmp_path / "x.bed")

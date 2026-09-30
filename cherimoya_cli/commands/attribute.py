@@ -53,6 +53,7 @@ def run(args):
 		chroms=parameters["chroms"],
 		in_window=parameters["in_window"],
 		max_jitter=0,
+		exclusion_lists=parameters["exclusion_lists"],
 		ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
 		return_mask=True,
 		verbose=parameters["verbose"],

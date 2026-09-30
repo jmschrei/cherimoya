@@ -152,7 +152,6 @@ default_seqlet_parameters = {
 	'max_seqlet_len': 25,
 	'additional_flanks': 3,
 	'chroms': training_chroms + validation_chroms,
-	'exclusion_lists': None,
 	'verbose': False,
 	'loci': None,
 	'ohe_filename': None,
