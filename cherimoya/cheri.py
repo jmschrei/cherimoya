@@ -143,11 +143,12 @@ if HAS_TRITON:
 		num_stages = [2, 3, 4, 5]
 		configs = []
 
+		# Launch options, not kernel arguments: in the kwargs dict they are
+		# overridden by the Config's own defaults, so every config was the
+		# same.
 		for num_warp, num_stage in itertools.product(num_warps, num_stages):
-			configs.append(triton.Config({
-				'num_warps': num_warp,
-				'num_stages': num_stage,
-			}))
+			configs.append(triton.Config({}, num_warps=num_warp,
+				num_stages=num_stage))
 
 		return configs
 
