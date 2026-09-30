@@ -1,6 +1,7 @@
 # cherimoya_cli utilities
 # Author: Jacob Schreiber <jmschreiber91@gmail.com>
 
+import copy
 import os
 import json
 
@@ -59,6 +60,8 @@ def merge_parameters(parameters, default_parameters):
 					"null if this step is supposed to produce it."
 					.format(parameter))
 
-			parameters[parameter] = value
+			# A copy, so that a caller writing into a nested dict does not
+			# change the defaults for the next run in the same process.
+			parameters[parameter] = copy.deepcopy(value)
 
 	return parameters

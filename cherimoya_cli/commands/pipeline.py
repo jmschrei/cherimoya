@@ -84,6 +84,12 @@ def run(args):
 
 	_validate_inputs(parameters)
 
+	# The negatives step reads the first peak file, which for a bare string
+	# would be its first character.
+	for key in ("loci", "negatives"):
+		if isinstance(parameters[key], str):
+			parameters[key] = [parameters[key]]
+
 	pname = parameters["name"]
 
 	# Flatten any grouped signals/controls early — every preprocessing

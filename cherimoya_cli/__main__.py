@@ -31,7 +31,8 @@ def _setup_parsers() -> argparse.ArgumentParser:
 		"negatives", help="Sample GC-matched negatives."
 	)
 	negatives_parser.add_argument("-i", "--peaks", required=True, help="Peak bed file.")
-	negatives_parser.add_argument("-f", "--fasta", help="Genome FASTA file.")
+	negatives_parser.add_argument("-f", "--fasta", required=True,
+		help="Genome FASTA file.")
 	negatives_parser.add_argument("-b", "--bigwig", help="Optional signal bigwig.")
 	negatives_parser.add_argument(
 		"-o", "--output", required=True, help="Output bed file."
@@ -116,7 +117,7 @@ def _setup_parsers() -> argparse.ArgumentParser:
 		"--unstranded",
 		action="store_true",
 		default=False,
-		help="Whether the input is stranded",
+		help="Whether the input is unstranded.",
 	)
 	pipeline_json_parser.add_argument(
 		"-f",
@@ -160,6 +161,7 @@ def _setup_parsers() -> argparse.ArgumentParser:
 	pipeline_json_parser.add_argument(
 		"-sf",
 		"--scale_factor",
+		type=float,
 		default=1,
 		help="Whether to scale the read counts. 1 is no scaling.",
 	)

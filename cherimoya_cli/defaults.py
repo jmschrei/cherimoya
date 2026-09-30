@@ -113,6 +113,7 @@ default_evaluate_parameters = {
 	'exclusion_lists': None,
 	'sequences': None,
 	'loci': None,
+	'signals': None,
 	'controls': None,
 	'model': None,
 	'compile': True,

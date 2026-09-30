@@ -81,3 +81,16 @@ def test_extract_set_combines_top_level_with_subdict_overrides():
 	out = _extract_set(parameters, defaults, 'fit_parameters')
 	assert out['in_window'] == 200
 	assert out['out_window'] == 40
+
+
+def test_merge_parameters_does_not_share_the_default_dicts():
+	"""A caller that writes into a filled-in nested dict, as the pipeline
+	does, must not change the defaults the next run starts from."""
+
+	from cherimoya_cli.utils import merge_parameters
+
+	defaults = {"nested": {"output_filename": None}, "flag": 1}
+	merged = merge_parameters({}, defaults)
+	merged["nested"]["output_filename"] = "first_run.h5"
+
+	assert defaults["nested"]["output_filename"] is None

@@ -92,7 +92,7 @@ def test_negatives_parser_defaults_match_the_documented_ones():
 	so this is the only place they can drift from the CLI reference."""
 
 	args = _setup_parsers().parse_args(
-		["negatives", "-i", "peaks.bed", "-o", "out.bed"])
+		["negatives", "-i", "peaks.bed", "-f", "genome.fa", "-o", "out.bed"])
 
 	assert args.bin_width == 0.02
 	assert args.max_n_perc == 0.1
@@ -100,3 +100,12 @@ def test_negatives_parser_defaults_match_the_documented_ones():
 	assert args.in_window == 2114
 	assert args.out_window == 1000
 	assert args.verbose is False
+
+
+def test_negatives_requires_the_fasta():
+	"""GC matching reads the genome, so leaving out `-f` fails in argparse
+	rather than partway through sampling."""
+
+	with pytest.raises(SystemExit):
+		_setup_parsers().parse_args(["negatives", "-i", "peaks.bed", "-o",
+			"out.bed"])
