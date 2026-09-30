@@ -18,12 +18,14 @@ Cherimoya requires:
 .. note::
 
    Cherimoya's custom GPU kernels are written in `Triton
-   <https://github.com/triton-lang/triton>`_. ``triton`` is a hard
-   dependency and is installed automatically from PyPI. On Linux with a
-   modern CUDA toolkit and a recent PyTorch wheel, this works without
-   any extra steps. On unusual configurations (custom CUDA versions,
-   non-x86 hosts) Triton may need to be installed against your specific
-   toolchain — see the Triton README for details.
+   <https://github.com/triton-lang/triton>`_. On Linux ``triton`` is a
+   dependency and is installed automatically from PyPI; with a modern
+   CUDA toolkit and a recent PyTorch wheel, this works without any extra
+   steps. Triton publishes no wheels for macOS or Windows, so it is not
+   installed there, and the model runs on the pure-PyTorch path. On
+   unusual configurations (custom CUDA versions) Triton may need to be
+   installed against your specific toolchain — see the Triton README for
+   details.
 
 
 Install from PyPI
@@ -61,11 +63,11 @@ can be used as a drop-in replacement for pip:
 Dependencies
 ------------
 
-The following packages are installed automatically. Pinned lower-bounds
-are taken from ``pyproject.toml``. They record the versions the test
-suite is run against rather than the oldest release that happens to
-work, so an older pin may still function — it is simply not something
-Cherimoya checks.
+The following packages are installed automatically. The lower bounds
+are taken from ``pyproject.toml``. They are minimums, not tested
+versions: the test suite runs against the latest release of each
+package, so an older release within a bound is not something Cherimoya
+checks.
 
 .. list-table::
    :header-rows: 1
@@ -75,7 +77,7 @@ Cherimoya checks.
      - Purpose
    * - ``torch`` (≥ 2.9)
      - Tensor framework and autograd.
-   * - ``triton`` (≥ 3.5.1)
+   * - ``triton`` (≥ 3.5.1, Linux only)
      - Custom GPU kernels for Cheri Blocks (fwd+bwd) and the inference
        megakernel.
    * - ``lightning`` (≥ 2.6.1)

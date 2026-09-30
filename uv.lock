@@ -397,7 +397,7 @@ dependencies = [
     { name = "tangermeme" },
     { name = "torch" },
     { name = "tqdm" },
-    { name = "triton" },
+    { name = "triton", marker = "sys_platform == 'linux'" },
 ]
 
 [package.optional-dependencies]
@@ -433,7 +433,7 @@ requires-dist = [
     { name = "tangermeme", specifier = ">=1.5.0" },
     { name = "torch", specifier = ">=2.9.0" },
     { name = "tqdm", specifier = ">=4.64.1" },
-    { name = "triton", specifier = ">=3.5.1" },
+    { name = "triton", marker = "sys_platform == 'linux'", specifier = ">=3.5.1" },
 ]
 provides-extras = ["docs"]
 

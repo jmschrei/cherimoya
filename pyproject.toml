@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -17,9 +17,9 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
-# Floors are the versions the test suite is run against, not the oldest
-# that happen to work. Raise one when the code starts using an API the
-# older release does not have.
+# Floors are minimums, not tested versions: CI installs the latest release
+# of each. Raise one when the code starts using an API the older release
+# does not have.
 dependencies = [
     "numpy>=1.14.2",
     "scipy>=1.0.0",
@@ -33,7 +33,7 @@ dependencies = [
     "macs3",
     "bam2bw>=0.4.1",
     "bpnet-lite>=1.0.0",
-    "triton>=3.5.1",
+    "triton>=3.5.1; sys_platform == 'linux'",
     "lightning>=2.6.1",
     "scikit-learn>=1.7.2",
 ]
