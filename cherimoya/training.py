@@ -15,6 +15,7 @@ the gradients, so every step sees the examples one device would have.
 import copy
 import logging
 import os
+import sys
 import time
 import warnings
 
@@ -547,9 +548,9 @@ class CherimoyaModule(lightning.LightningModule):
 		# bar through the next epoch.
 		valid_time, profile_mnll, profile_pearson, count_pearson, count_mse, \
 			saved = self._valid_row
-		for key, value in (("valid_profile_pearson", profile_pearson),
-				("valid_count_pearson", torch.tensor(count_pearson))):
-			self.log(key, value, on_step=False, on_epoch=True, prog_bar=True)
+		self.log("valid_profile_pearson", profile_pearson, prog_bar=True)
+		self.log("valid_count_pearson", torch.tensor(count_pearson),
+			prog_bar=True)
 
 		metrics = self.trainer.callback_metrics
 		row = [self.current_epoch, self._iteration, self._train_time,
@@ -611,7 +612,6 @@ def _show_progress_bar(progress_bar):
 	if progress_bar is not None:
 		return bool(progress_bar)
 
-	import sys
 	return sys.stdout.isatty() or 'ipykernel' in sys.modules
 
 
@@ -690,14 +690,13 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 		raise ValueError("dtype must be one of {}, got {!r}".format(
 			list(_PRECISION), dtype))
 
-	batch_size = kwargs.get('batch_size', 64)
-	if len(training_data) < batch_size:
-		raise ValueError("The training set has {} examples, fewer than one "
-			"batch of {}, so no training step could be taken.".format(
-				len(training_data), batch_size))
-
 	module = CherimoyaModule(model, training_data, X_valid, y_valid,
 		X_ctl_valid=X_ctl_valid, verbose=verbose, **kwargs)
+
+	if len(training_data) < module.batch_size:
+		raise ValueError("The training set has {} examples, fewer than one "
+			"batch of {}, so no training step could be taken.".format(
+				len(training_data), module.batch_size))
 
 	name = model.name
 	module.final_checkpoint = "{}.final.torch".format(name)
@@ -705,9 +704,8 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 
 	checkpoint = ModelCheckpoint(dirpath=directory,
 		filename=os.path.basename(name), monitor='valid_count_pearson',
-		mode='max', save_top_k=1, save_weights_only=True,
-		save_on_train_epoch_end=True, enable_version_counter=False,
-		auto_insert_metric_name=False)
+		mode='max', save_weights_only=True, save_on_train_epoch_end=True,
+		enable_version_counter=False)
 	checkpoint.FILE_EXTENSION = ".torch"
 
 	callbacks = [checkpoint]

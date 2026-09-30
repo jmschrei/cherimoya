@@ -251,7 +251,8 @@ directory (with ``{name}`` from the ``-n`` flag in step 1):
    * - ``{name}.performance.tsv``
      - Final held-out chromosome metrics. One TSV row per signal
        group, in ``signal_groups`` order; single-group models
-       write exactly one row.
+       write exactly one row. Same seven metric columns as the
+       summary log.
    * - ``{name}.+.bw`` / ``{name}.-.bw``
      - bigWigs produced by ``bam2bw`` for the stranded signal.
    * - ``{name}.bw``

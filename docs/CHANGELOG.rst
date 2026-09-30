@@ -27,13 +27,10 @@ Removed (**breaking**)
   :doc:`tutorials/python_api` shows the replacement call with the CLI's
   schedule.
 
-  Checkpoints are unchanged: ``{name}.torch`` holds the EMA weights from
-  the epoch with the best validation count Pearson and
-  ``{name}.final.torch`` those at the end of training, both in the
-  ``Cherimoya.save`` format and loadable with ``Cherimoya.load``. They are
-  now written through Lightning (``ModelCheckpoint`` for the best one,
-  ``Trainer.save_checkpoint`` for the final one), with a checkpoint IO
-  plugin that stores only that payload.
+  Checkpoints and training logs are unchanged: ``{name}.torch`` and
+  ``{name}.final.torch`` are written in the ``Cherimoya.save`` format and
+  load with ``Cherimoya.load``, and ``{name}.log`` and
+  ``{name}.detailed.log`` keep their columns.
 
 * ``cherimoya batch`` is removed, along with
   ``cherimoya_cli/commands/batch.py``, its subparser, its CLI reference
@@ -435,10 +432,8 @@ Training
   the profile loss is divided by are averaged across the devices, so they
   are those of the global batch, as on one device. Training on more than
   one device sets ``torch._dynamo.config.optimize_ddp = False`` in the
-  training process: with the model's CUDA-graph compile mode, the DDP
-  graph splitting it controls failed when one rank recompiled for a
-  validation batch of its own size, and the other ranks waited on it until
-  the NCCL timeout.
+  training process, because the DDP graph splitting it controls hung under
+  the model's CUDA-graph compile mode.
 
   Lightning starts every rank after the first by re-running the current
   command. ``cherimoya fit`` therefore prints and evaluates on rank 0
@@ -457,17 +452,14 @@ Training
   ``ValueError`` before training starts, instead of warning and
   writing nan training losses for every epoch.
 
-* ``verbose`` still prints the per-epoch table, with the same header and
-  columns as ``{name}.log`` and one row per epoch; when Lightning's
-  progress bar is drawn, each row is printed above it, and the latest
-  validation profile and count Pearson sit to its right. A new ``progress_bar`` fit
-  parameter (default ``null``) draws the bar only when stdout is a
-  terminal or a Jupyter kernel, so output redirected to a file holds the
-  table without a bar redraw per step; ``true`` or ``false`` force it on
-  or off, and ``false`` suits several runs sharing one terminal, whose
-  bars would overwrite each other. The ``Cherimoya(verbose=...)``
-  argument is unused and kept only because every saved checkpoint's
-  config passes it.
+* ``verbose`` still prints the per-epoch table of ``{name}.log``. When
+  Lightning's progress bar is drawn, each row is printed above it and the
+  latest validation profile and count Pearson sit to its right. A new
+  ``progress_bar`` fit parameter (default ``null``) draws the bar only
+  when stdout is a terminal or a Jupyter kernel; ``true`` or ``false``
+  force it on or off, and ``false`` suits several runs sharing one
+  terminal. The ``Cherimoya(verbose=...)`` argument is unused and kept
+  only because every saved checkpoint's config passes it.
 
 * **The Kendall loss weights can be replaced by constants.**
   :meth:`cherimoya.Cherimoya.fit` takes a ``loss_weights`` tuple, exposed
