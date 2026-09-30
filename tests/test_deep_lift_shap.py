@@ -22,8 +22,16 @@ from cherimoya.cheri import CONV_NORM_EPS
 from cherimoya.cheri import FusedDilatedConvNorm
 
 
-torch.manual_seed(0)
-torch.use_deterministic_algorithms(True, warn_only=True)
+@pytest.fixture(autouse=True)
+def _deterministic():
+	"""Seeded, deterministic kernels for these tests only. Set at import,
+	they applied to every test in the session."""
+	enabled = torch.are_deterministic_algorithms_enabled()
+	warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+	torch.manual_seed(0)
+	torch.use_deterministic_algorithms(True, warn_only=True)
+	yield
+	torch.use_deterministic_algorithms(enabled, warn_only=warn_only)
 
 
 CHANNELS, LENGTH, DILATION = 8, 64, 2
