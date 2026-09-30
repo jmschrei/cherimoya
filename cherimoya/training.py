@@ -543,13 +543,11 @@ class CherimoyaModule(lightning.LightningModule):
 
 		# The count measures need only per-channel totals, so pass those as
 		# a profile of length one.
-		def count_measures(rows, measures):
-			return calculate_performance_measures(
-				torch.zeros(*observed[rows].shape, 1),
-				observed[rows].unsqueeze(-1), y_hat_logcounts[rows],
-				measures=measures, signal_groups=signal_groups)
-
-		count_pearson = count_measures(peaks, ['count_pearson'])['count_pearson']
+		count_pearson = calculate_performance_measures(
+			torch.zeros(*observed[peaks].shape, 1),
+			observed[peaks].unsqueeze(-1), y_hat_logcounts[peaks],
+			measures=['count_pearson'],
+			signal_groups=signal_groups)['count_pearson']
 
 		profile_pearson = numpy.nan_to_num(profile_pearson)
 		count_pearson = numpy.nan_to_num(count_pearson)
@@ -557,7 +555,10 @@ class CherimoyaModule(lightning.LightningModule):
 		n_groups = len(signal_groups)
 		all_pearson = all_mse = auroc = auprc = numpy.full(n_groups, numpy.nan)
 		if self._has_negatives:
-			measures = count_measures(slice(None), ['count_pearson', 'count_mse'])
+			measures = calculate_performance_measures(
+				torch.zeros(*observed.shape, 1), observed.unsqueeze(-1),
+				y_hat_logcounts, measures=['count_pearson', 'count_mse'],
+				signal_groups=signal_groups)
 			all_pearson = numpy.nan_to_num(measures['count_pearson'])
 			all_mse = measures['count_mse'].numpy()
 			scores = y_hat_logcounts.float().numpy()

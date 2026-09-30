@@ -207,12 +207,30 @@ def run(args):
 		control_groups=control_groups,
 	).dataset
 
-	def extract_validation(loci):
-		return extract_loci(
+	valid_data = extract_loci(
+		sequences=parameters["sequences"],
+		signals=signal_files,
+		in_signals=control_files,
+		loci=parameters["loci"],
+		chroms=parameters["validation_chroms"],
+		in_window=parameters["in_window"],
+		out_window=parameters["out_window"],
+		max_jitter=0,
+		exclusion_lists=parameters["exclusion_lists"],
+		ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
+		verbose=parameters["verbose"],
+	)
+
+	# Every negative on the validation chromosomes joins the validation
+	# set, labeled 0, for the measures that separate peaks from negatives.
+	n_valid_peaks, n_valid_negatives = len(valid_data[0]), 0
+	valid_labels = None
+	if parameters["negatives"] is not None:
+		negative_data = extract_loci(
 			sequences=parameters["sequences"],
 			signals=signal_files,
 			in_signals=control_files,
-			loci=loci,
+			loci=parameters["negatives"],
 			chroms=parameters["validation_chroms"],
 			in_window=parameters["in_window"],
 			out_window=parameters["out_window"],
@@ -221,14 +239,6 @@ def run(args):
 			ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
 			verbose=parameters["verbose"],
 		)
-
-	# Every negative on the validation chromosomes joins the validation
-	# set, labeled 0, for the measures that separate peaks from negatives.
-	valid_data = extract_validation(parameters["loci"])
-	n_valid_peaks, n_valid_negatives = len(valid_data[0]), 0
-	valid_labels = None
-	if parameters["negatives"] is not None:
-		negative_data = extract_validation(parameters["negatives"])
 		n_valid_negatives = len(negative_data[0])
 		valid_data = [torch.cat(pair) for pair in zip(valid_data, negative_data)]
 		valid_labels = torch.cat([torch.ones(n_valid_peaks),

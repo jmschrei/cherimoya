@@ -57,12 +57,29 @@ def run(args):
 		compile=parameters["compile"],
 		compile_mode=parameters["compile_mode"])
 
-	def extract(loci):
-		return extract_loci(
+	examples = extract_loci(
+		sequences=parameters["sequences"],
+		signals=parameters["signals"],
+		in_signals=parameters["controls"],
+		loci=parameters["loci"],
+		chroms=parameters["chroms"],
+		in_window=parameters["in_window"],
+		out_window=parameters["out_window"],
+		exclusion_lists=parameters["exclusion_lists"],
+		max_jitter=0,
+		ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
+		verbose=parameters["verbose"],
+	)
+
+	# The negatives follow the peaks, which are the first `n_peaks` rows.
+	# The key is optional, so that JSONs written before it still run.
+	n_peaks = len(examples[0])
+	if parameters.get("negatives") is not None:
+		negatives = extract_loci(
 			sequences=parameters["sequences"],
 			signals=parameters["signals"],
 			in_signals=parameters["controls"],
-			loci=loci,
+			loci=parameters["negatives"],
 			chroms=parameters["chroms"],
 			in_window=parameters["in_window"],
 			out_window=parameters["out_window"],
@@ -71,14 +88,7 @@ def run(args):
 			ignore=list("QWERYUIOPSDFHJKLZXVBNM"),
 			verbose=parameters["verbose"],
 		)
-
-	# The negatives follow the peaks, which are the first `n_peaks` rows.
-	# The key is optional, so that JSONs written before it still run.
-	examples = extract(parameters["loci"])
-	n_peaks = len(examples[0])
-	if parameters.get("negatives") is not None:
-		examples = [torch.cat(pair) for pair in zip(examples,
-			extract(parameters["negatives"]))]
+		examples = [torch.cat(pair) for pair in zip(examples, negatives)]
 
 	if parameters["controls"] == None:
 		X, y = examples
