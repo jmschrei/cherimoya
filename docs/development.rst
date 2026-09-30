@@ -121,8 +121,10 @@ locally:
    cd docs
    sphinx-build -b html . _build
 
-The build produces ``docs/_build/index.html``. Read the Docs runs the
-same command with the same dependency set.
+The build produces ``docs/_build/index.html``. Read the Docs builds
+with ``docs/requirements.txt`` alone, without installing the package;
+``conf.py`` mocks the heavy dependencies so autodoc can import it
+anyway.
 
 
 Running the tests

@@ -172,6 +172,20 @@ Bug fixes
 * :func:`~cherimoya.performance.calculate_performance_measures` raises
   when ``signal_groups`` does not match the number of predicted counts,
   rather than scoring every count against the all-channel total.
+* ``triton`` is a Linux-only dependency. It publishes no wheels for macOS
+  or Windows, so the unconditional dependency made cherimoya impossible
+  to install there, although the model already runs without Triton on
+  the PyTorch path. The ``setuptools`` build floor is raised to 77, which
+  ``license = "MIT"`` needs.
+* ``import cherimoya`` failed in a source tree that was never installed,
+  which is how Read the Docs builds, so the training, DeepLIFT/SHAP and
+  part of the kernel API pages rendered empty. ``__version__`` is
+  ``"unknown"`` there.
+* The sdist ships the whole test tree, including ``conftest.py`` and
+  ``tests/commands/``; the README images use URLs that render on PyPI;
+  the container leaves out dev dependencies; and ``install-skill
+  --force`` refuses a ``--directory`` that is the bundled skill itself
+  rather than deleting it.
 
 * ``cherimoya seqlets`` raised ``IndexError: arrays used as indices must
   be of integer or boolean type`` when no seqlets were found. An empty
