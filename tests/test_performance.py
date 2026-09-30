@@ -310,3 +310,13 @@ def test_within_peak_without_signal_groups_is_unchanged():
 	assert measures['within_peak_count_pearson'].shape == (2,)
 	assert torch.allclose(measures['within_peak_count_pearson'],
 		direct['count_pearson'], atol=1e-6)
+
+
+def test_count_measures_refuse_groups_that_do_not_match_the_count_head():
+	"""Three channels in one group give one count target; two predicted
+	counts cannot be scored against it."""
+
+	y = torch.randint(0, 5, (4, 3, 10)).float()
+	with pytest.raises(ValueError, match="1 groups but pred_log_counts has 2"):
+		calculate_performance_measures(torch.randn(4, 3, 10), y,
+			torch.randn(4, 2), measures=['count_mse'], signal_groups=[3])

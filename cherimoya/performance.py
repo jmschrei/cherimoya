@@ -485,12 +485,13 @@ def calculate_performance_measures(logps, true_counts, pred_log_counts,
 	per_channel = true_counts.sum(dim=-1)  # (n, sum(signal_groups))
 
 	if signal_groups is not None:
-		# Validate regardless of whether the per-group branch fires —
-		# a bad signal_groups should surface here even if n_pred and
-		# len(signal_groups) happen to disagree, rather than silently
-		# falling through to the total-target legacy fallback.
+		# A grouping that does not match the count head would otherwise
+		# score every prediction against the all-channel total.
 		_validate_signal_groups(signal_groups)
-	if signal_groups is not None and n_pred == len(signal_groups):
+		if n_pred != len(signal_groups):
+			raise ValueError("signal_groups has {} groups but pred_log_counts "
+				"has {} count outputs.".format(len(signal_groups), n_pred))
+	if signal_groups is not None:
 		if sum(signal_groups) != per_channel.shape[-1]:
 			raise ValueError(
 				"sum(signal_groups)={} does not match true_counts channel "
