@@ -63,7 +63,8 @@ def _make_fake_extract_loci(n_loci, n_signal_ch, in_window, out_window,
 
 
 def _run_evaluate(tmp_path, ckpt, signals, n_signal_ch, controls=None,
-		in_window=2 * 49 + 64, out_window=64, n_loci=4, negatives=None):
+		in_window=2 * 49 + 64, out_window=64, n_loci=4, negatives=None,
+		**overrides):
 	"""Run cherimoya evaluate end-to-end against the mocked
 	extract_loci, returning the parsed TSV (header, rows)."""
 	perf_path = tmp_path / "perf.tsv"
@@ -88,6 +89,7 @@ def _run_evaluate(tmp_path, ckpt, signals, n_signal_ch, controls=None,
 	}
 	if negatives is not None:
 		cfg["negatives"] = negatives
+	cfg.update(overrides)
 	json_path = tmp_path / "evaluate.json"
 	json_path.write_text(json.dumps(cfg))
 
@@ -284,3 +286,43 @@ def test_evaluate_without_loci_writes_nothing(tmp_path, capsys):
 
 	assert not (tmp_path / "perf.tsv").exists()
 	assert "No loci on chromosomes ['chr1']" in capsys.readouterr().out
+
+
+def test_evaluate_reverse_complement_average_swaps_strands_within_groups(
+	tmp_path):
+	"""For groups [1, 2] the reverse complement keeps the ATAC channel and
+	swaps the TF's two strands. Flipping the whole channel axis would put
+	the ATAC prediction on the TF's minus strand."""
+	from cherimoya.io import channel_permutation_from_groups
+	from cherimoya.performance import calculate_performance_measures
+
+	ckpt, _ = _build_and_save(tmp_path, [1, 2])
+	_, rows = _run_evaluate(tmp_path, ckpt,
+		signals=["atac.bw", ["tf.+.bw", "tf.-.bw"]], n_signal_ch=3, n_loci=8,
+		reverse_complement_average=True)
+
+	model = Cherimoya.load(str(ckpt), compile=False).eval()
+	in_window = 2 * model.trimming + 64
+	fake = _make_fake_extract_loci(n_loci=8, n_signal_ch=3,
+		in_window=in_window, out_window=64)
+	X, y = fake(loci="peaks.bed", sequences=None, signals=None,
+		in_signals=None, chroms=None, in_window=in_window, out_window=64,
+		exclusion_lists=None, max_jitter=0, ignore=None, verbose=False)
+
+	def forward(X):
+		return predict(model, X, args=None, batch_size=4, device="cpu",
+			dtype="float32", verbose=False)
+
+	logits, logcounts = forward(X)
+	logits_rc, logcounts_rc = forward(torch.flip(X, dims=(-1, -2)))
+	perm = channel_permutation_from_groups([1, 2])
+	logits = (logits + logits_rc[:, perm].flip(-1)) / 2
+	logcounts = (logcounts + logcounts_rc) / 2
+
+	measures = calculate_performance_measures(logits, y, logcounts,
+		signal_groups=[1, 2])
+	for i, (lo, hi) in enumerate([(0, 1), (1, 3)]):
+		expected = [measures["profile_mnll"][:, lo:hi].mean().item(),
+			measures["count_pearson"][i].item()]
+		assert [float(rows[i][0]), float(rows[i][4])] == pytest.approx(
+			expected, rel=1e-5)

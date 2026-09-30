@@ -13,6 +13,7 @@ def run(args):
 
 	from cherimoya import Cherimoya
 	from cherimoya import ControlWrapper
+	from cherimoya.io import channel_permutation_from_groups
 	from cherimoya.io import normalize_signal_groups
 	from cherimoya.performance import calculate_performance_measures
 	from ..defaults import default_evaluate_parameters
@@ -27,7 +28,7 @@ def run(args):
 	# (recovered below from the loaded checkpoint) drives count pooling
 	# under calculate_performance_measures.
 	signal_files, signal_groups = normalize_signal_groups(parameters["signals"])
-	control_files, _ = normalize_signal_groups(parameters["controls"])
+	control_files, control_groups = normalize_signal_groups(parameters["controls"])
 	parameters["signals"] = signal_files
 	parameters["controls"] = control_files
 
@@ -115,8 +116,15 @@ def run(args):
 	)
 
 	if parameters["reverse_complement_average"]:
+		# The reverse complement swaps the strands within each group but
+		# keeps the groups in order, as it does in training.
+		signal_perm = channel_permutation_from_groups(model.signal_groups)
+
 		X_rc = torch.flip(X, dims=(-1, -2))
-		X_ctl_rc = None if X_ctl is None else (torch.flip(X_ctl[0], dims=(-1, -2)),)
+		X_ctl_rc = None
+		if X_ctl is not None:
+			control_perm = channel_permutation_from_groups(control_groups)
+			X_ctl_rc = (X_ctl[0][:, control_perm].flip(-1),)
 
 		y_hat_logits_rc, y_hat_logcounts_rc = predict(
 			model,
@@ -128,7 +136,7 @@ def run(args):
 			verbose=parameters["verbose"],
 		)
 
-		y_hat_logits_rc = torch.flip(y_hat_logits_rc, dims=(-1, -2))
+		y_hat_logits_rc = y_hat_logits_rc[:, signal_perm].flip(-1)
 		y_hat_logits = (y_hat_logits + y_hat_logits_rc) / 2
 		y_hat_logcounts = (y_hat_logcounts + y_hat_logcounts_rc) / 2
 
