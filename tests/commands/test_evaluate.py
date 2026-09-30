@@ -65,7 +65,7 @@ def _make_fake_extract_loci(n_loci, n_signal_ch, in_window, out_window,
 
 def _run_evaluate(tmp_path, ckpt, signals, n_signal_ch, controls=None,
 		in_window=2 * 49 + 64, out_window=64, n_loci=4, negatives=None,
-		**overrides):
+		n_negatives_on_chroms=3, **overrides):
 	"""Run cherimoya evaluate end-to-end against the mocked
 	extract_loci, returning the parsed TSV (header, rows)."""
 	perf_path = tmp_path / "perf.tsv"
@@ -101,7 +101,15 @@ def _run_evaluate(tmp_path, ckpt, signals, n_signal_ch, controls=None,
 		in_window=in_window, out_window=out_window)
 	# evaluate.py imports extract_loci locally inside run(), so we
 	# have to patch the source module rather than a re-export.
-	with mock.patch("tangermeme.io.extract_loci", side_effect=fake):
+	# One row per locus the fake would extract, for evaluate's count of the
+	# loci on its chromosomes.
+	def fake_interleave(loci, chroms):
+		return [None] * (n_negatives_on_chroms if loci == "negatives.bed"
+			else n_loci)
+
+	with mock.patch("tangermeme.io.extract_loci", side_effect=fake), \
+			mock.patch("tangermeme.io._interleave_loci",
+				side_effect=fake_interleave):
 		evaluate_cmd.run(argparse.Namespace(parameters=str(json_path)))
 
 	lines = perf_path.read_text().splitlines()
@@ -327,3 +335,15 @@ def test_evaluate_reverse_complement_average_swaps_strands_within_groups(
 			measures["count_pearson"][i].item()]
 		assert [float(rows[i][0]), float(rows[i][4])] == pytest.approx(
 			expected, rel=1e-5)
+
+
+def test_evaluate_without_negatives_on_its_chromosomes(tmp_path):
+	"""Negatives that miss the evaluated chromosomes, e.g. a negatives file
+	covering only training and validation, leave the peak columns and put
+	nan in the five that need negatives."""
+	ckpt, _ = _build_and_save(tmp_path, [1])
+	header, rows = _run_evaluate(tmp_path, ckpt, signals=["atac.bw"],
+		n_signal_ch=1, negatives="negatives.bed", n_negatives_on_chroms=0)
+
+	assert header == PEAK_COLUMNS + NEGATIVE_COLUMNS
+	assert rows[0][len(PEAK_COLUMNS):] == ["nan"] * len(NEGATIVE_COLUMNS)

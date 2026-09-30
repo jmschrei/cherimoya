@@ -105,6 +105,7 @@ def run(args):
 	from cherimoya.io import PeakGenerator, normalize_signal_groups
 	from cherimoya.training import fit
 
+	from tangermeme.io import _interleave_loci
 	from tangermeme.io import extract_loci
 
 	from . import evaluate as evaluate_cmd
@@ -237,9 +238,11 @@ def run(args):
 
 	# Every negative on the validation chromosomes joins the validation
 	# set, labeled 0, for the measures that separate peaks from negatives.
+	# `extract_loci` raises when none falls on them, hence the check.
 	n_valid_peaks, n_valid_negatives = len(valid_data[0]), 0
 	valid_labels = None
-	if parameters["negatives"] is not None:
+	if parameters["negatives"] is not None and len(_interleave_loci(
+		parameters["negatives"], parameters["validation_chroms"])) > 0:
 		negative_data = extract_loci(
 			sequences=parameters["sequences"],
 			signals=signal_files,

@@ -51,7 +51,7 @@ class _FakeLoader(list):
 	dataset = _FakeDataset()
 
 
-def _run_capturing_training_fit(fit_json):
+def _run_capturing_training_fit(fit_json, n_on_chroms=1):
 	"""Run `fit.run` up to the training call and return its arguments.
 
 	Data loading is faked and `cherimoya.training.fit` raises once it has
@@ -84,6 +84,8 @@ def _run_capturing_training_fit(fit_json):
 
 	with mock.patch("cherimoya.io.PeakGenerator",
 				side_effect=fake_peak_generator), \
+			mock.patch("tangermeme.io._interleave_loci",
+				return_value=[None] * n_on_chroms), \
 			mock.patch("tangermeme.io.extract_loci",
 				side_effect=fake_extract_loci), \
 			mock.patch("cherimoya.training.fit", side_effect=fake_fit):
@@ -662,6 +664,7 @@ def test_fit_seeds_the_model_initialization(fit_json):
 
 	with mock.patch("cherimoya.io.PeakGenerator",
 				return_value=_FakeLoader([None] * 4)), \
+			mock.patch("tangermeme.io._interleave_loci", return_value=[None]), \
 			mock.patch("tangermeme.io.extract_loci",
 				side_effect=fake_extract_loci), \
 			mock.patch("cherimoya.Cherimoya", side_effect=fake_model):
@@ -887,6 +890,7 @@ def test_fit_banner_names_the_loss_balancing_in_force(fit_json, capsys,
 
 	with mock.patch("cherimoya.io.PeakGenerator",
 				return_value=_FakeLoader([None] * 4)), \
+			mock.patch("tangermeme.io._interleave_loci", return_value=[None]), \
 			mock.patch("tangermeme.io.extract_loci",
 				side_effect=fake_extract_loci), \
 			mock.patch("cherimoya.training.fit", side_effect=_StopFit()):
@@ -919,6 +923,7 @@ def _run_fit_evaluations(fit_json, tmp_path, monkeypatch):
 
 	with mock.patch("cherimoya.io.PeakGenerator",
 				return_value=_FakeLoader([None] * 4)), \
+			mock.patch("tangermeme.io._interleave_loci", return_value=[None]), \
 			mock.patch("tangermeme.io.extract_loci",
 				side_effect=fake_extract_loci), \
 			mock.patch("cherimoya.training.fit",
@@ -991,3 +996,15 @@ def test_fit_centers_validation_peaks_as_training_does(fit_json):
 	assert captured['peak_generator']['summits'] is True
 	assert captured['extract']['fake.bed']['summits'] is True
 	assert captured['extract']['fake_negatives.bed'].get('summits', False) is False
+
+
+def test_fit_validates_without_negatives_on_the_validation_chromosomes(
+	fit_json):
+	"""A negatives file with nothing on the validation chromosomes leaves
+	the validation set to the peaks rather than failing in extract_loci."""
+
+	captured = _run_capturing_training_fit(fit_json, n_on_chroms=0)
+	X_valid, _ = captured['valid']
+	assert len(X_valid) == 1
+	assert captured['labels_valid'] is None
+	assert 'fake_negatives.bed' not in captured['extract']

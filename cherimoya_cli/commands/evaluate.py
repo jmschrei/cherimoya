@@ -8,6 +8,7 @@ def run(args):
 
 	from sklearn.metrics import average_precision_score
 	from sklearn.metrics import roc_auc_score
+	from tangermeme.io import _interleave_loci
 	from tangermeme.io import extract_loci
 	from tangermeme.predict import predict
 
@@ -58,6 +59,13 @@ def run(args):
 		compile=parameters["compile"],
 		compile_mode=parameters["compile_mode"])
 
+	# `extract_loci` raises when no locus falls on `chroms`, so that case
+	# is checked first, for the loci here and for the negatives below.
+	if len(_interleave_loci(parameters["loci"], parameters["chroms"])) == 0:
+		print("No loci on chromosomes {}, so {} was not written.".format(
+			parameters["chroms"], parameters["performance_filename"]))
+		return
+
 	# Centered as the training peaks are; negatives have no summit column.
 	examples = extract_loci(
 		sequences=parameters["sequences"],
@@ -77,12 +85,9 @@ def run(args):
 	# The negatives follow the peaks, which are the first `n_peaks` rows.
 	# The key is optional, so that JSONs written before it still run.
 	n_peaks = len(examples[0])
-	if n_peaks == 0:
-		print("No loci on chromosomes {}, so {} was not written.".format(
-			parameters["chroms"], parameters["performance_filename"]))
-		return
-
-	if parameters.get("negatives") is not None:
+	negatives = parameters.get("negatives")
+	if negatives is not None and len(_interleave_loci(negatives,
+		parameters["chroms"])) > 0:
 		negatives = extract_loci(
 			sequences=parameters["sequences"],
 			signals=parameters["signals"],
