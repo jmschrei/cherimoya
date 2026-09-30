@@ -81,7 +81,8 @@ in one plain sentence what happened and why. Examples:
 - "You didn't pass peaks, so MACS3 will call them at q < 0.05 (its default)."
 - "Training will use chr8 and chr20 as held-out validation — the hg38 default.
   If your data isn't hg38, we need to change this."
-- "The model trains for all 20 epochs — early stopping is off by default — and
+- "The model trains for at least 20 epochs, more if that is under 20,000
+  steps — early stopping is off by default — and
   the checkpoint kept is the epoch with the best validation count Pearson."
 
 The point is that a novice should never be surprised by something the pipeline

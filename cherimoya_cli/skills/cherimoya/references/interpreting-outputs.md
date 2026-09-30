@@ -92,13 +92,13 @@ model rely on" summary.
 
 ### TF-MoDISco — `{name}_modisco_results.h5` + `{name}_modisco/`
 *De novo* motifs aggregated across all seqlets. The `.h5` holds the patterns;
-`{name}_modisco/` is a browsable **HTML report** (open `index.html`) — usually
+`{name}_modisco/` is a browsable **HTML report** (open `motifs.html`) — usually
 the most satisfying thing to show a user, with names when a motif database was
 supplied.
 
 ### Marginalization — `{name}_marginalize/`
 Only with a motif database. Inserts each known motif into background sequences
-and measures the model's predicted response — an HTML-plus-CSV report of how
+and measures the model's predicted response — an HTML report with PNG figures of how
 much the model "cares" about each motif.
 
 ## Per-step JSON snapshots

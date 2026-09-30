@@ -78,8 +78,8 @@ Common novice edits — always explain the change you make:
     job step and rank 0 prints it.
   The pipeline runs the fit step as a separate `python -m cherimoya_cli fit`
   process. Details: <https://cherimoya.readthedocs.io/en/latest/cli.html#training-on-several-devices>.
-- **Want to watch training?** `fit_parameters.verbose: true` prints the
-  per-epoch table (the rows of `{name}.log`) above Lightning's progress bar,
+- **Want to watch training?** The pipeline's top-level `verbose` (true by
+  default) reaches the fit step, which then prints the per-epoch table (the rows of `{name}.log`) above Lightning's progress bar,
   with the latest validation Pearsons to the bar's right. Several runs sharing
   one terminal overwrite each other's bars: set `fit_parameters.progress_bar`
   to `false` for them. Redirected to a file, the bar is off by default.

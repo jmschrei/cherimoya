@@ -18,10 +18,12 @@ exhaustive flag and JSON-key tables, defer to
 | Call seqlets from attributions | `seqlets` |
 | Measure a model's response to inserted motifs | `marginalize` |
 | Sample GC-matched negative regions | `negatives` |
+| Install this skill for Claude Code | `install-skill` |
 
 ## Two flag conventions
 
-- **`pipeline-json` and `negatives` take direct CLI flags** (no JSON).
+- **`pipeline-json`, `negatives` and `install-skill` take direct CLI flags**
+  (no JSON).
 - **Every other subcommand is driven by a JSON file passed with `-p,
   --parameters`.** Missing keys fall back to `cherimoya_cli/defaults.py`.
 - **Short flags are overloaded:** `-p` means `--peaks` in `pipeline-json` but
@@ -40,9 +42,8 @@ to emit per-step JSONs without running anything.
 (repeatable) · `-p` peaks (repeatable) · `-neg` negatives (repeatable) ·
 `-n` name · `-o` output JSON · `-m` motifs (MEME) · `-u` unstranded ·
 `-f` fragments · `-pe` paired-end · `-ps` pos_shift · `-ns` neg_shift ·
-`-sf` scale_factor. `-s`, `-i`, `-n`, `-o` are all effectively required
-(argparse enforces none, but a missing one fails later or yields `None_*`
-filenames).
+`-sf` scale_factor. `-s`, `-i`, `-n` and `-o` are required; argparse rejects
+the command without them.
 
 ## `negatives` flags (standalone)
 
@@ -63,7 +64,9 @@ Quote these; don't guess others — read `defaults.py` or the docs.
   `reverse_complement` true, `num_workers` 1 (per device), `loss_weights`
   `null`, `devices` 1 (`-1` = every visible device; more than one trains with
   DDP and splits the global `batch_size` evenly across them).
-- Training output: `verbose` false (true prints the run setup and the
+- Training output: `verbose` false for a standalone `fit` JSON (the pipeline's
+  top-level `verbose`, true by default, reaches its fit step; true prints the run
+  setup and the
   per-epoch table of `{name}.log`), `progress_bar` `null` (with `verbose`, draw
   Lightning's progress bar only when stdout is a terminal or a Jupyter kernel;
   `true`/`false` force it).
