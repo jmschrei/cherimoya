@@ -568,7 +568,6 @@ def test_setup_turns_off_dynamo_ddp_graph_splitting_under_ddp(monkeypatch,
 	the NCCL timeout. Training on several devices turns it off; one device
 	leaves the setting alone."""
 
-	import types
 	import torch._dynamo
 
 	monkeypatch.setattr(torch._dynamo.config, "optimize_ddp", True)
