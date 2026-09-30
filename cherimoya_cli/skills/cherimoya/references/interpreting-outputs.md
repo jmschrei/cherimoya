@@ -5,12 +5,17 @@ model good?", and "what did it learn?" `{name}` is the `-n` value from step 1.
 
 ## "Did it work / is it any good?" — the model and its metrics
 
-### `{name}.performance.tsv` — the scorecard
-One row per signal group. Seven columns computed on the **peaks** of the
-**held-out validation chromosomes** (default chr8, chr20): `profile_mnll`,
-`profile_jsd`, `profile_pearson`, `profile_spearman`, `count_pearson`,
-`count_spearman`, `count_mse`. Then five that also use the negatives on those
-chromosomes, `nan` when there are none: `all_count_pearson`,
+### `{name}.test.performance.tsv` and `{name}.validation.performance.tsv` — the scorecard
+The same table for two sets of held-out chromosomes. **Quote the test file**
+(`test_chroms`, default chr1, chr3, chr6): those chromosomes took no part in
+training or in choosing the checkpoint. The validation file (`validation_chroms`,
+default chr8, chr20) scores the chromosomes that picked the best epoch, so it
+runs slightly optimistic. There is no test file when `test_chroms` is `null`.
+
+One row per signal group. Seven columns computed on the **peaks**:
+`profile_mnll`, `profile_jsd`, `profile_pearson`, `profile_spearman`,
+`count_pearson`, `count_spearman`, `count_mse`. Then five that also use the
+negatives on those chromosomes, `nan` when there are none: `all_count_pearson`,
 `all_count_spearman`, `all_count_mse` (over peaks and negatives together), and
 `auroc` / `auprc` (how well the predicted counts tell peaks from negatives;
 AUPRC depends on the peak:negative ratio, so compare it only between runs with

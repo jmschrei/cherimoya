@@ -28,8 +28,11 @@ exhaustive flag and JSON-key tables, defer to
   `--parameters` elsewhere, and `-i` means `--inputs` (signal) in `pipeline-json`
   but `--peaks` in `negatives`. Don't carry a flag's meaning across subcommands.
 
-Most JSON schemas accept `"skip": true` to no-op a step; the pipeline JSON also
-accepts `"dry_run": true` to emit per-step JSONs without running anything.
+The fit, evaluate, attribute, seqlets and marginalize JSONs accept
+`"skip": true` to no-op the step. In the pipeline JSON a top-level `skip` no-ops
+the whole run and `annotation_parameters.skip` skips seqlet annotation; the
+MoDISco steps have no `skip`. The pipeline JSON also accepts `"dry_run": true`
+to emit per-step JSONs without running anything.
 
 ## `pipeline-json` flags
 
@@ -66,9 +69,9 @@ Quote these; don't guess others — read `defaults.py` or the docs.
   `true`/`false` force it).
 - Inference stages: `batch_size` 512.
 - Device/dtype: `cuda` / `float32`.
-- Split (hg38): `validation_chroms` = chr8, chr20; everything else (minus
-  chr1/chr3/chr6 held out of the default list) trains. **Change these for
-  non-hg38 genomes.**
+- Split (hg38): `validation_chroms` = chr8, chr20 (choose the checkpoint);
+  `test_chroms` = chr1, chr3, chr6 (scored once after training); everything
+  else trains. **Change all three for non-hg38 genomes.**
 - Peak calling: `callpeaks_gsize` `"hs"`, `callpeaks_q` 0.05.
 - Seqlets: `threshold` 0.01, lengths 4–25 bp, `additional_flanks` 3.
 

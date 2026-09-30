@@ -351,7 +351,7 @@ speed optimization — it does not change the batch sequence.
 an unchanged JSON therefore rebuilds the same model rather than giving
 an independent replicate; vary the seed to get replicates. Setting it
 to ``null`` does not turn seeding off — a seed is drawn, printed, and
-written into the generated evaluate JSON, so a run made without
+written into the generated evaluate JSONs, so a run made without
 planning to repeat it can still be repeated.
 
 What the seed does not buy is bitwise equality on CUDA. The fused

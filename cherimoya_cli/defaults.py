@@ -31,7 +31,7 @@
 # order. Set it to any other integer to get an independent run -- rerunning
 # the same JSON unchanged reproduces the same model rather than giving an
 # independent replicate. Setting it to null does not turn seeding off; it
-# means "draw a seed, print it, and record it in the evaluate JSON", so an
+# means "draw a seed, print it, and record it in the evaluate JSONs", so an
 # unplanned run can still be repeated afterwards.
 #
 # Seeding does not make CUDA training bitwise reproducible. The fused

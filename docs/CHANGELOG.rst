@@ -4,6 +4,34 @@ Changelog
 Unreleased
 ----------
 
+Changed (**breaking**)
+~~~~~~~~~~~~~~~~~~~~~~
+
+* **``cherimoya fit`` evaluates on a held-out test set as well as the
+  validation set, and the output files are renamed.** The validation
+  chromosomes choose the checkpoint and drive early stopping, so the
+  single ``{name}.performance.tsv`` they produced was not an
+  independent estimate. A new ``test_chroms`` key (default ``chr1``,
+  ``chr3``, ``chr6``, which the default split already left out of
+  training and validation) is evaluated after training too.
+  ``{name}.performance.tsv`` becomes
+  ``{name}.validation.performance.tsv``, ``{name}.evaluate.json``
+  becomes ``{name}.validation.evaluate.json``, and the test run writes
+  ``{name}.test.performance.tsv`` and ``{name}.test.evaluate.json``.
+  ``test_chroms: null`` skips the test run. **Scripts that read**
+  ``{name}.performance.tsv`` **must switch to one of the new names.**
+* **``fit`` refuses to start when two of** ``training_chroms``,
+  ``validation_chroms`` **and** ``test_chroms`` **share a chromosome.**
+  A fit JSON written before ``test_chroms`` existed gets the default
+  ``chr1``/``chr3``/``chr6``, so one whose custom split trains on any of
+  them now raises ``ValueError`` naming the shared chromosomes; set
+  ``test_chroms`` to held-out chromosomes, or to ``null``.
+* The ``performance_filename`` fit key is removed; ``fit`` always
+  overwrote it. ``cherimoya evaluate`` keeps its own. The ``seqlets``
+  ``exclusion_lists`` key, which nothing read, is removed too;
+  ``attribute`` now applies exclusions (below), and ``seqlets``
+  inherits them through the index file.
+
 Removed (**breaking**)
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -81,6 +109,45 @@ Added
 
 Bug fixes
 ~~~~~~~~~
+
+* **The pipeline's marginalization inserted motifs into the peaks.**
+  The marginalize step copied the top-level ``loci`` before the
+  fallback to ``negatives`` was checked, so the fallback never applied.
+  It now uses the negatives unless ``marginalize_parameters.loci`` is
+  set.
+* ``cherimoya marginalize`` extracted tangermeme's default 2114 bp
+  rather than its ``in_window``, and ignored ``exclusion_lists``, as did
+  ``cherimoya attribute``. Both now pass them to ``extract_loci``.
+* **``reverse_complement_average`` in ``cherimoya evaluate`` scrambled
+  the channels of multi-group models.** Flipping the whole channel axis
+  averaged, for groups ``[1, 2]``, the ATAC prediction into the TF's
+  minus strand. The reverse complement now swaps strands within each
+  group, for predictions and controls, as training does. Single-group
+  models are unchanged.
+* The pipeline's top-level ``compile`` / ``compile_mode`` never reached
+  training or the evaluate step, which always compiled with
+  ``max-autotune``. ``fit`` now takes both keys and passes them to the
+  training model and to its evaluate JSONs.
+* A top-level ``"skip": true`` in the pipeline JSON still ran MACS3,
+  ``bam2bw``, negative sampling and TF-MoDISco; the pipeline now
+  returns before any step. ``annotation_parameters.skip`` is honored.
+* With ``summits: true``, validation and evaluation windows were
+  centered on the peak midpoint while training windows were centered on
+  the summit. ``fit``'s validation peaks and ``evaluate`` (new
+  ``summits`` key, default ``false``) now use it; negatives stay
+  midpoint-centered.
+* A ``loci`` given as a single string made the pipeline's negatives step
+  read its first character as the peak file.
+* ``merge_parameters`` filled missing nested keys with the default
+  dicts themselves, so a pipeline run writing into them changed the
+  defaults of the next run in the same process.
+* ``cherimoya evaluate`` declares ``signals``, so a JSON without it gets
+  the usual "Must provide value" message rather than ``KeyError``, and
+  it returns with a message rather than failing when no locus falls on
+  its ``chroms``.
+* ``cherimoya negatives`` requires ``-f/--fasta``, ``pipeline-json
+  -sf`` is parsed as a float rather than kept as a string, and the
+  ``--unstranded`` help text no longer says the opposite.
 
 * ``cherimoya seqlets`` raised ``IndexError: arrays used as indices must
   be of integer or boolean type`` when no seqlets were found. An empty

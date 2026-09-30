@@ -46,7 +46,7 @@ things that can't be recovered from a filename:
 - **Which files does the user actually have**, and what is each one? Never
   invent a path. See `references/input-files.md`.
 - **What is the goal?** "Is my data any good?" → train + read
-  `performance.tsv`. "What motifs did it learn?" → attributions + seqlets +
+  `{name}.test.performance.tsv`. "What motifs did it learn?" → attributions + seqlets +
   TF-MoDISco. Map lay language onto subcommands before acting.
 
 When in doubt, ask a short question. One clarifying question is always cheaper

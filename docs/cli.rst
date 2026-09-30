@@ -24,12 +24,17 @@ Common conventions
   will produce. The exceptions are the keys that are optional by
   design, which may simply be left out: ``controls``, ``model``,
   ``motifs``, ``exclusion_lists``, ``early_stopping``,
-  ``loss_weights``, ``count_loss_weight`` and ``warning_threshold``.
-* Most JSON schemas accept ``"skip": true`` to no-op the step. The
-  ``pipeline`` JSON accepts ``"dry_run": true`` to print/emit the
-  per-step JSONs without running any subprocess.
+  ``loss_weights``, ``progress_bar`` and ``warning_threshold``.
+* The ``fit``, ``evaluate``, ``attribute``, ``seqlets`` and
+  ``marginalize`` JSONs accept ``"skip": true`` to no-op the step. In
+  the ``pipeline`` JSON, a top-level ``"skip": true`` no-ops the whole
+  pipeline and ``annotation_parameters.skip`` skips the seqlet
+  annotation; the MoDISco steps have no ``skip``. The ``pipeline`` JSON
+  accepts ``"dry_run": true`` to print/emit the per-step JSONs without
+  running any subprocess.
 * List-valued keys (``signals``, ``controls``, ``loci``, ``negatives``,
-  ``training_chroms``, ``validation_chroms``, ``chroms``) accept
+  ``training_chroms``, ``validation_chroms``, ``test_chroms``,
+  ``chroms``) accept
   multiple values. Single-string scalars are coerced to a one-element
   list internally in some places.
 * Path-valued keys can be remote URLs (``http://``, ``https://``,
@@ -162,7 +167,8 @@ JSON schema (top-level keys, with defaults from
      - Print per-step progress.
    * - ``random_state``
      - 0
-     - Base RNG seed, inherited by the fit and marginalize steps.
+     - Base RNG seed, inherited by the fit, attribute and marginalize
+       steps.
        Seeds the model's initialization and the sampler's draw order.
        Set ``null`` to have one drawn, printed, and recorded instead.
    * - ``exclusion_lists``
@@ -376,11 +382,19 @@ Unspecified keys fall back to the fit-level defaults.
        laid out over the raised value, so they stretch with it. ``null``
        disables the floor.
    * - ``training_chroms``
-     - hg38 default (chr2, chr4, chr5, chr7, chr9-22, chrX, chrY)
+     - hg38 default (chr2, chr4, chr5, chr7, chr9-19, chr21, chr22,
+       chrX, chrY)
      - Chromosomes used for training.
    * - ``validation_chroms``
      - ``["chr8", "chr20"]``
-     - Held-out chromosomes for validation.
+     - Held-out chromosomes for validation. They choose the checkpoint
+       and drive early stopping.
+   * - ``test_chroms``
+     - ``["chr1", "chr3", "chr6"]``
+     - Held-out chromosomes evaluated once after training, for an
+       estimate that took no part in choosing the checkpoint. ``null``
+       skips the test evaluation. ``fit`` refuses to start if any two
+       of the three lists share a chromosome.
    * - ``in_window`` / ``out_window``
      - 2114 / 1000
      - Input / output window sizes (bp).
@@ -649,9 +663,16 @@ CLI flags:
 
 JSON schema: the ``fit_parameters`` table above, plus the input
 keys ``sequences``, ``loci``, ``negatives``, ``signals``,
-``controls``, ``exclusion_lists``, and ``performance_filename``
-(default ``"performance.tsv"``). On completion, ``fit`` also writes
-the resulting ``evaluate`` JSON and invokes the evaluate step.
+``controls`` and ``exclusion_lists``, and ``compile`` /
+``compile_mode`` (defaults ``true`` / ``"max-autotune"``), which
+apply to the training model and to both evaluations. On completion,
+``fit`` evaluates the best checkpoint twice: on the
+``validation_chroms``, writing ``{name}.validation.evaluate.json``
+and ``{name}.validation.performance.tsv``, and on the
+``test_chroms``, writing ``{name}.test.evaluate.json`` and
+``{name}.test.performance.tsv``. The validation numbers come from the
+chromosomes that chose the checkpoint; the test numbers do not. Each
+evaluate JSON can be rerun with ``cherimoya evaluate -p``.
 
 Training runs through :func:`cherimoya.training.fit` and writes four
 files next to ``name``:
@@ -801,7 +822,14 @@ JSON schema:
      - Inference batch size.
    * - ``reverse_complement_average``
      - ``false``
-     - Run predictions on RC inputs and average the results.
+     - Run predictions on RC inputs and average the results. The RC
+       swaps the strands within each group, as training does: the
+       signal grouping comes from the checkpoint and the control
+       grouping from ``controls``.
+   * - ``summits``
+     - ``false``
+     - Center the loci on the narrowPeak summit column, as ``fit`` does
+       with the same key. Negatives are always midpoint-centered.
    * - ``device`` / ``dtype``
      - ``"cuda"`` / ``"float32"``
      - Inference device and dtype.
@@ -826,9 +854,11 @@ The TSV columns are
 ``all_count_pearson``, ``all_count_spearman``, ``all_count_mse``,
 computed on the loci and negatives together, and ``auroc`` and
 ``auprc``, for the predicted log counts separating the loci from the
-negatives. The last five are ``nan`` without negatives. The ``fit``
-step's evaluate JSON carries its ``negatives``, so the pipeline's
-evaluation includes them. The file has one data row per signal group, in
+negatives. The last five are ``nan`` without negatives. The evaluate
+JSONs ``fit`` writes carry its ``negatives``, so the pipeline's
+evaluations include them. When no locus falls on ``chroms``,
+``evaluate`` prints a message and writes no file. The file has one data
+row per signal group, in
 ``signal_groups`` order — for a single-group model (the default) this
 is a single row holding the same per-group mean that
 ``calculate_performance_measures`` returns; for a multi-group model
@@ -863,7 +893,9 @@ CLI flags:
 
 JSON schema: the ``seqlet_parameters`` table above, plus ``chroms``
 and ``loci`` (needed to convert example-relative seqlet coordinates
-back to genome coordinates) and ``exclusion_lists``.
+back to genome coordinates). Loci that ``attribute`` excluded are
+already marked in its index file, so ``seqlets`` takes no
+``exclusion_lists``.
 
 The emitted BED is in the same coordinate system as ``loci``. Seqlet
 positions are relative to the attribution array, which covers a slice
@@ -879,7 +911,8 @@ CLI flags:
 * ``-p, --parameters`` (required) — path to a marginalize JSON.
 
 JSON schema: the ``marginalize_parameters`` table above, plus
-``sequences``, ``model``, and ``motifs``.
+``sequences``, ``model``, ``motifs``, ``in_window`` (the model's
+input width; default 2114) and ``exclusion_lists``.
 
 
 cherimoya negatives

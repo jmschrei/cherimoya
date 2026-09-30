@@ -134,10 +134,10 @@ def run(args):
 	# Resolve the seed before anything draws from an RNG. A null
 	# `random_state` means "pick one and tell me" rather than "stay
 	# unseeded": the run still varies between invocations, but the seed
-	# that produced it is printed and written into the evaluate JSON, so
+	# that produced it is printed and written into the evaluate JSONs, so
 	# the run can be repeated afterwards. Drawing it here and storing it
-	# back into `parameters` is what puts it in that JSON, which is a
-	# deepcopy of this dict. The ranks Lightning launches after the first
+	# back into `parameters` is what puts it in those JSONs, which are
+	# deepcopies of this dict. The ranks Lightning launches after the first
 	# read rank 0's draw from `PL_GLOBAL_SEED`, which `seed_everything`
 	# sets before they start; rank 0 itself always draws, so a value left
 	# in the environment by an earlier run in the same process is ignored.
@@ -159,7 +159,7 @@ def run(args):
 
 			# Printed whether or not `verbose` is set: a drawn seed is
 			# the one part of the run that cannot be recovered afterwards
-			# if training dies before the evaluate JSON is written.
+			# if training dies before the evaluate JSONs are written.
 			say("Drew random_state={}; set it in the JSON to repeat this run."
 				.format(seed))
 

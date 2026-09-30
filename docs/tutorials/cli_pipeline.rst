@@ -116,7 +116,10 @@ What this does, in order:
 3. **GC-matched negative sampling** (skipped if ``negatives`` is set).
 4. **Model training** — writes ``{name}.torch`` (best checkpoint by
    validation count Pearson) and ``{name}.final.torch`` (EMA weights
-   at end of training), plus ``{name}.log``.
+   at end of training), plus ``{name}.log``, then evaluates the best
+   checkpoint on the validation and test chromosomes into
+   ``{name}.validation.performance.tsv`` and
+   ``{name}.test.performance.tsv``.
 5. **Attribution** via DeepLIFT/SHAP (or saturation mutagenesis, with
    ``algorithm``), kept over the central 400 bp of each example, saved as ``{name}.attributions.{ohe,attr}.npz``
    and ``{name}.attributions.idxs.npy``.
@@ -148,7 +151,7 @@ directly:
 .. code-block:: bash
 
    cherimoya fit -p my_experiment.fit.json
-   cherimoya evaluate -p my_experiment.evaluate.json
+   cherimoya evaluate -p my_experiment.test.evaluate.json
    cherimoya attribute -p my_experiment.attribute.json
    cherimoya seqlets -p my_experiment.seqlets.json
    cherimoya marginalize -p my_experiment.marginalize.json
@@ -157,7 +160,9 @@ The defaults for each command are in
 ``cherimoya_cli.defaults.default_*_parameters``; the merged JSON
 snapshots written by ``pipeline`` make them concrete.
 
-Every step JSON also supports ``"skip": true`` to no-op that step.
+The ``fit``, ``evaluate``, ``attribute``, ``seqlets`` and
+``marginalize`` JSONs also support ``"skip": true`` to no-op that
+step.
 
 
 About bam2bw
@@ -208,15 +213,18 @@ Running on a non-hg38 reference
 -------------------------------
 
 The defaults assume hg38. To run on a different reference (mouse mm10,
-non-human, or a different hg version), override three keys in the
+non-human, or a different hg version), override four keys in the
 pipeline JSON:
 
 * ``fit_parameters.training_chroms`` — chromosomes used to train.
   Replace with the appropriate list for your reference (e.g. mm10:
-  ``["chr1", "chr2", …, "chr19", "chrX", "chrY"]`` minus the two
-  validation chromosomes you choose).
+  ``["chr1", "chr2", …, "chr19", "chrX", "chrY"]`` minus the
+  validation and test chromosomes you choose).
 * ``fit_parameters.validation_chroms`` — held-out chromosomes for
-  validation. Two chromosomes is enough.
+  validation, which choose the checkpoint. Two chromosomes is enough.
+* ``fit_parameters.test_chroms`` — held-out chromosomes evaluated once
+  after training, or ``null`` for no test evaluation. ``fit`` refuses
+  to start if two of the three lists share a chromosome.
 * ``preprocessing_parameters.callpeaks_gsize`` — MACS3 effective
   genome size. Use ``"mm"`` for mouse, ``"ce"`` for *C. elegans*,
   ``"dm"`` for fly, or a numeric value (e.g. ``"2.7e9"`` for hg38) for
@@ -252,8 +260,10 @@ directory (with ``{name}`` from the ``-n`` flag in step 1):
        ``CountPearson_g{i}``, ``AUROC_g{i}`` and ``AUPRC_g{i}``
        column per signal group, for offline per-modality analysis.
        Never printed to stdout.
-   * - ``{name}.performance.tsv``
-     - Final held-out chromosome metrics. One TSV row per signal
+   * - ``{name}.validation.performance.tsv`` / ``{name}.test.performance.tsv``
+     - Metrics of the best checkpoint on the validation chromosomes
+       (which chose it) and on the test chromosomes (which did not).
+       Each has one TSV row per signal
        group, in ``signal_groups`` order; single-group models
        write exactly one row. Seven columns computed on the peaks,
        then five computed with the negatives: the count Pearson,
@@ -288,5 +298,7 @@ directory (with ``{name}`` from the ``-n`` flag in step 1):
      - TF-MoDISco HTML report.
    * - ``{name}_marginalize/``
      - Motif marginalization report (HTML plus CSVs).
-   * - ``{name}.{pipeline,fit,evaluate,attribute,seqlets,marginalize}.json``
+   * - ``{name}.{fit,attribute,seqlets,marginalize}.json``
      - Per-step JSON snapshots of the actual parameters used.
+   * - ``{name}.{validation,test}.evaluate.json``
+     - The evaluate JSONs ``fit`` writes and runs.
