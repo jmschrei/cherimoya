@@ -47,6 +47,10 @@ training_chroms = ["chr2", "chr4", "chr5", "chr7", "chr9", "chr10", "chr11",
 
 validation_chroms = ['chr8', 'chr20']
 
+# Held out of both lists above, and scored once after training to give a
+# performance estimate that did not take part in choosing the checkpoint.
+test_chroms = ['chr1', 'chr3', 'chr6']
+
 
 default_fit_parameters = {
 	'n_filters': 128,
@@ -82,6 +86,7 @@ default_fit_parameters = {
 	'verbose': False,
 	'training_chroms': training_chroms,
 	'validation_chroms': validation_chroms,
+	'test_chroms': test_chroms,
 	'sequences': None,
 	'loci': None,
 	'exclusion_lists': None,
@@ -89,7 +94,6 @@ default_fit_parameters = {
 	'signals': None,
 	'controls': None,
 	'random_state': 0,
-	'performance_filename': 'performance.tsv',
 	'skip': False,
 }
 
@@ -270,6 +274,7 @@ default_pipeline_parameters = {
 		'loss_weights': None,
 		'training_chroms': training_chroms,
 		'validation_chroms': validation_chroms,
+		'test_chroms': test_chroms,
 		'sequences': None,
 		'loci': None,
 		'negatives': None,
@@ -278,7 +283,6 @@ default_pipeline_parameters = {
 		'verbose': None,
 		'random_state': None,
 		'summits': False,
-		'performance_filename': None,
 	},
 
 	# Attribution parameters

@@ -270,3 +270,17 @@ def test_evaluate_negatives_add_columns_and_leave_the_peak_ones(tmp_path,
 		]
 		assert [float(v) for v in row[len(PEAK_COLUMNS):]] == pytest.approx(
 			expected, rel=1e-5, abs=1e-6)
+
+
+def test_evaluate_without_loci_writes_nothing(tmp_path, capsys):
+	"""Chromosomes with no loci, e.g. a test set the peaks don't reach, give
+	a message rather than a crash or an empty TSV."""
+	ckpt, _ = _build_and_save(tmp_path, [1])
+
+	# `_run_evaluate` reads the TSV back, which fails because none was written.
+	with pytest.raises(FileNotFoundError):
+		_run_evaluate(tmp_path, ckpt, signals=["atac.bw"], n_signal_ch=1,
+			n_loci=0)
+
+	assert not (tmp_path / "perf.tsv").exists()
+	assert "No loci on chromosomes ['chr1']" in capsys.readouterr().out

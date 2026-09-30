@@ -90,6 +90,7 @@ def run(args):
 	import argparse
 	import copy
 	import hashlib
+	import itertools
 	import os
 	import json
 
@@ -118,6 +119,17 @@ def run(args):
 	parameters = merge_parameters(args.parameters, default_fit_parameters)
 	if parameters["skip"]:
 		return
+
+	# A chromosome in two splits would score the model on data it was
+	# trained on or selected with.
+	splits = {name: parameters[name] or [] for name in ("training_chroms",
+		"validation_chroms", "test_chroms")}
+	for (a, chroms_a), (b, chroms_b) in itertools.combinations(splits.items(), 2):
+		shared = sorted(set(chroms_a) & set(chroms_b))
+		if shared:
+			raise ValueError("{} and {} share {}. Give each chromosome to at "
+				"most one split, or set test_chroms to null to skip the test "
+				"evaluation.".format(a, b, shared))
 
 	# Resolve the seed before anything draws from an RNG. A null
 	# `random_state` means "pick one and tell me" rather than "stay
@@ -172,7 +184,8 @@ def run(args):
 
 	if parameters["verbose"]:
 		say("Training Chroms: ", parameters["training_chroms"])
-		say("Vaidation Chroms: ", parameters["validation_chroms"])
+		say("Validation Chroms: ", parameters["validation_chroms"])
+		say("Test Chroms: ", parameters["test_chroms"])
 
 		say("\nLoading peaks from: ", parameters["loci"])
 		say("Loading negatives from: ", parameters["negatives"])
@@ -355,15 +368,20 @@ def run(args):
 
 	model_name = parameters["name"] or model.name
 
-	evaluate_parameters = copy.deepcopy(parameters)
-	evaluate_parameters["chroms"] = parameters["validation_chroms"]
-	evaluate_parameters["max_jitter"] = 0
-	evaluate_parameters["reverse_complement"] = False
-	evaluate_parameters["model"] = model_name + ".torch"
-	evaluate_parameters["performance_filename"] = model_name + ".performance.tsv"
+	# The validation chromosomes chose the checkpoint, so only the test
+	# chromosomes give an estimate that took no part in training.
+	for split in ("validation", "test"):
+		if not parameters[split + "_chroms"]:
+			continue
 
-	fname = "{}.evaluate.json".format(model_name)
-	with open(fname, "w") as outfile:
-		outfile.write(json.dumps(evaluate_parameters, sort_keys=True, indent=4))
+		evaluate_parameters = copy.deepcopy(parameters)
+		evaluate_parameters["chroms"] = parameters[split + "_chroms"]
+		evaluate_parameters["model"] = model_name + ".torch"
+		evaluate_parameters["performance_filename"] = "{}.{}.performance.tsv".format(
+			model_name, split)
 
-	evaluate_cmd.run(argparse.Namespace(parameters=fname))
+		fname = "{}.{}.evaluate.json".format(model_name, split)
+		with open(fname, "w") as outfile:
+			outfile.write(json.dumps(evaluate_parameters, sort_keys=True, indent=4))
+
+		evaluate_cmd.run(argparse.Namespace(parameters=fname))

@@ -895,3 +895,74 @@ def test_fit_banner_names_the_loss_balancing_in_force(fit_json, capsys,
 	out = capsys.readouterr().out
 	assert expected in out
 	assert forbidden not in out
+
+
+def _run_fit_evaluations(fit_json, tmp_path, monkeypatch):
+	"""Run `fit.run` through its evaluate step with training and data
+	loading faked, and return the evaluate JSONs it passed on, in order."""
+
+	import types
+
+	import torch
+
+	from cherimoya_cli.commands import fit as fit_cmd
+
+	monkeypatch.chdir(tmp_path)
+	evaluated = []
+
+	def fake_extract_loci(**kwargs):
+		return torch.zeros(1, 4, 16), torch.zeros(1, 1, 8)
+
+	def fake_evaluate(args):
+		evaluated.append((args.parameters, json.loads(open(args.parameters).read())))
+
+	with mock.patch("cherimoya.io.PeakGenerator",
+				return_value=_FakeLoader([None] * 4)), \
+			mock.patch("tangermeme.io.extract_loci",
+				side_effect=fake_extract_loci), \
+			mock.patch("cherimoya.training.fit",
+				return_value=types.SimpleNamespace(is_global_zero=True)), \
+			mock.patch("cherimoya_cli.commands.evaluate.run",
+				side_effect=fake_evaluate):
+		fit_cmd.run(argparse.Namespace(parameters=fit_json))
+
+	return evaluated
+
+
+def test_fit_evaluates_the_validation_and_test_chromosomes(fit_json, tmp_path,
+	monkeypatch):
+	from cherimoya_cli.defaults import test_chroms, validation_chroms
+
+	evaluated = _run_fit_evaluations(fit_json, tmp_path, monkeypatch)
+
+	assert [(name, cfg['chroms'], cfg['performance_filename'], cfg['model'])
+		for name, cfg in evaluated] == [
+		("fit_wiring_test.validation.evaluate.json", validation_chroms,
+			"fit_wiring_test.validation.performance.tsv", "fit_wiring_test.torch"),
+		("fit_wiring_test.test.evaluate.json", test_chroms,
+			"fit_wiring_test.test.performance.tsv", "fit_wiring_test.torch"),
+	]
+
+
+def test_fit_skips_the_test_evaluation_without_test_chromosomes(fit_json,
+	tmp_path, monkeypatch):
+	cfg = json.loads(open(fit_json).read())
+	cfg['test_chroms'] = None
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	evaluated = _run_fit_evaluations(fit_json, tmp_path, monkeypatch)
+	assert [name for name, _ in evaluated] == [
+		"fit_wiring_test.validation.evaluate.json"]
+
+
+@pytest.mark.parametrize("key", ["validation_chroms", "test_chroms"])
+def test_fit_refuses_chromosomes_shared_between_splits(fit_json, key):
+	from cherimoya_cli.commands import fit as fit_cmd
+
+	cfg = json.loads(open(fit_json).read())
+	cfg[key] = cfg[key] + ["chr2"]
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	with pytest.raises(ValueError, match="training_chroms and {} share "
+		r"\['chr2'\]".format(key)):
+		fit_cmd.run(argparse.Namespace(parameters=fit_json))

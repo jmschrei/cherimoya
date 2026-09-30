@@ -74,6 +74,11 @@ def run(args):
 	# The negatives follow the peaks, which are the first `n_peaks` rows.
 	# The key is optional, so that JSONs written before it still run.
 	n_peaks = len(examples[0])
+	if n_peaks == 0:
+		print("No loci on chromosomes {}, so {} was not written.".format(
+			parameters["chroms"], parameters["performance_filename"]))
+		return
+
 	if parameters.get("negatives") is not None:
 		negatives = extract_loci(
 			sequences=parameters["sequences"],

@@ -277,7 +277,6 @@ def run(args):
 	if parameters.get("model", None) == None:
 		name = pname + ".fit.json"
 		parameters["model"] = pname + ".torch"
-		_check_set(fit_parameters, "performance_filename", pname + ".performance.tsv")
 
 		with open(name, "w") as outfile:
 			outfile.write(json.dumps(fit_parameters, sort_keys=True, indent=4))
