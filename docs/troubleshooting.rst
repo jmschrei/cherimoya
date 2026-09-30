@@ -62,6 +62,35 @@ GPU memory at training time is dominated by activations
 the cheapest way to keep batch size high.
 
 
+Errors when training on several GPUs
+------------------------------------
+
+With ``devices`` greater than 1, training runs with DDP (see
+:ref:`training on several devices <cli-several-devices>`). The errors
+specific to it:
+
+* ``ValueError: batch_size (64) must be divisible by the number of
+  devices (3)`` — ``batch_size`` is the global batch and each GPU takes
+  an equal share. Pick a ``batch_size`` that the number of devices
+  divides.
+* ``MisconfigurationException: `Trainer(strategy='ddp')` is not
+  compatible with an interactive environment`` — multi-GPU training
+  was started from a Jupyter notebook. Run it as a script or with
+  ``cherimoya fit`` instead.
+* ``ValueError: You set `devices=4` in Lightning, but the number of
+  tasks per node configured in SLURM `--ntasks-per-node=1` does not
+  match`` — under a SLURM batch job, Lightning expects SLURM to start
+  one process per GPU. Request ``--ntasks-per-node`` equal to
+  ``devices`` and launch with ``srun``.
+* ``ValueError: The training set has N examples, fewer than one batch
+  of B`` — raised on one device as well; no training step could be
+  taken. Lower ``batch_size`` or add peaks.
+
+GPUs are taken in order from those visible to the process, so
+``devices: 2`` on a shared machine uses the first two unless
+``CUDA_VISIBLE_DEVICES`` says otherwise.
+
+
 CUDA out of memory in the attribute step
 ----------------------------------------
 

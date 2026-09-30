@@ -26,6 +26,20 @@ The default (batch 64, 2114 bp window, 9-layer/128-filter model) fits
 comfortably on a 16 GB GPU. Reducing batch size is cheapest; don't change model
 complexity without user input.
 
+## Errors when training on several GPUs (`devices` > 1)
+
+- `batch_size (64) must be divisible by the number of devices (3)` — the
+  global batch is split evenly; pick a `batch_size` the GPU count divides.
+- `` `Trainer(strategy='ddp')` is not compatible with an interactive
+  environment`` — multi-GPU training was started in a Jupyter notebook. Run a
+  script or `cherimoya fit` from a terminal instead.
+- `` You set `devices=4` in Lightning, but the number of tasks per node
+  configured in SLURM `--ntasks-per-node=1` does not match`` — inside a SLURM
+  job, Lightning expects `srun` to start one process per GPU: request
+  `--ntasks-per-node` equal to `devices` and launch `srun cherimoya fit -p ...`.
+- The run lands on GPUs someone else is using — `devices: N` takes the first N
+  visible GPUs; set `CUDA_VISIBLE_DEVICES` to the free ones.
+
 ## "CUDA out of memory" in the attribute step
 
 Under DeepLIFT/SHAP (the default `algorithm`), `attribute_parameters.batch_size`

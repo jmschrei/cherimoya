@@ -169,11 +169,16 @@ In practice:
   hardware.
 * If you have less VRAM, reduce ``batch_size`` first; reducing
   ``n_filters`` is a secondary lever.
+* With several GPUs, ``devices`` splits each batch across them, so
+  each GPU holds ``batch_size / devices`` examples. Each GPU's process
+  also loads the whole training set into host memory, so host memory
+  scales with ``devices``. See :ref:`training on several devices
+  <cli-several-devices>`.
 
 Training time scales linearly with peak count and epochs and is
 dominated by the dataloader for typical configurations. For a
 ChIP-seq target with a few tens of thousands of peaks and the default
-50-epoch schedule, full training is a tens-of-minutes operation on a
+schedule, full training is a tens-of-minutes operation on a
 modern data-center GPU. See :doc:`benchmarks` for measured forward
 times.
 

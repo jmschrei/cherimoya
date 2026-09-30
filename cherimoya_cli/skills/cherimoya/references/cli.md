@@ -60,6 +60,10 @@ Quote these; don't guess others — read `defaults.py` or the docs.
   `reverse_complement` true, `num_workers` 1 (per device), `loss_weights`
   `null`, `devices` 1 (`-1` = every visible device; more than one trains with
   DDP and splits the global `batch_size` evenly across them).
+- Training output: `verbose` false (true prints the run setup and the
+  per-epoch table of `{name}.log`), `progress_bar` `null` (with `verbose`, draw
+  Lightning's progress bar only when stdout is a terminal or a Jupyter kernel;
+  `true`/`false` force it).
 - Inference stages: `batch_size` 512.
 - Device/dtype: `cuda` / `float32`.
 - Split (hg38): `validation_chroms` = chr8, chr20; everything else (minus

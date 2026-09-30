@@ -102,7 +102,9 @@ cherimoya pipeline -p my_run.pipeline.json
 ```
 
 Before running step 1, walk rule 1 and rule 2: confirm the assay, the genome
-build, and which inputs exist. `pipeline-json` fills everything else from
+build, and which inputs exist. Ask how many GPUs the run may use; with more
+than one, training can split each batch across them (the "Several GPUs" edit
+in `references/cli-training-pipeline.md`). `pipeline-json` fills everything else from
 defaults, and step 2 runs every stage through to marginalization. Some stages
 are conditional — notably, tomtom-lite seqlet annotation and marginalization
 run only when a motif database (`-m`) is given. See
@@ -115,12 +117,13 @@ step.
 |---|---|
 | Understand a term or how the model works (profile vs counts, seqlets, EMA, …) | `references/concepts.md` |
 | Train / run the full pipeline from raw data | `references/cli-training-pipeline.md` |
+| Train on several GPUs, watch training progress | `references/cli-training-pipeline.md` |
 | Know what file types they have / need | `references/input-files.md` |
 | Set assay-specific options (shifts, strandedness) | `references/assay-defaults.md` |
 | Understand what the pipeline produced | `references/interpreting-outputs.md` |
 | Fix an error or a bad-looking result | `references/troubleshooting.md` |
 | Run one subcommand or find a flag | `references/cli.md` |
-| Save / load / run inference with the model in Python | `references/using-in-python.md` |
+| Save / load / run inference with the model in Python, or train from a Python script | `references/using-in-python.md` |
 | Attribute (DeepLIFT/SHAP, ISM), design, score variants | `references/using-tangermeme.md` |
 
 Full project documentation lives at <https://cherimoya.readthedocs.io> (glossary,

@@ -755,7 +755,10 @@ Packaging
 ~~~~~~~~~
 
 * ``lightning>=2.6.1`` is a new required dependency, for the training
-  loop in :mod:`cherimoya.training`.
+  loop in :mod:`cherimoya.training`. ``uv.lock`` pins lightning 2.6.6
+  and its dependencies; the lock had been left without them, so the
+  Docker image, which installs from it with ``uv sync --frozen``, had no
+  ``lightning`` and could not train.
 
 * The ``tangermeme`` floor was ``>=0.2.3``, which no release satisfying
   it can actually run: Cherimoya uses ``extract_loci(return_mask=...)``,
@@ -776,6 +779,28 @@ Packaging
 
 Documentation
 ~~~~~~~~~~~~~
+
+* Training on several GPUs is documented where users look for it: the
+  CLI reference's "Training on several devices" section covers GPU
+  selection with ``CUDA_VISIBLE_DEVICES``, per-GPU and host memory, why
+  the schedule does not change, and launching under SLURM with
+  ``srun``; the Python API tutorial covers running from a script rather
+  than a notebook, seeding ``PeakGenerator`` so the ranks draw the same
+  examples, guarding post-training code with ``trainer.is_global_zero``,
+  and what the returned trainer holds; troubleshooting lists the errors
+  specific to multi-GPU training; the glossary defines DDP and the
+  global batch size. The bundled skill covers the same, plus ``verbose``
+  and ``progress_bar``. Re-run ``cherimoya install-skill --force`` to
+  pick them up.
+
+* The architecture page described two optimizers, with ``lw0``/``lw1``
+  under AdamW; training uses three, with SGD for the loss weights and
+  the depthwise ``conv_weight`` routed to AdamW. The landing page said
+  Muon-routed weights get no weight decay; they are the only ones that
+  do (``muon_wd`` 0.03). The installation page cited a 50-epoch default
+  schedule; the default is 20 epochs, raised to reach
+  ``min_total_steps``. The differential recipe pointed at the removed
+  ``batch`` subcommand.
 
 * The bundled Claude Code agent skill now writes its cross-references as
   complete skill-root-relative paths (``references/cli.md``) rather than

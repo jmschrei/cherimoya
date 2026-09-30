@@ -660,7 +660,9 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 		global batch split evenly across them, and sets
 		``torch._dynamo.config.optimize_ddp`` to False in the training
 		process (see :meth:`CherimoyaModule.setup`). -1 uses every visible
-		device. Default is 1.
+		device. Lightning starts the other processes by re-running the
+		current command, so more than one requires a script rather than a
+		Jupyter notebook. Default is 1.
 
 	verbose: bool, optional
 		Whether to print the per-epoch table of training and validation

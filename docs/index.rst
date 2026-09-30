@@ -76,6 +76,9 @@ Design highlights
 * **Three-optimizer training**. Muon for 2D projection weights, SGD
   for the Kendall uncertainty weights, AdamW for everything else,
   with hyperparameters tuned via large-scale sweeps.
+* **One GPU or several**. Training runs on PyTorch Lightning; setting
+  ``devices`` trains with DDP, splitting each global batch across the
+  GPUs so that every step sees the examples one GPU would.
 * **Learned loss balancing**. Kendall-Gal uncertainty weighting with
   one learnable weight per output track replaces a fixed
   profile/counts loss weight.
@@ -83,7 +86,7 @@ Design highlights
   parameters is maintained during training and used at evaluation,
   smoothing both the validation curve and the final predictions.
 * **Stability-first defaults**. Small fixed residual scale at
-  initialization, no biases inside Cheri Blocks, no weight decay on
+  initialization, no biases inside Cheri Blocks, weight decay only on
   Muon-routed weights, and a 2-epoch warmup before cosine decay.
 
 See :doc:`architecture` for the full story and :doc:`benchmarks` for

@@ -83,5 +83,11 @@ The "what did the model learn" chain, in order:
   initialization and an example order but diverge as training compounds the
   last-bit differences from the fused kernel's atomic reductions — a seed
   repeats the setup of a run, it does not make GPU training deterministic.
+  Changing the number of GPUs keeps the examples each step sees, but not the
+  exact numbers.
+- **Several GPUs (DDP)** — with `devices` above 1, each GPU runs a copy of the
+  model on its share of every batch and the gradients are averaged before each
+  step. `batch_size` is the **global** batch, summed over GPUs, so the training
+  schedule (steps, epochs, warmup) is the same on one GPU or several.
 
 For every default value, see `references/cli.md` or `cherimoya_cli/defaults.py`.

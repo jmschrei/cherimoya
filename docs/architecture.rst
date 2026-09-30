@@ -260,34 +260,37 @@ both collapse to shape ``(1,)``.
 
 .. code-block:: python
 
-   w0 = 1.0 / (2.0 * self.lw0 ** 2)            # shape (len(signal_groups),)
-   w1 = 1.0 / (2.0 * self.lw1 ** 2)            # shape (len(signal_groups),)
+   w0 = 1.0 / (2.0 * model.lw0 ** 2)           # shape (len(signal_groups),)
+   w1 = 1.0 / (2.0 * model.lw1 ** 2)           # shape (len(signal_groups),)
    loss = (w0 * profile_loss).sum() + (w1 * count_loss).sum()
-   if self.lw0.requires_grad:
-       loss += (torch.log(self.lw0) ** 2).sum()
-       loss += (torch.log(self.lw1) ** 2).sum()
+   loss += (torch.log(model.lw0) ** 2).sum()   # dropped once frozen
+   loss += (torch.log(model.lw1) ** 2).sum()
 
 The log-squared regularizer prevents either weight from running to
 zero. Once the per-element gradient becomes negligible
 (``|grad(lw0)|.mean() < 1`` at the end of an epoch — averaging keeps
 the threshold independent of the number of tracks), both tensors are
-frozen for the rest of training.
+frozen for the rest of training: they stay in the loss as constants,
+the regularizer is dropped, and their optimizer stops stepping. With
+fixed ``loss_weights`` (see :doc:`cli`) the learned weights are
+replaced by constants from the start.
 
 
 Training strategy
 -----------------
 
-**Dual optimizer.** Parameters are routed between two optimizers based
-on shape and naming:
+**Three optimizers.** Parameters are routed between three optimizers
+based on shape and naming:
 
 * **Muon** receives every 2D parameter whose name contains
-  ``"weight"`` and is *not* ``"linear.weight"`` (the count-head linear
-  layer). In practice this is the two dense layers inside each Cheri
-  Block.
+  ``"weight"``, except the count head's ``"linear.weight"`` and the
+  depthwise ``conv_weight`` inside each Cheri Block. In practice this
+  is the two dense layers inside each Cheri Block.
+* **SGD** with momentum 0.9 receives the loss-weight tensors ``lw0``
+  and ``lw1``.
 * **AdamW** receives everything else: the input/output convolutions,
   the depthwise conv weight inside each Cheri Block, the count head's
-  linear layer, the bias terms, and the loss-weight tensors
-  (``lw0``, ``lw1``).
+  linear layer and the bias terms.
 
 Default learning rates and weight decays:
 
@@ -366,6 +369,16 @@ On CPU two runs with the same seed are bitwise identical, in separate
 processes and at different ``torch.set_num_threads`` values. If you
 need a training run you can reproduce exactly, that is the device to
 do it on.
+
+The number of devices does not change which examples a step sees:
+with ``devices`` greater than 1, each device takes a contiguous slice
+of the same global batch (:class:`~cherimoya.io.ShardedEpochSampler`)
+and DDP averages the gradients. It does change the batch each device
+runs, and on GPUs the kernels chosen at TF32 and bf16 precision
+depend on the batch size, so a run on several GPUs differs from the
+same seed on one GPU from the first step, at the precision of those
+kernels. The difference then grows through training as it does
+between two one-GPU runs.
 
 
 How these choices were made

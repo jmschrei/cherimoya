@@ -15,9 +15,14 @@ private and may change between versions:
   `ExpectedCountsWrapper` — output wrappers for analysis (see
   `references/using-tangermeme.md`).
 
-One module-level function is also public though not re-exported:
-`attribution_ops`, imported from `cherimoya.deep_lift_shap`, which every
-DeepLIFT/SHAP call on a Cherimoya model passes as `additional_nonlinear_ops`.
+Some module-level symbols are also public though not re-exported (the full
+list is in the docs' development page):
+- `attribution_ops`, imported from `cherimoya.deep_lift_shap`, which every
+  DeepLIFT/SHAP call on a Cherimoya model passes as `additional_nonlinear_ops`.
+- `cherimoya.training.fit` and `cherimoya.training.CherimoyaModule` — training
+  (see "Training in Python" below).
+- `cherimoya.io.PeakGenerator`, `PeakNegativeSampler` and
+  `ShardedEpochSampler` — the training data.
 
 ## Constructing and calling a model
 
@@ -137,14 +142,48 @@ compiles under DeepLIFT/SHAP.
 
 ## Training in Python
 
-The CLI subcommands and `cherimoya.training.fit(...)` share this save format.
-`cherimoya.training.fit(model, training_data, X_valid, y_valid, ...)` trains
-with PyTorch Lightning and returns the `Trainer`; `training_data` is the
-dataset (`PeakGenerator(...).dataset`), not a DataLoader, and the optimizers
-and schedules are built from keyword arguments. For an end-to-end walkthrough
-(data loading, the `fit()` call with the CLI's schedule) see the
-Python API tutorial at
-<https://cherimoya.readthedocs.io/en/latest/tutorials/python_api.html>. For most
-"train on my data" requests the CLI pipeline
-(`references/cli-training-pipeline.md`) is the better tool than a hand-written
-loop.
+For most "train on my data" requests the CLI pipeline
+(`references/cli-training-pipeline.md`) is the better tool. When the user needs
+Python, `cherimoya.training.fit` trains with PyTorch Lightning and writes the
+same files as `cherimoya fit` (`{name}.torch`, `{name}.final.torch`,
+`{name}.log`, `{name}.detailed.log`, next to `model.name`):
+
+```python
+from cherimoya import Cherimoya
+from cherimoya.io import PeakGenerator
+from cherimoya.training import fit
+
+# The dataset inside the DataLoader, not the DataLoader: fit builds its own.
+training_data = PeakGenerator(peaks=..., negatives=..., sequences=...,
+    signals=..., random_state=0).dataset
+
+# The CLI's schedule: 2 warmup epochs, cosine decay over the rest.
+steps_per_epoch = -(-len(training_data) // 64)
+
+model = Cherimoya(n_filters=128, n_layers=9, name="my_run", random_state=0)
+trainer = fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
+    max_epochs=20, dtype='float32', accelerator='gpu', devices=1,
+    batch_size=64, verbose=True, n_warmup_steps=2 * steps_per_epoch,
+    n_decay_steps=18 * steps_per_epoch)
+
+trainer.checkpoint_callback.best_model_score   # best validation count Pearson
+```
+
+Things to know:
+- The optimizers and schedules are built inside from keyword arguments
+  (`muon_lr`, `adam_lr`, `lw_lr`, their `_wd`s, `loss_weights`, `ema_decay`,
+  `n_warmup_steps`, `n_decay_steps`). The schedule defaults are **not** the
+  CLI's, hence the two step counts above; `cherimoya fit` also raises
+  `max_epochs` to reach `min_total_steps` (20000) first.
+- `dtype` is `'float32'`, `'bfloat16'` or `'float16'` (Lightning's `32-true`,
+  `bf16-mixed`, `16-mixed`); anything else raises.
+- After `fit`, `model` holds the EMA weights **on the CPU** (Lightning moves it
+  there); `.cuda()` it or `Cherimoya.load` the checkpoint for GPU inference.
+- `devices` > 1 trains with DDP, with the same rules as the CLI (global
+  `batch_size`, first N visible GPUs), plus: it must run as a **script**, not in
+  a notebook; the script is re-run once per GPU from the top, so pass an integer
+  `random_state` to `PeakGenerator` (so every rank draws the same examples) and
+  guard post-training work with `if trainer.is_global_zero:`.
+
+Walkthrough with the CLI's schedule:
+<https://cherimoya.readthedocs.io/en/latest/tutorials/python_api.html>.

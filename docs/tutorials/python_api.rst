@@ -164,7 +164,11 @@ trainer after fitting. The module builds the optimizers and learning
 rate schedules itself, so only their hyperparameters are passed. The
 module's schedule defaults (``n_warmup_steps=0``, ``n_decay_steps=1``)
 are not the CLI's schedule; to match ``cherimoya fit``, count the
-steps per epoch the way it does and pass both:
+steps per epoch the way it does and pass both. ``cherimoya fit`` also
+raises ``max_epochs`` until the run reaches ``min_total_steps`` steps
+(20000 by default) before laying out the schedule; the snippet below
+does not.
+
 
 .. code-block:: python
 
@@ -189,6 +193,7 @@ steps per epoch the way it does and pass both:
        devices=1,                   # more than one trains with DDP
        batch_size=batch_size,       # global batch, split evenly across devices
        num_workers=1,               # data-loading workers per device
+       verbose=True,                # print the per-epoch table
        n_warmup_steps=steps_per_epoch * n_warmup_epochs,
        n_decay_steps=steps_per_epoch * max(1, max_epochs - n_warmup_epochs),
    )
@@ -224,11 +229,30 @@ What ``fit`` does internally:
   improves, and ``{model.name}.final.torch`` at the very end (also
   with EMA weights applied).
 * Saves ``{model.name}.log`` with the training and validation metrics
-  per epoch.
+  per epoch, and ``{model.name}.detailed.log`` with a profile and a
+  count Pearson column per signal group added.
+* With ``verbose=True``, prints the same table as it is written, one
+  row per epoch. ``progress_bar`` controls Lightning's progress bar:
+  ``None`` (the default) draws it only when stdout is a terminal or a
+  Jupyter kernel, and ``True`` or ``False`` force it on or off. Rows
+  are printed above the bar, and the latest validation profile and
+  count Pearson are shown to its right.
 
-After ``fit`` returns, ``model`` holds the EMA weights, and
-``trainer.checkpoint_callback.best_model_score`` is the best
-validation count Pearson.
+After ``fit`` returns, ``model`` holds the EMA weights. Lightning
+moves the model to the CPU when fitting ends, so move it back with
+``model.cuda()`` before running inference on a GPU, or load the saved
+checkpoint with :meth:`~cherimoya.Cherimoya.load`. The returned
+trainer holds the run's results:
+
+.. code-block:: python
+
+   trainer.checkpoint_callback.best_model_score   # best validation count Pearson
+   trainer.current_epoch                          # epochs trained
+   trainer.callback_metrics                       # the last epoch's values of
+                                                  # train_profile_mnll,
+                                                  # train_count_mse,
+                                                  # valid_profile_pearson and
+                                                  # valid_count_pearson
 
 ``fit`` raises a ``ValueError`` when the training set has fewer
 examples than one ``batch_size``, since no training step could be
@@ -252,7 +276,34 @@ devices without padding, and the metrics are computed over the whole
 validation set.
 
 Lightning starts every rank after the first by re-running the current
-command, so the code before the ``fit`` call runs once per rank.
+command, so a script that calls ``fit`` runs once per rank from the
+top. Three things follow:
+
+* **Run it as a script.** Lightning refuses the ``ddp`` strategy in a
+  Jupyter notebook, so ``fit`` with more than one device raises there.
+* **Seed the data.** Pass an integer ``random_state`` to
+  :func:`~cherimoya.io.PeakGenerator`, so that every rank draws the
+  same examples for each epoch and the slices fit together. DDP copies
+  rank 0's initial weights to the other ranks, but it does not align
+  the data.
+* **Write from one rank.** Every rank gets a trainer back from
+  ``fit``. The checkpoints and logs are already written by rank 0 only;
+  guard anything the script does afterwards the same way:
+
+.. code-block:: python
+
+   trainer = fit(model, training_data, X_valid, y_valid,
+       accelerator='gpu', devices=4, batch_size=256)   # plus the schedule above
+
+   if trainer.is_global_zero:
+       best = Cherimoya.load(model.name + ".torch", device="cuda")
+       # evaluate, plot and write files here
+
+Choose the GPUs with ``CUDA_VISIBLE_DEVICES``: ``devices=4`` trains on
+the first four visible GPUs. Each rank holds its own copy of the
+training and validation data in host memory and runs its own
+``num_workers`` loader workers. :ref:`Training on several devices
+<cli-several-devices>` in the CLI reference covers SLURM.
 
 
 Saving and loading

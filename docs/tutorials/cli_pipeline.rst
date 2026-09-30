@@ -99,7 +99,10 @@ Step 2: edit and run
 
 Open the JSON and override any defaults — model width, training and
 validation chromosomes, seqlet p-value threshold, MoDISco settings,
-anything in the JSON.
+anything in the JSON. To train on several GPUs, set
+``fit_parameters.devices`` to their number; ``fit_parameters.batch_size``
+is then the global batch, split evenly across them (see
+:ref:`training on several devices <cli-several-devices>`).
 
 .. code-block:: bash
 

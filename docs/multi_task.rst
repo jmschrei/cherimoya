@@ -464,6 +464,9 @@ The two training columns are epoch averages:
 * **Training Count MSE** is the same average of the batch's count
   loss.
 
+With several devices, the average covers every device's share of each
+batch, so the columns mean the same thing as on one device.
+
 Both are the unweighted mean across groups of the raw per-group loss,
 not the Kendall-weighted sum the optimizer descends, which is what
 makes them comparable to the validation columns beside them. They are

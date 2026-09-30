@@ -25,8 +25,8 @@ Inputs
 Step 1: train one model per condition
 --------------------------------------
 
-Generate one pipeline JSON per condition and run them sequentially
-(or in parallel via the ``batch`` subcommand; see :doc:`../cli`):
+Generate one pipeline JSON per condition and run them (see
+:doc:`../cli`):
 
 .. code-block:: bash
 

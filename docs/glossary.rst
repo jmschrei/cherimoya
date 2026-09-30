@@ -145,6 +145,18 @@ EMA (exponential moving average)
    weights produce smoother validation curves and are what gets
    saved to the ``.torch`` checkpoint.
 
+DDP (distributed data parallel)
+   PyTorch's way of training one model on several GPUs: each GPU runs
+   its own process with a copy of the model, takes part of every
+   batch, and the gradients are averaged across GPUs before each
+   optimizer step. Cherimoya trains with DDP when ``devices`` is
+   greater than 1.
+
+Global batch size
+   The number of examples per optimizer step summed over all GPUs.
+   ``batch_size`` in Cherimoya is always the global batch size; with
+   ``devices`` GPUs each holds ``batch_size / devices`` examples.
+
 Tn5 transposase / +4 / −4 shift
    ATAC-seq uses the Tn5 transposase, which cuts and inserts adapters
    at preferred positions. The cut site lies 4 bp into each end of

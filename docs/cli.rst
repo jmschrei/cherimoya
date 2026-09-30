@@ -665,6 +665,8 @@ Both checkpoints load with :meth:`cherimoya.Cherimoya.load`.
 are formed.
 
 
+.. _cli-several-devices:
+
 Training on several devices
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -684,6 +686,49 @@ seed rank 0 drew. In ``cherimoya pipeline``, when ``devices`` is not 1
 the fit step runs as a separate ``python -m cherimoya_cli fit -p
 {name}.fit.json`` process, so that the re-run command is the fit
 rather than the whole pipeline.
+
+What changes and what does not:
+
+* **Which GPUs.** ``devices: N`` trains on the first ``N`` GPUs that
+  are visible to the process; choose them with
+  ``CUDA_VISIBLE_DEVICES``, e.g.
+  ``CUDA_VISIBLE_DEVICES=2,3 cherimoya fit -p my_run.fit.json`` with
+  ``devices: 2``.
+* **Memory.** Each GPU holds ``batch_size / devices`` training
+  examples, so the global batch can grow with the number of GPUs.
+  Every rank loads the whole training and validation set into host
+  memory and runs ``num_workers`` loader workers of its own, so host
+  memory and worker count scale with ``devices``.
+* **The schedule.** A step is one global batch whatever the number of
+  devices, so ``max_epochs``, ``min_total_steps`` and the warmup and
+  decay lengths mean the same thing on one GPU or several.
+* **The outputs.** The checkpoints, ``{name}.log``,
+  ``{name}.detailed.log`` and the per-epoch table under ``verbose`` are
+  written by rank 0 and have the same format as on one device.
+* **The numbers.** Each step sees the same examples as on one device,
+  but each GPU runs a smaller batch, which changes which kernels run
+  at TF32 and bf16 precision; see :ref:`what a seed fixes
+  <reproducibility>`.
+
+Multi-GPU training needs a terminal or a batch script. Lightning
+refuses the ``ddp`` strategy inside a Jupyter notebook, so
+:func:`cherimoya.training.fit` with more than one device raises there.
+
+**Under SLURM**, Lightning takes the processes from SLURM instead of
+starting them itself. Request one task per GPU on a single node and
+launch ``cherimoya fit`` with ``srun``::
+
+   #SBATCH --nodes=1
+   #SBATCH --gres=gpu:4
+   #SBATCH --ntasks-per-node=4
+
+   srun cherimoya fit -p my_run.fit.json    # with "devices": 4
+
+Lightning raises an error when ``--ntasks-per-node`` differs from
+``devices``. Keep ``random_state`` an integer (the default is 0):
+``srun`` starts every rank at once, so with ``null`` each would draw
+its own seed. Run ``cherimoya fit`` rather than ``cherimoya pipeline``
+under ``srun``, since every task runs the whole command.
 
 
 cherimoya evaluate

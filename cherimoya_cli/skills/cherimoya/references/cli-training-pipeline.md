@@ -59,8 +59,26 @@ Common novice edits — always explain the change you make:
   `"bfloat16"`.
 - **Several GPUs?** Set `fit_parameters.devices` (default 1; `-1` = every
   visible GPU) to train with DDP. `batch_size` is the *global* batch, split
-  evenly across devices, so it must be divisible by `devices`. The pipeline
-  then runs the fit step as a separate `python -m cherimoya_cli fit` process.
+  evenly across devices, so it must be divisible by `devices`; each step sees
+  the same examples as on one GPU, and steps, epochs and the schedule mean the
+  same thing. Tell the user:
+  - GPUs are the first `devices` visible ones; pick them with
+    `CUDA_VISIBLE_DEVICES=2,3 cherimoya pipeline -p ...` on a shared machine.
+  - Each GPU holds `batch_size / devices` examples, so the global batch can
+    grow with the GPU count. Host memory does not shrink: every GPU's process
+    loads the whole training set and runs its own `num_workers` workers.
+  - Results match a one-GPU run statistically, not bitwise.
+  - It must run from a terminal or batch script, not a Jupyter notebook.
+  - Under SLURM, run `srun cherimoya fit -p my_run.fit.json` (not `pipeline`)
+    with `--ntasks-per-node` equal to `devices` on one node, and keep
+    `random_state` an integer.
+  The pipeline runs the fit step as a separate `python -m cherimoya_cli fit`
+  process. Details: <https://cherimoya.readthedocs.io/en/latest/cli.html#training-on-several-devices>.
+- **Want to watch training?** `fit_parameters.verbose: true` prints the
+  per-epoch table (the rows of `{name}.log`) above Lightning's progress bar,
+  with the latest validation Pearsons to the bar's right. Several runs sharing
+  one terminal overwrite each other's bars: set `fit_parameters.progress_bar`
+  to `false` for them. Redirected to a file, the bar is off by default.
 - **Small dataset?** See dataset-size guidance in
   `references/troubleshooting.md`.
 - **Want replicates?** `random_state` defaults to `0`, so rerunning the same
