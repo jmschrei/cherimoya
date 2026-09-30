@@ -664,7 +664,8 @@ CLI flags:
 
 * ``-p, --parameters`` (required) — path to a fit JSON.
 
-JSON schema: the ``fit_parameters`` table above, plus the input
+JSON schema: the ``fit_parameters`` table above, plus ``name``
+(required: the path prefix of every file ``fit`` writes), the input
 keys ``sequences``, ``loci``, ``negatives``, ``signals``,
 ``controls`` and ``exclusion_lists``, and ``compile`` /
 ``compile_mode`` (defaults ``true`` / ``"max-autotune"``), which
