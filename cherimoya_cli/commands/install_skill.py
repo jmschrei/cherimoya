@@ -22,6 +22,11 @@ def run(args):
 	os.makedirs(skills_dir, exist_ok=True)
 	dest = os.path.join(skills_dir, "cherimoya")
 
+	# With --force this would delete the bundled skill before copying it.
+	if os.path.realpath(dest) == os.path.realpath(source):
+		raise ValueError("{} is the bundled skill itself; choose another "
+			"directory.".format(dest))
+
 	if os.path.lexists(dest):
 		if not args.force:
 			raise FileExistsError(

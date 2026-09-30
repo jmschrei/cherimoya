@@ -168,3 +168,22 @@ def test_every_reference_is_reachable_from_the_router():
 
 		assert "`references/{}`".format(name) in router, (
 			"references/{} is not linked from SKILL.md".format(name))
+
+
+def test_force_into_the_bundled_location_leaves_the_skill_in_place(tmp_path,
+	monkeypatch):
+	"""Pointing --directory at the package's own skills folder with --force
+	would delete the bundled skill before copying it. A stand-in package
+	layout keeps the real one out of reach."""
+
+	package = tmp_path / "pkg"
+	(package / "commands").mkdir(parents=True)
+	(package / "skills" / "cherimoya").mkdir(parents=True)
+	(package / "skills" / "cherimoya" / "SKILL.md").write_text("skill")
+	monkeypatch.setattr(install_skill, "__file__",
+		str(package / "commands" / "install_skill.py"))
+
+	with pytest.raises(ValueError, match="is the bundled skill itself"):
+		_run(tmp_path, force=True, directory=package / "skills")
+
+	assert (package / "skills" / "cherimoya" / "SKILL.md").read_text() == "skill"
