@@ -47,8 +47,8 @@ def _captured_load_kwargs(command, tmp_path, **overrides):
 
 	cfg = dict(ALL_DEFAULTS[command])
 	cfg["model"] = "m.torch"
-	# `evaluate` reads `signals` before it loads the model, and does not
-	# declare it as a default, so it has to be supplied here.
+	# `evaluate` reads `signals` before it loads the model, and its default
+	# is null, so it has to be supplied here.
 	cfg.setdefault("signals", ["s.bw"])
 	# `attribute` loads uncompiled for DeepLIFT whatever `compile` says
 	# (see test_attribute.py); the knob applies to its ISM path.
