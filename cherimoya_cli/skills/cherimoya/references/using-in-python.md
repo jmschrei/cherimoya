@@ -172,8 +172,8 @@ trainer.checkpoint_callback.best_model_score   # best validation count Pearson
 Things to know:
 - The optimizers and schedules are built inside from keyword arguments
   (`muon_lr`, `adam_lr`, `lw_lr`, their `_wd`s, `loss_weights`, `ema_decay`,
-  `n_warmup_steps`, `n_decay_steps`). The schedule defaults are **not** the
-  CLI's, hence the two step counts above; `cherimoya fit` also raises
+  `n_warmup_steps`, `n_decay_steps`). The schedule defaults (no warmup, decay
+  over the whole run) are **not** the CLI's, hence the two step counts above; `cherimoya fit` also raises
   `max_epochs` to reach `min_total_steps` (20000) first.
 - Validation is on peaks. To also get the count Pearson/MSE over peaks and
   negatives and the peak-vs-negative AUROC/AUPRC, append the negatives to

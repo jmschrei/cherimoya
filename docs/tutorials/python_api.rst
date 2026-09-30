@@ -191,9 +191,10 @@ Training
 around a :class:`cherimoya.training.CherimoyaModule` and returns the
 trainer after fitting. The module builds the optimizers and learning
 rate schedules itself, so only their hyperparameters are passed. The
-module's schedule defaults (``n_warmup_steps=0``, ``n_decay_steps=1``)
-are not the CLI's schedule; to match ``cherimoya fit``, count the
-steps per epoch the way it does and pass both. ``cherimoya fit`` also
+module's schedule defaults are no warmup (``n_warmup_steps=0``) and a
+decay over the rest of the run (``n_decay_steps=None``), which is not
+the CLI's schedule; to match ``cherimoya fit``, count the steps per
+epoch the way it does and pass both. ``cherimoya fit`` also
 raises ``max_epochs`` until the run reaches ``min_total_steps`` steps
 (20000 by default) before laying out the schedule; the snippet below
 does not.

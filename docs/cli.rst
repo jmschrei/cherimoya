@@ -352,7 +352,9 @@ Unspecified keys fall back to the fit-level defaults.
        Pearson improvement. ``null`` trains the full ``max_epochs``.
    * - ``max_jitter``
      - 500
-     - Maximum jitter (bp) for peak centers at training time.
+     - Maximum jitter (bp) for peak centers at training time: each
+       epoch shifts every peak window by a whole number of bp from
+       ``-max_jitter`` to ``+max_jitter``.
    * - ``reverse_complement``
      - ``true``
      - Augment training with reverse complements.

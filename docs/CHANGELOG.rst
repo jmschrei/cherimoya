@@ -31,6 +31,18 @@ Changed (**breaking**)
   ``exclusion_lists`` key, which nothing read, is removed too;
   ``attribute`` now applies exclusions (below), and ``seqlets``
   inherits them through the index file.
+* **Peak jitter now reaches** ``+max_jitter``. The window offset was drawn
+  from ``randint(0, 2 * max_jitter)``, which excludes its upper bound, so
+  shifts ran from ``-max_jitter`` to ``max_jitter - 1``. Including both
+  ends changes the sampler's random stream: **the same seed now draws
+  different batches than before**, so a run cannot be reproduced exactly
+  across this change.
+* The default ``n_decay_steps`` of
+  :class:`~cherimoya.training.CherimoyaModule` and
+  :func:`~cherimoya.training.fit` is ``None``, which decays over the rest
+  of the run. The old default of 1 restarted the cosine every other step,
+  so the rate alternated between its full value and ``1e-5`` for a caller
+  who did not set it. ``cherimoya fit`` always passes its own value.
 
 Removed (**breaking**)
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -148,6 +160,18 @@ Bug fixes
 * ``cherimoya negatives`` requires ``-f/--fasta``, ``pipeline-json
   -sf`` is parsed as a float rather than kept as a string, and the
   ``--unstranded`` help text no longer says the opposite.
+* With ``random_state=None``, every DDP rank's sampler drew its own seed,
+  so each rank took its slice of a different epoch and some peaks were
+  seen twice per epoch and others not at all.
+  :meth:`~cherimoya.training.CherimoyaModule.setup` now gives every rank
+  rank 0's seed. ``cherimoya fit`` always resolved a seed first, so it
+  was not affected.
+* :func:`~cherimoya.training.fit` raises ``ValueError`` for an empty
+  validation set, and for one with fewer examples than devices, rather
+  than failing with unrelated errors.
+* :func:`~cherimoya.performance.calculate_performance_measures` raises
+  when ``signal_groups`` does not match the number of predicted counts,
+  rather than scoring every count against the all-channel total.
 
 * ``cherimoya seqlets`` raised ``IndexError: arrays used as indices must
   be of integer or boolean type`` when no seqlets were found. An empty
