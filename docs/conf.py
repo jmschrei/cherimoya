@@ -93,3 +93,33 @@ html_theme_options = {
 # Logo
 html_logo = '../imgs/cherimoya.png'
 html_favicon = '../imgs/cherimoya.png'
+
+
+# The top-level names re-exported by `cherimoya/__init__.py` are documented
+# under their defining modules, so a reference such as
+# :class:`cherimoya.Cherimoya` would not resolve. This points it there.
+_REEXPORTS = {
+    "Cherimoya": "cherimoya.cherimoya",
+    "EMA": "cherimoya.cherimoya",
+    "CheriBlock": "cherimoya.cheri",
+    "ControlWrapper": "cherimoya.wrappers",
+    "ProfileWrapper": "cherimoya.wrappers",
+    "LogCountWrapper": "cherimoya.wrappers",
+    "ExpectedCountsWrapper": "cherimoya.wrappers",
+}
+
+
+def _resolve_reexport(app, env, node, contnode):
+    parts = node.get("reftarget", "").split(".")
+    if node.get("refdomain") != "py" or len(parts) < 2:
+        return None
+    if parts[0] != "cherimoya" or parts[1] not in _REEXPORTS:
+        return None
+
+    target = ".".join([_REEXPORTS[parts[1]]] + parts[1:])
+    return env.domains["py"].resolve_xref(env, node["refdoc"], app.builder,
+        node["reftype"], target, node, contnode)
+
+
+def setup(app):
+    app.connect("missing-reference", _resolve_reexport)
