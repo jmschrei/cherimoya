@@ -166,8 +166,9 @@ hidden tile a divisor of ``expansion * n_filters``.
 Inference megakernel
 --------------------
 
-When ``torch.is_grad_enabled()`` is ``False`` and the MLP hidden
-width is a multiple of 16, the Cheri Block dispatches to a fused
+When ``torch.is_grad_enabled()`` is ``False``, the MLP hidden width
+is a multiple of 16 and the block has at least 16 filters, the Cheri
+Block dispatches to a fused
 inference megakernel that performs conv + norm + MLP + residual in
 two GPU passes rather than four separate ops. The implementation
 lives under the ``_fwd_inf_`` prefix in

@@ -84,7 +84,8 @@ training mode but called under ``torch.no_grad()``.
 
 The megakernel is dispatched automatically whenever
 ``torch.is_grad_enabled()`` is ``False`` and the MLP hidden width
-(``expansion * n_filters``) is a multiple of 16. To hit the *fast*
+(``expansion * n_filters``) is a multiple of 16, with at least 16
+filters. To hit the *fast*
 megakernel path, also call ``.eval()`` on the model: this
 materializes the bf16 weight cast as a non-persistent buffer once,
 outside the compiled forward, so the cast is reused across calls
