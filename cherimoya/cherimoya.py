@@ -6,28 +6,13 @@ An implementation of the Cherimoya deep learning model, a compact
 architecture for predicting genomic modalities from sequence alone.
 """
 
-import time
-import warnings
-
-import numpy
-
 import torch
 
 from .cheri import CheriBlock
 from .io import _validate_signal_groups
 
-# This module no longer uses the imports below, which served the training
-# loop now in `cherimoya.training`. They stay because `import cherimoya` has
-# always made them, and importing bpnetlite turns on
-# `torch.backends.cudnn.benchmark` (bpnetlite/bpnet.py), which decides the
-# kernels, and so the numbers, of every CUDA convolution run afterwards.
-from .losses import _mixture_loss  # noqa: F401
-from .performance import calculate_performance_measures  # noqa: F401
 
-from tangermeme.predict import predict  # noqa: F401
-from bpnetlite.logging import Logger  # noqa: F401
-
-
+torch.backends.cudnn.benchmark = True
 torch.set_float32_matmul_precision('high')
 
 
