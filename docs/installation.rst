@@ -90,7 +90,8 @@ checks.
    * - ``numpy`` (≥ 1.14), ``scipy`` (≥ 1.0), ``pandas`` (≥ 1.3.3)
      - Numerical computing and tabular data handling.
    * - ``h5py`` (≥ 3.7)
-     - HDF5 I/O (TF-MoDISco results, attribution arrays).
+     - HDF5 I/O for the TF-MoDISco results; Cherimoya itself does not
+       import it.
    * - ``tqdm`` (≥ 4.64.1)
      - Progress bars for data loading and training.
    * - ``tangermeme`` (≥ 1.5.0)
@@ -152,8 +153,9 @@ Hardware expectations
 
 The default 9-layer, 128-filter Cherimoya model is small (~610K
 parameters). The dominant memory cost during training is the
-activations and the optimizer state, not the parameters; both scale
-linearly with ``batch_size``, ``in_window``, and ``n_filters``.
+activations, which scale linearly with ``batch_size``, ``in_window``
+and ``n_filters``; the optimizer state is a small multiple of the
+parameter count.
 
 In practice:
 

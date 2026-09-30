@@ -91,8 +91,9 @@ pointers.
      - Shift applied to - strand reads (bp). Default 0.
    * - ``-m, --motifs``
      - path
-     - MEME-format motif database. When set, TF-MoDISco report,
-       tomtom-lite annotation, and marginalization are run.
+     - MEME-format motif database. When set, tomtom-lite annotation
+       and marginalization run, and the TF-MoDISco report, which runs
+       either way, matches its patterns against it.
    * - ``-o, --output``
      - path (required)
      - Output JSON path.

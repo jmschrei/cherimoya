@@ -155,6 +155,8 @@ emits a single ``.bw`` file:
    {
      "name": "atac_k562",
      "sequences": "hg38.fa",
+     "loci": null,
+     "negatives": null,
      "signals": ["k562_atac.bam"],
      "controls": null,
      "preprocessing_parameters": {
@@ -245,6 +247,8 @@ calling fit:
    {
      "name": "ctcf_k562",
      "sequences": "hg38.fa",
+     "loci": null,
+     "negatives": null,
      "signals": ["ctcf_k562.bam"],
      "controls": ["input_k562.bam"],
      "preprocessing_parameters": {

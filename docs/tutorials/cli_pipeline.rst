@@ -51,9 +51,9 @@ The two commands you actually run, in the order you run them:
 
 Every other subcommand (``fit``, ``evaluate``, ``attribute``,
 ``seqlets``, ``marginalize``, ``negatives``) corresponds
-to an individual pipeline stage and can be run on its own. Each is
-driven by its own JSON, which the pipeline writes alongside its
-outputs. See :doc:`../cli` for the full subcommand reference.
+to an individual pipeline stage and can be run on its own. All but
+``negatives``, which takes flags, are driven by their own JSON, which
+the pipeline writes alongside its outputs. See :doc:`../cli` for the full subcommand reference.
 
 
 Two-step workflow
@@ -297,7 +297,7 @@ directory (with ``{name}`` from the ``-n`` flag in step 1):
    * - ``{name}_modisco/``
      - TF-MoDISco HTML report.
    * - ``{name}_marginalize/``
-     - Motif marginalization report (HTML plus CSVs).
+     - Motif marginalization report (HTML with PNG figures).
    * - ``{name}.{fit,attribute,seqlets,marginalize}.json``
      - Per-step JSON snapshots of the actual parameters used.
    * - ``{name}.{validation,test}.evaluate.json``

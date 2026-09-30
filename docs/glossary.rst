@@ -90,8 +90,9 @@ Hypothetical vs actual importance
 Seqlet
    A contiguous subsequence with high attribution scores. Cherimoya
    uses ``tangermeme.seqlet.recursive_seqlets`` to extract seqlets
-   from the actual-importance signal; the resulting BED file is the
-   input to TF-MoDISco.
+   from the actual-importance signal and writes them to a BED file,
+   which tomtom-lite annotates. TF-MoDISco finds its own seqlets from
+   the attribution arrays.
 
 TF-MoDISco
    *Transcription Factor MOtif Discovery from Importance SCOres.* An
@@ -131,15 +132,17 @@ Muon optimizer
    A second-order-flavored optimizer that orthogonalizes its update
    matrix before applying it. Cherimoya uses Muon for the 2D
    projection weights inside Cheri Blocks (the ``linear1`` and
-   ``linear2`` weights) and AdamW for everything else.
+   ``linear2`` weights), SGD for the Kendall weights ``lw0`` and
+   ``lw1``, and AdamW for everything else.
 
 Kendall-Gal uncertainty weighting
    A technique for combining multi-task losses without a fixed
    hyperparameter: each task gets a learnable scalar that scales its
    loss, with a log-squared regularizer that prevents the scalar from
-   going to zero. Cherimoya uses two such scalars (``lw0`` for
-   profile loss, ``lw1`` for counts loss) and freezes them once their
-   gradients become negligible.
+   going to zero. Cherimoya learns two such weights per signal group
+   (``lw0`` for the profile loss, ``lw1`` for the counts loss, each of
+   shape ``(n_groups,)``) and freezes them once their gradients become
+   negligible.
 
 EMA (exponential moving average)
    A shadow copy of every model parameter that is updated as

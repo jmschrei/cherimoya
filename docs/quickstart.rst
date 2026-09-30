@@ -20,7 +20,7 @@ For stranded ChIP-seq with input controls:
 
    cherimoya pipeline -p pipeline.json
 
-This calls peaks with MACS3, converts BAMs to bigWigs, samples
+This calls peaks with MACS3 (unless ``-p`` gave peaks, as here), converts BAMs to bigWigs, samples
 GC-matched negatives, trains a Cherimoya model, computes attributions
 with DeepLIFT/SHAP, calls seqlets, annotates them with
 tomtom-lite, and runs TF-MoDISco. All outputs land in the working

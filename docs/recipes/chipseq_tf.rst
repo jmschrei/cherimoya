@@ -64,7 +64,7 @@ Steps invoked, in order:
 4. Train a 9-layer 128-filter Cherimoya model with
    ``signal_groups=[2]`` (one stranded ``(+, -)`` group) and
    ``n_control_tracks=2``.
-5. Compute count attributions via DeepLIFT/SHAP on the
+5. Compute count attributions via DeepLIFT/SHAP on the training and
    validation chromosomes.
 6. Call seqlets, annotate with tomtom-lite against
    ``JASPAR_2024.meme``.
@@ -92,12 +92,13 @@ If you want to deviate from defaults, edit the JSON before running
        complex assays.
    * - ``fit_parameters.n_layers``
      - 9
-     - Reduce to shrink receptive field (``RF = 46 + sum(2^i)``);
-       9 layers → 1115 bp.
+     - Reduce to shrink the receptive field, which is 1117 bp at 9
+       layers (see :doc:`../architecture`).
    * - ``fit_parameters.max_epochs``
-     - 50
+     - 20
      - Reduce for quick smoke tests; increase only if the validation
-       count Pearson is still climbing at epoch 50.
+       count Pearson is still climbing at the last epoch. The run is
+       also extended to at least ``min_total_steps`` (20000) steps.
    * - ``fit_parameters.training_chroms`` / ``validation_chroms``
      - hg38 default split (chr8/chr20 validation)
      - For non-hg38 references, replace with the appropriate

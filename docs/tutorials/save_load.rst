@@ -20,13 +20,16 @@ Saving
 
 The saved payload is a dict with two keys:
 
-* ``config`` — the kwargs needed to reconstruct the model (every
-  argument to ``Cherimoya.__init__``).
+* ``config`` — the kwargs needed to reconstruct the model: every
+  architecture argument to ``Cherimoya.__init__``, and ``name``.
+  ``compile``, ``compile_mode`` and ``random_state`` are runtime
+  settings and are not saved; ``verbose`` is saved as ``False``.
 * ``state_dict`` — the parameter tensors.
 
-The ``CheriBlock._w_cache`` (bf16 cast cache used by the inference
-megakernel) is intentionally not part of the state dict and is not
-saved. It is rebuilt on the next forward pass.
+The weight casts the inference megakernel reads (the non-persistent
+buffers ``_w1_eval_bf16``, ``_w2_eval_bf16`` and ``_w2_eval_native`` on
+each ``CheriBlock``) are intentionally not part of the state dict and
+are not saved. They are rebuilt when the block enters eval mode.
 
 
 State dict keys are frozen
@@ -87,10 +90,9 @@ The loader:
 3. Calls ``load_state_dict`` with the saved state dict.
 4. Moves the module to ``device`` before returning.
 
-Because ``load_state_dict`` writes through ``data.copy_``, the
-``_version`` counter on each parameter bumps and the inference
-megakernel's weight cache invalidates automatically on the next
-forward pass.
+A post-hook on ``load_state_dict`` rebuilds the inference megakernel's
+weight casts for every block in eval mode, so loading into an
+evaluating model does not leave them on the old weights.
 
 
 Best-of and final checkpoints

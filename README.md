@@ -11,7 +11,7 @@
 > [!IMPORTANT]
 > Cherimoya is under active development and may introduce breaking changes between versions. Pin the version you train with if you need to reload checkpoints later.
 
-Cherimoya is a compact deep learning model for predicting genomic modalities measured by high-throughput sequencing experiments, such as transcription factor binding, chromatin accessibility, transcription initiation, and many others, directly from DNA sequence. Cherimoya builds upon the ChromBPNet model through a backbone made up of new Cheri Block units, more sophisticated optimization, and custom GPU kernels to accelerate training and inference. In addition to the model, this repository provides an end-to-end CLI for training and using these models, including a pipeline command that takes BAM files through peak calling, training, attribution, and motif discovery in a single command. The default 9-layer model is **~610K parameters** and runs a full forward in **under a millisecond per batch on an H200**, while delivering state-of-the-art performance.
+Cherimoya is a compact deep learning model for predicting genomic modalities measured by high-throughput sequencing experiments, such as transcription factor binding, chromatin accessibility, transcription initiation, and many others, directly from DNA sequence. Cherimoya builds upon the ChromBPNet model through a backbone made up of new Cheri Block units, more sophisticated optimization, and custom GPU kernels to accelerate training and inference. In addition to the model, this repository provides an end-to-end CLI for training and using these models, including a pipeline command that takes BAM files through peak calling, training, attribution, and motif discovery in a single command. The default 9-layer model is **~610K parameters** and runs a full forward pass on a batch of 64 sequences of 2,114 bp in **about 2.3 ms in bf16 (3.3 ms in fp32) on an H200**, while delivering state-of-the-art performance.
 
 > [!NOTE]
 > Check out the [Cherimoya Accessibility aTlas (CATv1)](https://huggingface.co/programmable-genomics/CATv1), a collection of ~7,500 Cherimoya models trained on ~1,500 DNase- and ATAC-seq experiments from ENCODE!
@@ -38,8 +38,10 @@ cd cherimoya && pip install -e .
 Or pull the prebuilt Docker image, published to the GitHub Container Registry on every push to `main`:
 
 ```bash
-docker pull ghcr.io/jmschrei/cherimoya:latest      # or pin a version: ghcr.io/jmschrei/cherimoya:0.2.0
+docker pull ghcr.io/jmschrei/cherimoya:latest
 ```
+
+Each push also tags the image with the version in `pyproject.toml`, so a version tag follows `main` while that version is current rather than pinning a release.
 
 GPU acceleration requires Triton and a CUDA-capable device; a pure-PyTorch CPU fallback is available for everything except the inference megakernel. See [the installation guide](https://cherimoya.readthedocs.io/en/latest/installation.html) for Triton compatibility notes.
 
@@ -114,7 +116,7 @@ Any input path can be remote (S3, HTTPS, etc.); the pipeline streams reads throu
 cherimoya pipeline -p pipeline.json
 ```
 
-This calls peaks with MACS3, samples GC-matched negatives, trains a Cherimoya model, computes attributions with DeepLIFT/SHAP, calls seqlets, annotates them with tomtom-lite, and runs TF-MoDISco. The outputs land in the working directory: a `.torch` model checkpoint and training log, per-track bigWigs, a DeepLIFT/SHAP attribution array (`.npz`), a seqlet table with tomtom-lite annotations, and a TF-MoDISco results H5. Each sub-step writes its own JSON snapshot so individual stages can be re-run in isolation with the `negatives`, `fit`, `evaluate`, `attribute`, `marginalize`, or `seqlets` subcommands. See [the CLI reference](https://cherimoya.readthedocs.io/en/latest/cli.html) for the full command list and JSON schema.
+This calls peaks with MACS3 (unless `-p` gave peaks, as above), samples GC-matched negatives, trains a Cherimoya model, computes attributions with DeepLIFT/SHAP, calls seqlets, annotates them with tomtom-lite, and runs TF-MoDISco. The outputs land in the working directory: a `.torch` model checkpoint and training log, per-track bigWigs, a DeepLIFT/SHAP attribution array (`.npz`), a seqlet table with tomtom-lite annotations, and a TF-MoDISco results H5. Each sub-step writes its own JSON snapshot so individual stages can be re-run in isolation with the `fit`, `evaluate`, `attribute`, `marginalize`, or `seqlets` subcommands; the `negatives` subcommand takes flags instead. See [the CLI reference](https://cherimoya.readthedocs.io/en/latest/cli.html) for the full command list and JSON schema.
 
 ### Python API and saving/loading
 

@@ -24,8 +24,9 @@ About the +4 / −4 shift
 -----------------------
 
 Tn5 transposes 9 bp apart and the standard correction many tools
-apply is +4 / −5. Cherimoya's defaults and this recipe use **+4 / −4**
-because the model treats the two end events symmetrically. 
+apply is +4 / −5. This recipe uses **+4 / −4** because the model treats
+the two end events symmetrically; the pipeline's own ``pos_shift`` and
+``neg_shift`` default to 0, so the shift has to be passed. 
 Apply the shift here, not upstream, and **don't double-shift** — 
 if your BAM is already shifted, set the shifts to zero, or to the relative
 offset if converting from +4 / -5. This idea was introduced with the
@@ -72,9 +73,9 @@ The steps mirror the ChIP-seq recipe, with these differences:
 
 * MACS3 runs without a control file and with format ``BAMPE`` (or
   ``FRAG`` for fragment-file input).
-* ``bam2bw`` is invoked with the ``-u`` (unstranded), ``-f``
-  (fragments), and ``-ps 4 -ns -4`` flags, producing a single
-  ``atac_experiment.bw`` rather than ``+.bw`` / ``-.bw`` pair.
+* ``bam2bw`` is invoked with the ``-u`` (unstranded) and ``-ps 4
+  -ns -4`` flags, plus ``-f`` for fragment-file input, producing a
+  single ``atac_experiment.bw`` rather than ``+.bw`` / ``-.bw`` pair.
 * The trained Cherimoya model has ``signal_groups=[1]`` (one
   unstranded group) and ``n_control_tracks=0``.
 * Attribution, seqlet calling, TF-MoDISco, and marginalization run
@@ -85,20 +86,16 @@ ATAC-seq peak counts can be noisier
 -----------------------------------
 
 ATAC-seq peaks span a wider range of summit heights than TF ChIP-seq.
-Two parameters are worth checking after a first training run:
+The ``PeakGenerator`` filter drops peaks above ``1.2 ×`` the 99th
+percentile of summed counts, which removes the extreme outliers. One
+parameter is worth checking after a first training run:
 
-* ``fit_parameters.max_counts`` — if the training log shows very
-  large gradient norms early in training, cap outlier peaks by
-  setting this. The default ``PeakGenerator`` filter already drops
-  peaks above ``1.2 × the 99th percentile`` of summed counts; setting
-  ``max_counts`` adds an explicit ceiling on top of that.
 * ``fit_parameters.max_jitter`` — the default of 500 bp randomly
   shifts peak centers each epoch, which improves training-set
   diversity; ATAC-seq peaks are typically wide enough to tolerate
-  this. The jitter is absorbed by the flank between ``in_window`` and
-  ``out_window`` (2114 and 1000 by default, leaving ~557 bp each
-  side), so the default fits comfortably; lower it if you shrink
-  ``in_window``.
+  this. The loader extracts ``in_window + 2 * max_jitter`` bp around
+  each peak, so a shift never cuts into the flank between
+  ``in_window`` and ``out_window``.
 
 
 Outputs

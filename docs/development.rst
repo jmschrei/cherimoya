@@ -13,7 +13,7 @@ Repository layout
 
    cherimoya/
    ├── cherimoya/                  # The Python package
-   │   ├── __init__.py             # Public API re-exports: Cherimoya, CheriBlock, EMA
+   │   ├── __init__.py             # Public API re-exports: Cherimoya, CheriBlock, EMA, the four wrappers
    │   ├── cherimoya.py            # Cherimoya model + EMA wrapper + save/load
    │   ├── training.py             # Lightning training: fit + CherimoyaModule
    │   ├── cheri.py                # CheriBlock + Triton kernels + dispatcher
@@ -39,7 +39,6 @@ Repository layout
    ├── tests/                      # Pytest suite (see below)
    ├── docs/                       # Sphinx docs (this site)
    ├── imgs/                       # Architecture / pipeline diagrams
-   ├── bench_kernels.py            # Standalone forward-path benchmark
    └── pyproject.toml              # Build, deps, and tooling config
 
 Two top-level packages: ``cherimoya`` is the model and data plumbing,
@@ -96,8 +95,9 @@ Explicitly:
   correct.
 * **Private** and may change: anything else, including the Triton
   kernels (``_fwd_*``, ``_bwd_*``, ``_fwd_inf_*``), the CPU fallback
-  (``_cheri_conv_norm_cpu``), the CheriBlock weight cache
-  (``_w_cache``), and the model's checkpoint-payload helper
+  (``_cheri_conv_norm_cpu``), the CheriBlock weight-cast buffers
+  (``_w1_eval_bf16``, ``_w2_eval_bf16``, ``_w2_eval_native``), and the
+  model's checkpoint-payload helper
   (``_init_kwargs``).
 
 
@@ -272,17 +272,10 @@ count/profile heads, run both of these on a machine with a GPU:
 Benchmarking
 ------------
 
-``bench_kernels.py`` at the repo root is a standalone script that
-times the three forward paths and checks they all agree within
-machine precision. It is intentionally not packaged with the
-install. Run it with:
-
-.. code-block:: bash
-
-   python bench_kernels.py
-
-See :doc:`benchmarks` for the published numbers and the measurement
-methodology.
+The forward-path timings in :doc:`benchmarks` come from
+``bench_kernels.py``, a local development script that is not tracked
+in git or shipped with the package. That page gives the measurement
+methodology and the agreement between the three paths.
 
 
 Coding conventions
@@ -296,8 +289,10 @@ Coding conventions
   Both the CPU fallback and the Triton kernels accumulate ``sum`` /
   ``sq_sum`` in fp32; this is load-bearing for stability and
   shouldn't be changed casually.
-* **Triton autotune keys.** Kernels are keyed by ``(C, L)`` so the
-  same configuration is reused across batches with the same shapes.
+* **Triton autotune keys.** The training kernels are keyed by
+  ``(C, L)`` so the same configuration is reused across batches with
+  the same shapes; the inference kernels add ``N`` and ``WRITE_Y``
+  (stats) or ``M``, ``H`` and ``RECOMPUTE_CONV`` (norm and MLP).
   Adding a new kernel that depends on a new shape parameter should
   add that parameter to the key.
 * **No public bias terms inside Cheri Blocks.** The input stem,

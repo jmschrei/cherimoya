@@ -64,7 +64,7 @@ Steps invoked, in order:
 3. GC-matched negative sampling (``dnase_experiment.negatives.bed``).
 4. Train a 9-layer 128-filter Cherimoya model with
    ``signal_groups=[1]`` and ``n_control_tracks=0``.
-5. Compute count attributions via DeepLIFT/SHAP on the
+5. Compute count attributions via DeepLIFT/SHAP on the training and
    validation chromosomes.
 6. Call seqlets, annotate with tomtom-lite.
 7. Run TF-MoDISco motif discovery.
@@ -80,7 +80,7 @@ Notes
   produced the BAM yourself and want footprint-resolution
   predictions, a small ``+1 / 0`` shift sometimes improves results.
 * Like ATAC-seq, DNase-seq peaks can vary significantly in summit
-  height. The same ``max_counts`` / ``max_jitter`` advice from the
+  height. The same ``max_jitter`` advice from the
   :doc:`atacseq` recipe applies.
 
 

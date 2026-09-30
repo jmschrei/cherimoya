@@ -28,8 +28,9 @@ fused_dilated_conv_norm
 .. autofunction:: fused_dilated_conv_norm
 
 Public dispatcher used inside :class:`CheriBlock`. Routes to the
-training Triton kernel on CUDA when gradients are enabled, otherwise
-to the pure-PyTorch fallback (``_cheri_conv_norm_cpu``). Numerically
+training Triton kernel for a CUDA input when Triton is available,
+whether or not gradients are enabled, and otherwise to the
+pure-PyTorch fallback (``_cheri_conv_norm_cpu``). Numerically
 equivalent up to floating-point error.
 
 
@@ -133,20 +134,18 @@ for the activation memory of an extra ``(N, L, C)`` tensor:
   d_conv[p] * w1 + d_conv[p + d] * w0 + d_conv[p - d] * w2`` (the
   three terms each masked at the sequence ends).
 
-The first call on a given ``(C, L)`` shape triggers Triton autotune,
-and the user-visible *gradient* output from that very first call is
-contaminated by atomic-add residue from the benchmarking trials.
-Subsequent calls use the locked-in best config and agree with CPU
-autograd at fp32 precision. The test suite warms up the kernel
-before any gradient is read; training is unaffected in practice
-because step 2 onward is clean.
+The first call on a given ``(C, L)`` shape triggers Triton autotune.
+The benchmarking trials do not change the gradient that call returns:
+``_bwd_apply_kernel`` declares ``restore_value`` for the scratch
+buffer it overwrites, so no warmup is needed before reading gradients.
 
 
 Autotune configuration space
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Both the forward stats kernel and the two backward kernels are
-autotuned over the cartesian product of:
+The forward stats kernel and the three backward kernels
+(``_bwd_stats_kernel``, ``_bwd_apply_kernel``, ``_bwd_dx_kernel``)
+are autotuned over the cartesian product of:
 
 * ``num_warps``: 4, 8, 16
 * ``num_stages``: 2, 3, 4, 5
@@ -155,11 +154,13 @@ with the autotune key set to ``(C, L)``. ``BLOCK_C`` is set to
 ``triton.next_power_of_2(C)`` per call (so it adapts to the
 actual channel width); ``BLOCK_L`` is fixed at 64.
 
-The inference megakernel autotunes its own normalization-plus-MLP
-kernel over the same warp/stage grid, with an additional
-``BLOCK_HK`` (hidden width tile) constraint applied via the
-``prune_configs_by={'early_config_prune': ...}`` callback to keep
-the hidden tile a divisor of ``expansion * n_filters``.
+The inference megakernel's stats kernel uses the same warp/stage grid,
+keyed on ``(C, L, N, WRITE_Y)``. Its normalization-plus-MLP kernel
+autotunes over ``BLOCK_M`` in 32, 64, 128, ``BLOCK_HK`` (the hidden
+width tile) in 16, 32, 64, ``num_warps`` in 4, 8 and ``num_stages`` in
+2, 3, 4, keyed on ``(M, C, H, RECOMPUTE_CONV)``, with the
+``prune_configs_by={'early_config_prune': ...}`` callback keeping the
+hidden tile a divisor of ``expansion * n_filters``.
 
 
 Inference megakernel

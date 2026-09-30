@@ -79,9 +79,9 @@ Design highlights
 * **One GPU or several**. Training runs on PyTorch Lightning; setting
   ``devices`` trains with DDP, splitting each global batch across the
   GPUs so that every step sees the examples one GPU would.
-* **Learned loss balancing**. Kendall-Gal uncertainty weighting with
-  one learnable weight per output track replaces a fixed
-  profile/counts loss weight.
+* **Learned loss balancing**. Kendall-Gal uncertainty weighting, with
+  a learnable profile weight and count weight for each signal group,
+  replaces a fixed profile/counts loss weight.
 * **EMA at evaluation**. An exponential moving average of the
   parameters is maintained during training and used at evaluation,
   smoothing both the validation curve and the final predictions.

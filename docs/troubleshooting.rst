@@ -143,8 +143,7 @@ wrong; nothing to fix. The same is true on the first inference call
 (the inference megakernel autotunes separately).
 
 If you need to amortize this across runs you can pre-warm by running
-one batch through the model before timing anything you care about; see
-``bench_kernels.py`` in the repo for the pattern.
+one batch through the model before timing anything you care about.
 
 
 Training loss is NaN
@@ -155,27 +154,21 @@ through an epoch, or the validation metrics are ``nan``.
 
 The most common causes, in order:
 
-1. **A peak with zero counts**. The multinomial log-likelihood is
-   ``-inf`` when the true counts sum to zero across the entire output
-   window. :func:`cherimoya.io.PeakGenerator` filters peaks above
-   the 99th-percentile-by-1.2x ceiling but does not filter empty
-   peaks. Set ``fit_parameters.min_counts`` to a small positive
-   value (e.g. 5 or 10).
-2. **Mismatched strand counts**. If your signals are stranded but you
+1. **Mismatched strand counts**. If your signals are stranded but you
    passed only one bigWig (or vice versa) the loaded ``y`` will have
-   the wrong shape. Verify by setting ``verbose=True`` and inspecting
-   the training-set and validation-set shapes printed at startup.
+   the wrong shape. Check that the number of signal files matches the
+   grouping you intend.
 
    Also confirm that a stranded ``(+, -)`` pair is wrapped as a single
    inner list — e.g. ``signals=[["plus.bw", "minus.bw"]]`` — rather
    than passed flat. A flat two-element list is now interpreted as
    two *independent* unstranded tracks, which silently disables the
    ``(+, -)`` swap during reverse-complement augmentation.
-3. **bf16 overflow in the count head**. If you use ``dtype="bfloat16"``
+2. **bf16 overflow in the count head**. If you use ``dtype="bfloat16"``
    and the per-locus counts are very large, the log-counts loss can
    overflow. Fall back to ``"float32"`` to confirm; if that fixes it,
-   either scale your signal down (``preprocessing_parameters.scale_factor``
-   when generating bigWigs) or cap with ``max_counts``.
+   scale your signal down (``preprocessing_parameters.scale_factor``
+   when generating bigWigs).
 
 
 Stranded predictions come from only one strand
@@ -187,7 +180,7 @@ a reconstructed profile (via
 its signal on one strand, even though the observed data has comparable
 coverage on both strands offset by ~100-300 bp.
 
-This was a profile-loss bug fixed in the **Unreleased** release. The
+This was a profile-loss bug fixed in v0.2.0. The
 loss previously normalized each strand of a group independently, which
 left the relative magnitude between strands an unconstrained gauge; the
 inference wrapper distributes a group's counts with a *joint* softmax
@@ -336,8 +329,8 @@ DeepLIFT/SHAP::
    For the megakernel to hit its fast path (precomputed bf16 weight
    cast reused across calls), call ``model.eval()`` before inference.
    Without ``.eval()`` the megakernel still runs correctly, but it
-   recomputes the cast on every call — adding ~10-27% latency at small
-   batch sizes and under ~2% at production batch sizes. See
+   recomputes the cast on every call — adding ~9-24% latency at small
+   batch sizes and ~1-2% at production batch sizes. See
    :doc:`benchmarks` for the breakdown.
 
 
@@ -345,7 +338,7 @@ DeepLIFT/SHAP::
 ---------------------------------------
 
 Symptom: ``Cherimoya.load("...torch")`` raises ``KeyError: 'config'``
-or ``RuntimeError`` about ``weights_only``.
+or ``UnpicklingError: Weights only load failed``.
 
 The checkpoint was saved with the legacy ``torch.save(model, ...)``
 pickle path that pre-dates v0.1.0 and is not loadable through the

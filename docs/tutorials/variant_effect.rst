@@ -108,10 +108,10 @@ Variant effect helpers (Python)
 -------------------------------
 
 For per-variant scoring (not exhaustive ISM), ``tangermeme.variant_effect``
-provides ``substitution_effect``, ``deletion_effect``,
-``insertion_effect``, and ``marginalize`` — each of which wraps the
-ref/alt forward-pair pattern in a helper that handles batching and
-padding. See the tangermeme documentation for signatures.
+provides ``substitution_effect``, ``deletion_effect`` and
+``insertion_effect``, and ``tangermeme.marginalize`` provides
+``marginalize`` — each of which wraps the ref/alt forward-pair pattern
+in a helper that handles batching and padding. See the tangermeme documentation for signatures.
 
 For ad-hoc substitutions or insertions where you want full control,
 ``tangermeme.ersatz`` provides ``substitute``, ``insert``, ``delete``,
