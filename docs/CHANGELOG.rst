@@ -186,6 +186,22 @@ Bug fixes
   the container leaves out dev dependencies; and ``install-skill
   --force`` refuses a ``--directory`` that is the bundled skill itself
   rather than deleting it.
+* **The training kernels were never autotuned.** Their 12 autotune
+  configs passed ``num_warps`` and ``num_stages`` as kernel arguments,
+  where Triton overrides them with its defaults, so every config launched
+  with 4 warps and 3 stages. They are now launch options. On an H200, a
+  training forward+backward at batch 64 became 1.69x faster for a
+  512-filter model in bf16 and 1.04x in fp32; the default and 12-layer
+  128-filter models are unchanged.
+* :class:`~cherimoya.cheri.CheriBlock` on CUDA silently read the wrong
+  elements of a non-contiguous input, such as a transposed view. Inputs
+  are made contiguous first. :class:`~cherimoya.Cherimoya` already did
+  this, so full models were not affected.
+* ``.eval()`` raised ``RuntimeError: Inference tensors do not track
+  version counter`` on a model built or loaded inside
+  ``torch.inference_mode()``.
+* The inference megakernel failed to compile under ``no_grad`` for
+  models with fewer than 16 filters; they now take the fallback path.
 
 * ``cherimoya seqlets`` raised ``IndexError: arrays used as indices must
   be of integer or boolean type`` when no seqlets were found. An empty
