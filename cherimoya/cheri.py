@@ -37,7 +37,6 @@ autocast. `docs/architecture.rst` carries the full table.
 import itertools
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 
