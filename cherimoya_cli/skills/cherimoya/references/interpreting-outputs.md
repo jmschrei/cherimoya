@@ -92,7 +92,7 @@ model rely on" summary.
 
 ### TF-MoDISco — `{name}_modisco_results.h5` + `{name}_modisco/`
 *De novo* motifs aggregated across all seqlets. The `.h5` holds the patterns;
-`{name}_modisco/` is a browsable **HTML report** (open `motifs.html`) — usually
+`{name}_modisco/` is a browsable **HTML report** (open `report.html`) — usually
 the most satisfying thing to show a user, with names when a motif database was
 supplied.
 
