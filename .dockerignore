@@ -35,8 +35,11 @@ MANIFEST
 docs/_build/
 .readthedocs.yml
 
-# Local benchmark scripts
+# Local tooling and notes
 bench_kernels.py
+compat/
+CLAUDE.md
+claude_comments/
 
 # Cherimoya specific
 *.torch
