@@ -1,0 +1,6 @@
+# The whole test tree, so the sdist tests run as the repository does; without
+# conftest.py they would run with torch.compile enabled.
+graft tests
+global-exclude *.py[cod]
+global-exclude */__pycache__/*
+global-exclude */.ipynb_checkpoints/*
