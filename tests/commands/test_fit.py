@@ -966,3 +966,13 @@ def test_fit_refuses_chromosomes_shared_between_splits(fit_json, key):
 	with pytest.raises(ValueError, match="training_chroms and {} share "
 		r"\['chr2'\]".format(key)):
 		fit_cmd.run(argparse.Namespace(parameters=fit_json))
+
+
+def test_fit_builds_the_model_with_the_compile_setting(fit_json):
+	cfg = json.loads(open(fit_json).read())
+	cfg['compile'] = False
+	cfg['n_filters'], cfg['n_layers'] = 8, 2
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	model = _run_capturing_training_fit(fit_json)['model']
+	assert model._compile is False

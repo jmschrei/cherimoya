@@ -123,7 +123,15 @@ def test_pipeline_shares_the_compile_setting(tmp_path, run_pipeline):
 
 	run_pipeline(compile=False, compile_mode="reduce-overhead")
 
+	# The attribute step pins its own `compile` but inherits the mode. The
+	# fit JSON is what `fit` copies into both evaluate JSONs.
 	with open(tmp_path / "demo.attribute.json") as f:
+		emitted = json.load(f)
+
+	assert emitted["compile"] is False
+	assert emitted["compile_mode"] == "reduce-overhead"
+
+	with open(tmp_path / "demo.fit.json") as f:
 		emitted = json.load(f)
 
 	assert emitted["compile"] is False

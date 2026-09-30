@@ -287,6 +287,8 @@ def run(args):
 		trimming=trimming,
 		name=parameters["name"],
 		verbose=parameters["verbose"],
+		compile=parameters["compile"],
+		compile_mode=parameters["compile_mode"],
 		random_state=parameters["random_state"],
 	)
 

@@ -83,6 +83,8 @@ default_fit_parameters = {
 	'devices': 1,
 	'progress_bar': None,
 	'early_stopping': None,
+	'compile': True,
+	'compile_mode': 'max-autotune',
 	'verbose': False,
 	'training_chroms': training_chroms,
 	'validation_chroms': validation_chroms,
