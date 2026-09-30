@@ -576,10 +576,56 @@ def test_setup_turns_off_dynamo_ddp_graph_splitting_under_ddp(monkeypatch,
 
 	training_data, X_valid, y_valid, _ = _data([1], 4)
 	module = CherimoyaModule(_model([1]), training_data, X_valid, y_valid)
-	module._trainer = types.SimpleNamespace(world_size=world_size)
+	module._trainer = _fake_trainer(world_size)
 	module.setup("fit")
 
 	assert torch._dynamo.config.optimize_ddp is expected
+
+
+def _fake_trainer(world_size, rank_zero_value=None):
+	"""A stand-in for the trainer `setup` reads. Its `broadcast` returns
+	`rank_zero_value`, as if rank 0 held it, or the value passed."""
+
+	import types
+
+	def broadcast(obj, src=0):
+		return obj if rank_zero_value is None else rank_zero_value
+
+	return types.SimpleNamespace(world_size=world_size,
+		strategy=types.SimpleNamespace(broadcast=broadcast))
+
+
+def test_setup_gives_every_rank_the_first_rank_s_sampler_seed():
+	"""An unseeded sampler draws its own seed on each rank, so each would
+	take its slice of a different epoch and some peaks would be seen twice
+	and others never. Under DDP the first rank's seed is used everywhere."""
+
+	training_data, X_valid, y_valid, _ = _data([1], 4)
+	training_data._base_seed = 99
+	module = CherimoyaModule(_model([1]), training_data, X_valid, y_valid)
+	module._trainer = _fake_trainer(2, rank_zero_value=1234)
+	module.setup("fit")
+
+	assert training_data._base_seed == 1234
+
+
+def test_setup_refuses_fewer_validation_examples_than_devices():
+	training_data, X_valid, y_valid, _ = _data([1], 4)
+	module = CherimoyaModule(_model([1]), training_data, X_valid, y_valid)
+	module._trainer = _fake_trainer(len(X_valid) + 1)
+
+	with pytest.raises(ValueError, match="fewer than the 8 devices"):
+		module.setup("fit")
+
+
+def test_fit_refuses_an_empty_validation_set(tmp_path):
+	training_data, X_valid, y_valid, _ = _data([1], 4)
+	model = _model([1])
+	model.name = str(tmp_path / "empty")
+
+	with pytest.raises(ValueError, match="validation set is empty"):
+		fit(model, training_data, X_valid[:0], y_valid[:0], accelerator='cpu',
+			batch_size=BATCH_SIZE, num_workers=0)
 
 
 @pytest.mark.cuda

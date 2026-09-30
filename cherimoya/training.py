@@ -371,6 +371,19 @@ class CherimoyaModule(lightning.LightningModule):
 			import torch._dynamo
 			torch._dynamo.config.optimize_ddp = False
 
+			# Each rank must draw the same epochs to take its slice of them.
+			# An unseeded sampler draws its own seed on every rank, so rank
+			# 0's is used everywhere. Epochs are prepared lazily, so none
+			# has been drawn from the old seed yet.
+			if hasattr(self.training_data, "_base_seed"):
+				self.training_data._base_seed = self.trainer.strategy.broadcast(
+					self.training_data._base_seed, src=0)
+
+			if len(self.X_valid) < self.trainer.world_size:
+				raise ValueError("The validation set has {} examples, fewer "
+					"than the {} devices, each of which validates a block of "
+					"it.".format(len(self.X_valid), self.trainer.world_size))
+
 	def on_fit_start(self):
 		self.ema = EMA(self.model, decay=self.ema_decay)
 
@@ -749,6 +762,10 @@ def fit(model, training_data, X_valid, y_valid, X_ctl_valid=None,
 
 	module = CherimoyaModule(model, training_data, X_valid, y_valid,
 		X_ctl_valid=X_ctl_valid, verbose=verbose, **kwargs)
+
+	if len(X_valid) == 0:
+		raise ValueError("The validation set is empty, so no checkpoint could "
+			"be chosen.")
 
 	if len(training_data) < module.batch_size:
 		raise ValueError("The training set has {} examples, fewer than one "
