@@ -339,29 +339,6 @@ def test_validation_casts_inputs_to_the_training_dtype(tmp_path, dtype,
 	assert seen and set(seen) == {(expected, expected)}
 
 
-def test_fit_writes_the_best_and_final_ema_checkpoints(tmp_path):
-	signal_groups = [1, 2]
-	training_data, X_valid, y_valid, _ = _data(signal_groups, 4)
-	module = _lightning_fit(tmp_path, _model(signal_groups), training_data,
-		X_valid, y_valid, max_epochs=3)
-
-	log = pandas.read_csv(tmp_path / "lit.log", sep="\t")
-	assert bool(log['Saved?'].iloc[0])
-	assert log['Saved?'].sum() >= 1
-
-	final = Cherimoya.load(str(tmp_path / "lit.final.torch"), compile=False)
-	for name, p in final.named_parameters():
-		expected = module.ema.shadow.get(name, dict(
-			module.model.named_parameters())[name])
-		assert torch.equal(p, expected), name
-
-	best = Cherimoya.load(str(tmp_path / "lit.torch"), compile=False)
-	assert best.signal_groups == signal_groups
-	if bool(log['Saved?'].iloc[-1]):
-		for p, q in zip(best.parameters(), final.parameters()):
-			assert torch.equal(p, q)
-
-
 def _assert_same_payload(a, b):
 	assert a.keys() == b.keys() == {'config', 'state_dict'}
 	assert a['config'] == b['config']
@@ -373,20 +350,34 @@ def _assert_same_payload(a, b):
 
 
 @pytest.mark.parametrize("n_controls", [0, 2])
-def test_fit_checkpoints_are_what_cherimoya_save_writes(tmp_path, n_controls):
+def test_fit_writes_the_best_and_final_ema_checkpoints(tmp_path, monkeypatch,
+	n_controls):
 	"""Training writes its checkpoints through Lightning, and the files must
-	be exactly what `Cherimoya.save` writes for the same weights -- the same
+	be exactly what `Cherimoya.save` writes for the EMA weights -- the same
 	config, keys, tensors and state-dict metadata -- so that nothing about
 	saving or loading changes for anyone reading them."""
 
-	training_data, X_valid, y_valid, X_ctl_valid = _data([1, 2], 4,
+	# The EMA shadow at the end of every epoch, when the best checkpoint is
+	# written.
+	shadows = []
+	epoch_end = CherimoyaModule.on_train_epoch_end
+
+	def record(self):
+		shadows.append({k: v.clone() for k, v in self.ema.shadow.items()})
+		epoch_end(self)
+
+	monkeypatch.setattr(CherimoyaModule, "on_train_epoch_end", record)
+
+	signal_groups = [1, 2]
+	training_data, X_valid, y_valid, X_ctl_valid = _data(signal_groups, 4,
 		n_controls)
-	module = _lightning_fit(tmp_path, _model([1, 2], n_controls),
-		training_data, X_valid, y_valid, max_epochs=2,
+	module = _lightning_fit(tmp_path, _model(signal_groups, n_controls),
+		training_data, X_valid, y_valid, max_epochs=3,
 		X_ctl_valid=X_ctl_valid)
 
-	# After training the model holds the EMA weights, which is what both
-	# files were written from on the last epoch.
+	# After training the model holds the EMA weights, which is what the
+	# final checkpoint, and the best one if the last epoch was saved, were
+	# written from.
 	module.model.save(str(tmp_path / "reference.torch"))
 	reference = torch.load(tmp_path / "reference.torch", weights_only=True)
 
@@ -394,11 +385,27 @@ def test_fit_checkpoints_are_what_cherimoya_save_writes(tmp_path, n_controls):
 	_assert_same_payload(final, reference)
 
 	log = pandas.read_csv(tmp_path / "lit.log", sep="\t")
+	assert bool(log['Saved?'].iloc[0])
+
 	best = torch.load(tmp_path / "lit.torch", weights_only=True)
 	if bool(log['Saved?'].iloc[-1]):
 		_assert_same_payload(best, reference)
 	else:
+		assert best['config'] == reference['config']
 		assert best['state_dict']._metadata == reference['state_dict']._metadata
+
+	# The best checkpoint holds the EMA weights of the last epoch that
+	# improved, whichever epoch that was.
+	saved = numpy.flatnonzero(log['Saved?'].astype(bool))[-1]
+	best_model = Cherimoya.load(str(tmp_path / "lit.torch"), compile=False)
+	parameters = dict(best_model.named_parameters())
+	for name, value in shadows[saved].items():
+		assert torch.equal(parameters[name], value), name
+
+	for filename in ("lit.torch", "lit.final.torch"):
+		model = Cherimoya.load(str(tmp_path / filename), compile=False)
+		assert model.signal_groups == signal_groups
+		assert model.n_control_tracks == n_controls
 
 
 def test_fit_writes_the_training_logs_in_their_format(tmp_path):
