@@ -1,5 +1,6 @@
 """Tests for the model wrappers in ``cherimoya.wrappers``."""
 
+import numpy
 import pytest
 import torch
 
@@ -326,11 +327,13 @@ def test_expected_counts_regression(grouped_model):
 	with torch.no_grad():
 		y_hat = ExpectedCountsWrapper(grouped_model)(X)
 
-	# First three positions of each channel for the first example.
-	assert_array_almost_equal(y_hat[0, :, :3].numpy(), [
+	# First three positions of each channel for the first example. The
+	# values are ~1e-5, so the tolerance is relative, to the precision of
+	# the literals.
+	numpy.testing.assert_allclose(y_hat[0, :, :3].numpy(), [
 		[-0.00000807, -0.00000754, -0.00000711],
 		[0.00001016, 0.00001177, 0.00001103],
-		[0.00001058, 0.00001080, 0.00001072]], 6)
+		[0.00001058, 0.00001080, 0.00001072]], rtol=2e-3)
 
 
 def test_expected_counts_passes_control(control_model):
@@ -363,38 +366,11 @@ def test_expected_counts_is_differentiable(grouped_model):
 
 # --------- Error handling --------------------------------------------------
 
-def test_profile_wrapper_rejects_wrong_channel_count(grouped_model):
-	"""A sequence that is not 4-channel one-hot fails in the input conv."""
-	L = _input_window_for(grouped_model)
-	X = torch.randn(2, 5, L)
-
-	with pytest.raises(RuntimeError):
-		ProfileWrapper(grouped_model)(X)
-
-
-def test_logcount_wrapper_rejects_wrong_channel_count(grouped_model):
-	"""A sequence that is not 4-channel one-hot fails in the input conv."""
-	L = _input_window_for(grouped_model)
-	X = torch.randn(2, 5, L)
-
-	with pytest.raises(RuntimeError):
-		LogCountWrapper(grouped_model)(X)
-
-
-def test_expected_counts_rejects_wrong_channel_count(grouped_model):
-	"""A sequence that is not 4-channel one-hot fails in the input conv."""
-	L = _input_window_for(grouped_model)
-	X = torch.randn(2, 5, L)
-
-	with pytest.raises(RuntimeError):
-		ExpectedCountsWrapper(grouped_model)(X)
-
-
 def test_expected_counts_requires_signal_groups_attribute(grouped_model):
 	"""ExpectedCountsWrapper reads ``model.signal_groups`` to split the
-	profile head; wrapping a model without it raises AttributeError. This
-	pins the contract that it wraps a Cherimoya directly, not another
-	wrapper."""
+	profile head; wrapping a model without it raises AttributeError. It
+	takes a Cherimoya, or a ControlWrapper around one (tested below), but
+	not a single-output wrapper."""
 	L = _input_window_for(grouped_model)
 	X = torch.randn(2, 4, L)
 

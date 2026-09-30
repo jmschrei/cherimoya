@@ -17,14 +17,10 @@ def _toy_inputs(n=2, n_outputs=1, length=8, n_count_outputs=1, seed=0):
 
 
 def _legacy_single_output_profile_loss(y, logits, labels=None):
-	"""The pre-fix per-channel profile formula, reproducing ``main``'s fast
-	path exactly (per-channel ``log_softmax`` over length, then per-example
-	MNLL, then mean over examples). Used as a bitwise reference for the
-	accessibility no-op guarantee. This reference has been confirmed
-	bitwise-equal to ``main``'s actual ``_mixture_loss`` output — forward
-	values *and* gradients — via a cross-branch harness (see the PR
-	verification notes), so pinning the new code to it here is a valid
-	standing regression against the pre-grouping behavior."""
+	"""The per-channel profile formula from before signal groups
+	(per-channel ``log_softmax`` over length, then per-example MNLL, then
+	mean over examples), kept as a bitwise reference for the guarantee that
+	models with single-channel groups train exactly as they did."""
 
 	log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
 	if labels is not None:
@@ -252,17 +248,6 @@ def test_mixture_loss_all_size_one_groups_bit_identical():
 		signal_groups=[1, 1, 1])
 	assert torch.equal(prof_none, prof_grp)
 	assert torch.equal(count_none, count_grp)
-
-
-def test_mixture_loss_signal_groups_all_size_one_matches_legacy():
-	"""signal_groups=[1, 1, 1] should produce the same count loss as
-	the legacy per-channel path (signal_groups=None)."""
-
-	y, logits, logcounts = _toy_inputs(n_outputs=3, n_count_outputs=3)
-	_, count_legacy = _mixture_loss(y, logits, logcounts)
-	_, count_grouped = _mixture_loss(y, logits, logcounts,
-		signal_groups=[1, 1, 1])
-	assert torch.allclose(count_legacy, count_grouped, atol=1e-6)
 
 
 def test_mixture_loss_signal_groups_size_mismatch_raises():

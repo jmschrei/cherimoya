@@ -114,8 +114,7 @@ def test_gaussian_smoothing_reduces_variance():
 # --------- calculate_performance_measures ---------------------------------
 
 def test_calculate_performance_measures_subset_runs():
-	"""Restricting to count metrics keeps the test fast and avoids the
-	scikit-learn dependency from the labels branch."""
+	"""Restricting to count metrics keeps the test fast."""
 
 	g = torch.Generator().manual_seed(0)
 	logits = torch.randn(2, 1, 16, generator=g)
@@ -183,6 +182,7 @@ def test_calculate_performance_measures_legacy_total_when_no_groups():
 		measures=['count_pearson', 'count_mse'],
 	)
 	assert torch.allclose(measures['count_mse'], torch.zeros(3), atol=1e-5)
+	assert torch.allclose(measures['count_pearson'], torch.ones(3), atol=1e-5)
 
 
 def test_calculate_performance_measures_signal_groups_sum_mismatch_raises():
