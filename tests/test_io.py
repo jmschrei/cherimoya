@@ -432,6 +432,25 @@ def test_max_jitter_zero_returns_full_slice():
 		assert (X[0] == marker).all()
 
 
+def test_jitter_reaches_both_ends_of_the_window():
+	"""A peak window starts anywhere from 0 to 2 * max_jitter into the
+	wider extracted row, both ends included, so the shift runs from
+	-max_jitter to +max_jitter and the far end still yields a full
+	window."""
+	sampler = _make_sampler(n_peaks=64, n_negs=2, max_jitter=2,
+		in_window=12, out_window=6, negative_ratio=0,
+		reverse_complement=False)
+
+	offsets = set()
+	for epoch in range(5):
+		for i in range(len(sampler)):
+			X, y, label = sampler[(epoch, i)]
+			assert X.shape == (4, 12) and y.shape == (1, 6)
+		offsets |= set(sampler._jitters.tolist())
+
+	assert offsets == {0, 1, 2, 3, 4}
+
+
 def test_max_jitter_negative_raises():
 	with pytest.raises(ValueError, match="max_jitter"):
 		_make_sampler(max_jitter=-1)

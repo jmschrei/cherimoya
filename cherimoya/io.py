@@ -349,8 +349,10 @@ class PeakNegativeSampler(torch.utils.data.Dataset):
 		self._source_idx = source
 
 		# Per-position jitter (0 at negative positions) and rc flag.
+		# A window starts anywhere from 0 to 2 * max_jitter into the wider
+		# extracted peak, both ends included.
 		if self.max_jitter > 0:
-			jitters = rng.randint(0, self.max_jitter * 2, size=n)
+			jitters = rng.randint(0, self.max_jitter * 2 + 1, size=n)
 			jitters[~labels] = 0
 			self._jitters = jitters
 		else:
