@@ -721,3 +721,19 @@ def test_progress_bar_by_default_only_for_a_terminal_or_a_notebook(
 	monkeypatch.setitem(sys.modules, 'ipykernel', object())
 	assert _show_progress_bar(None) is True
 
+
+
+def test_decay_spans_the_run_by_default(tmp_path):
+	"""Without `n_decay_steps` the cosine covers the steps after warmup,
+	10 here (three epochs of four full batches, less two of warmup), rather
+	than one step, past which it would climb back to the full rate."""
+
+	training_data, X_valid, y_valid, _ = _data([1], 4)
+	model = _model([1])
+	model.name = str(tmp_path / "decay")
+	trainer = fit(model, training_data, X_valid, y_valid, max_epochs=3,
+		accelerator='cpu', batch_size=BATCH_SIZE, num_workers=0,
+		n_warmup_steps=2)
+
+	for scheduler in trainer.lightning_module.lr_schedulers()[:2]:
+		assert scheduler._schedulers[1].T_max == 10
