@@ -72,6 +72,12 @@ Per-call latency (ms) on an NVIDIA H200 for a single Cheri Block at `N=512, L=10
 
 On the default model at fp32, the three paths agree on the profile logits to within 2.5e-4 max-abs against a logit scale of 0.73, so a trained checkpoint gives the same predictions to that bound through any of them — they are not bitwise identical. A pure-PyTorch CPU fallback is also available for development and one-off evaluation on a laptop. See [the benchmarks page](https://cherimoya.readthedocs.io/en/latest/benchmarks.html) for small-batch breakdowns and full methodology.
 
+### Multi-GPU training
+
+<img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/multi-gpu-speedup.png" width=60%>
+
+Training runs on PyTorch Lightning, so setting `devices` in the fit JSON (or passing `devices=` to `cherimoya.training.fit`) trains on several GPUs with DDP. `batch_size` stays the global batch, split evenly across the GPUs, so every step sees the same examples as on one GPU. The figure shows the training speedup at the default global batch of 64 on H200 GPUs, for one ATAC-seq experiment (2,322 steps per epoch). Larger models scale further, because each GPU's share of the batch is more work: the 512-filter model reaches 3.1–3.3× on 4 GPUs and the 12-layer model with a 9,282 bp input window 4.0–4.6× on 8, while the default model gains at most 2.4×. Giving each GPU 64 examples instead scales 7.0–7.7× on 8 GPUs, at the cost of a larger global batch that changes the training. See [training on several devices](https://cherimoya.readthedocs.io/en/latest/cli.html#training-on-several-devices) for how to set it up.
+
 ### End-to-end CLI pipeline
 
 <img src="https://github.com/jmschrei/cherimoya/blob/main/imgs/pipeline.png" width=70%>
