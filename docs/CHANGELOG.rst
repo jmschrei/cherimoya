@@ -1,51 +1,26 @@
 Changelog
 =========
 
-Unreleased
-----------
+v0.3.0
+------
 
-Changed (**breaking**)
-~~~~~~~~~~~~~~~~~~~~~~
+This release moves training onto PyTorch Lightning, with training on
+several GPUs; evaluates every model on a held-out test set and reports
+how well it separates peaks from negatives; makes DeepLIFT/SHAP the
+default attribution, with correct rules for Cherimoya's layers; and
+fixes bugs that silently gave wrong results in the CLI, the kernels and
+the seqlet coordinates. It contains everything since v0.2.0: v0.2.1 was
+versioned but never tagged or published, and its entries are included
+here.
 
-* **``cherimoya fit`` evaluates on a held-out test set as well as the
-  validation set, and the output files are renamed.** The validation
-  chromosomes choose the checkpoint and drive early stopping, so the
-  single ``{name}.performance.tsv`` they produced was not an
-  independent estimate. A new ``test_chroms`` key (default ``chr1``,
-  ``chr3``, ``chr6``, which the default split already left out of
-  training and validation) is evaluated after training too.
-  ``{name}.performance.tsv`` becomes
-  ``{name}.validation.performance.tsv``, ``{name}.evaluate.json``
-  becomes ``{name}.validation.evaluate.json``, and the test run writes
-  ``{name}.test.performance.tsv`` and ``{name}.test.evaluate.json``.
-  ``test_chroms: null`` skips the test run. **Scripts that read**
-  ``{name}.performance.tsv`` **must switch to one of the new names.**
-* **``fit`` refuses to start when two of** ``training_chroms``,
-  ``validation_chroms`` **and** ``test_chroms`` **share a chromosome.**
-  A fit JSON written before ``test_chroms`` existed gets the default
-  ``chr1``/``chr3``/``chr6``, so one whose custom split trains on any of
-  them now raises ``ValueError`` naming the shared chromosomes; set
-  ``test_chroms`` to held-out chromosomes, or to ``null``.
-* The ``performance_filename`` fit key is removed; ``fit`` always
-  overwrote it. ``cherimoya evaluate`` keeps its own. The ``seqlets``
-  ``exclusion_lists`` key, which nothing read, is removed too;
-  ``attribute`` now applies exclusions (below), and ``seqlets``
-  inherits them through the index file.
-* **Peak jitter now reaches** ``+max_jitter``. The window offset was drawn
-  from ``randint(0, 2 * max_jitter)``, which excludes its upper bound, so
-  shifts ran from ``-max_jitter`` to ``max_jitter - 1``. Including both
-  ends changes the sampler's random stream: **the same seed now draws
-  different batches than before**, so a run cannot be reproduced exactly
-  across this change.
-* The default ``n_decay_steps`` of
-  :class:`~cherimoya.training.CherimoyaModule` and
-  :func:`~cherimoya.training.fit` is ``None``, which decays over the rest
-  of the run. The old default of 1 restarted the cosine every other step,
-  so the rate alternated between its full value and ``1e-5`` for a caller
-  who did not set it. ``cherimoya fit`` always passes its own value.
+**Checkpoints are unchanged.** Every checkpoint from an earlier version
+loads and computes the same outputs, and a checkpoint written by this
+version loads in earlier ones. Training is not bitwise identical to
+v0.2.0 with the same seed, because the peak jitter now covers its full
+range (below).
 
-Removed (**breaking**)
-~~~~~~~~~~~~~~~~~~~~~~
+Breaking changes
+~~~~~~~~~~~~~~~~
 
 * ``Cherimoya.fit`` is removed. Training moved to PyTorch Lightning, and
   the replacement is :func:`cherimoya.training.fit`, which builds a
@@ -61,516 +36,114 @@ Removed (**breaking**)
   ``lw_lr``/``lw_wd``/``lw_momentum`` and the schedule lengths
   ``n_warmup_steps`` / ``n_decay_steps``; ``device`` is replaced by
   Lightning's ``accelerator`` and ``devices``; and ``dtype`` must be one
-  of the strings ``'float32'``, ``'bfloat16'`` or ``'float16'``, since
-  anything else raises ``ValueError``. **Code that calls**
-  ``model.fit(...)`` **fails with** ``AttributeError``. The
-  :doc:`tutorials/python_api` shows the replacement call with the CLI's
-  schedule.
+  of the strings ``'float32'``, ``'bfloat16'`` or ``'float16'``.
+  **Code that calls** ``model.fit(...)`` **fails with**
+  ``AttributeError``. The :doc:`tutorials/python_api` shows the
+  replacement call with the CLI's schedule.
 
-  Checkpoints and training logs are unchanged: ``{name}.torch`` and
-  ``{name}.final.torch`` are written in the ``Cherimoya.save`` format and
-  load with ``Cherimoya.load``, and ``{name}.log`` and
-  ``{name}.detailed.log`` keep their columns, with the negatives'
-  columns (below) added before ``Saved?``.
+* ``cherimoya batch`` is removed, along with its subparser, its CLI
+  reference section and the "Batch mode" section of the pipeline
+  tutorial. **A script that invokes it now fails with an argparse
+  error.** The equivalent is to write the per-experiment pipeline JSONs
+  and run ``cherimoya pipeline`` on each, which is what ``batch`` did
+  internally. ``joblib``, which only ``batch`` imported, is dropped from
+  the dependencies.
 
-* ``cherimoya batch`` is removed, along with
-  ``cherimoya_cli/commands/batch.py``, its subparser, its CLI reference
-  section and the "Batch mode" section of the pipeline tutorial. It fanned
-  one JSON out into several pipeline JSONs and ran them with
-  ``joblib.Parallel``, one per CUDA device.
+* **``cherimoya fit`` evaluates on a held-out test set as well as the
+  validation set, and its output files are renamed.** The validation
+  chromosomes choose the checkpoint and drive early stopping, so the
+  single ``{name}.performance.tsv`` they produced was not an
+  independent estimate. A new ``test_chroms`` key (default ``chr1``,
+  ``chr3``, ``chr6``, which the default split already left out of
+  training and validation) is evaluated after training too.
+  ``{name}.performance.tsv`` becomes
+  ``{name}.validation.performance.tsv``, ``{name}.evaluate.json``
+  becomes ``{name}.validation.evaluate.json``, and the test run writes
+  ``{name}.test.performance.tsv`` and ``{name}.test.evaluate.json``;
+  ``test_chroms: null`` skips it. **Scripts that read**
+  ``{name}.performance.tsv`` **must switch to one of the new names.**
 
-  **A script that invokes** ``cherimoya batch`` **will now fail with an
-  argparse error naming the valid subcommands.** The equivalent is to write
-  the per-experiment pipeline JSONs yourself and run ``cherimoya pipeline``
-  on each, which is what ``batch`` did internally — it assigned devices
-  round-robin by ``i % len(device)`` and shelled out to
-  ``cherimoya pipeline -p {name}.pipeline.json``.
+* **``fit`` refuses to start when two of** ``training_chroms``,
+  ``validation_chroms`` **and** ``test_chroms`` **share a chromosome.**
+  A fit JSON written before ``test_chroms`` existed gets the default
+  ``chr1``/``chr3``/``chr6``, so one whose custom split trains on any of
+  them now raises ``ValueError`` naming the shared chromosomes; set
+  ``test_chroms`` to held-out chromosomes, or to ``null``.
 
-* ``joblib`` is dropped from ``dependencies``. ``batch.py`` was the only
-  thing in the package that imported it. It usually remains installed
-  anyway, as a transitive dependency of scikit-learn.
+* **``cherimoya attribute`` computes DeepLIFT/SHAP by default**, the way
+  bpnet-lite's attribute step does. A new ``algorithm`` key takes
+  ``"deep_lift_shap"`` (the default) or ``"saturation_mutagenesis"``,
+  the previous behaviour; both write ``(n, 4, attr_window)`` arrays to
+  the same files, so ``cherimoya seqlets`` and TF-MoDISco read either.
+  DeepLIFT/SHAP attributes the whole ``in_window`` against
+  dinucleotide-shuffled references with
+  :func:`cherimoya.deep_lift_shap.attribution_ops` registered, and saves
+  the centred slice. Three keys configure it, with bpnet-lite's
+  defaults: ``n_shuffles`` (20), ``warning_threshold`` (0.001) and
+  ``random_state`` (0; in a pipeline JSON, ``null`` inherits the
+  top-level seed). Its ``batch_size`` default is 64 rather than 512:
+  each item is a sequence-reference pair run forward and backward, and
+  on a 9-layer, 128-filter model at 2114 bp, 512 pairs peaked at 124 GB
+  of GPU memory and 64 at 15.5 GB, with the same wall time. The step no
+  longer compiles the model by default (``compile: false``): neither
+  algorithm ran faster compiled, and compiling added 6-70 s to the
+  first call; DeepLIFT/SHAP never compiles, since its backward hooks
+  cause graph breaks and recompiles.
 
-Added
-~~~~~
+* A new attribute ``group`` key (default ``0``) selects which signal
+  group of a multi-group model is attributed (#52). **For a multi-group
+  model this changes the default target** from every group -- ISM
+  averaged the count head's outputs and the profile target softmaxed all
+  groups together -- to group 0. ``"group": null`` restores the old
+  target under saturation mutagenesis. Single-group models are
+  unaffected.
 
-* **Validation and evaluation measures that use the negatives.**
-  ``cherimoya fit`` adds every ``negatives`` locus on the
-  ``validation_chroms`` to the validation set, and ``cherimoya
-  evaluate`` reads an optional ``negatives`` key, which the evaluate
-  JSON written by ``fit`` carries. Both then report the count Pearson
-  and MSE over peaks and negatives together and the AUROC and AUPRC of
-  the predicted log counts at separating peaks from negatives, per
-  signal group. The existing measures, and the checkpoint and
-  early-stopping criterion, are unchanged and still computed on the
-  peaks alone. ``{name}.log`` gains ``Validation Count Pearson
-  (Peaks+Negatives)``, ``Validation Count MSE (Peaks+Negatives)``,
-  ``Validation AUROC`` and ``Validation AUPRC`` after ``Validation Count
-  MSE``, and ``Saved?`` moves to the last column (in
-  ``{name}.detailed.log``, the last before the per-group columns); the
-  detailed log also gains ``AUROC_g{i}`` and ``AUPRC_g{i}`` after the
-  per-group Pearsons; and
-  ``{name}.performance.tsv`` gains ``all_count_pearson``,
-  ``all_count_spearman``, ``all_count_mse``, ``auroc`` and ``auprc``.
-  Without negatives the new columns are empty in the logs and ``nan``
-  in the TSV. A reader that indexes these files by position or checks
-  their column count needs updating; one that reads by column name does
-  not. In Python, :class:`~cherimoya.training.CherimoyaModule` and
-  :func:`~cherimoya.training.fit` take ``labels_valid``, 1 for each
-  peak row of the validation set and 0 for each negative, and
-  ``trainer.callback_metrics`` gains ``valid_count_pearson_all``,
-  ``valid_count_mse_all``, ``valid_auroc`` and ``valid_auprc``.
-  ``scikit-learn`` (≥ 1.7.2) becomes a declared dependency.
+* **Training is seeded by default.** ``random_state`` defaults to ``0``
+  in the fit and pipeline JSONs, and :class:`cherimoya.Cherimoya` takes
+  a ``random_state`` that seeds its initialization from a local
+  ``torch.Generator``. The seed previously reached only the sampler, so
+  two runs with the same seed started from different weights.
+  **Rerunning an unchanged fit JSON now rebuilds the same model; vary**
+  ``random_state`` **to get replicates.** ``random_state: null`` no
+  longer means "unseeded": ``fit`` draws a seed, prints it, and records
+  it in the evaluate JSONs, so the run can be repeated. A JSON that
+  omits the key is accepted.
 
-Bug fixes
-~~~~~~~~~
+* **Peak jitter now reaches** ``+max_jitter``. The window offset was
+  drawn from ``randint(0, 2 * max_jitter)``, which excludes its upper
+  bound, so shifts ran from ``-max_jitter`` to ``max_jitter - 1``.
+  Including both ends changes the sampler's random stream: **the same
+  seed now draws different batches than before.**
 
-* :func:`~cherimoya.io.PeakGenerator` failed inside tangermeme when
-  ``negatives`` was ``None``. It now builds a peaks-only training set,
-  which needs ``negative_ratio=0``; a nonzero ratio raises the sampler's
-  ``ValueError`` asking for negatives or a ratio of 0.
+* **Early stopping is off by default** (``early_stopping: null``; it was
+  ``5``), and **a minimum step count overrides** ``max_epochs``: the new
+  ``min_total_steps`` key (default 20000) raises ``max_epochs`` until the
+  run reaches that many optimizer steps, and lays the warmup and cosine
+  decay out over the raised value. An epoch is one pass over the peaks,
+  so 20 epochs was 280 steps for an experiment with 14 batches of peaks
+  and 54,000 for one with 2,700, and a patience counter on the EMA
+  validation metric was ending runs partway through the decay.
+  ``min_total_steps: null`` disables the floor.
 
-* **The pipeline's marginalization inserted motifs into the peaks.**
-  The marginalize step copied the top-level ``loci`` before the
-  fallback to ``negatives`` was checked, so the fallback never applied.
-  It now uses the negatives unless ``marginalize_parameters.loci`` is
-  set.
-* ``cherimoya marginalize`` extracted tangermeme's default 2114 bp
-  rather than its ``in_window``, and ignored ``exclusion_lists``, as did
-  ``cherimoya attribute``. Both now pass them to ``extract_loci``.
-* **``reverse_complement_average`` in ``cherimoya evaluate`` scrambled
-  the channels of multi-group models.** Flipping the whole channel axis
-  averaged, for groups ``[1, 2]``, the ATAC prediction into the TF's
-  minus strand. The reverse complement now swaps strands within each
-  group, for predictions and controls, as training does. Single-group
-  models are unchanged.
-* The pipeline's top-level ``compile`` / ``compile_mode`` never reached
-  training or the evaluate step, which always compiled with
-  ``max-autotune``. ``fit`` now takes both keys and passes them to the
-  training model and to its evaluate JSONs.
-* A top-level ``"skip": true`` in the pipeline JSON still ran MACS3,
-  ``bam2bw``, negative sampling and TF-MoDISco; the pipeline now
-  returns before any step. ``annotation_parameters.skip`` is honored.
-* With ``summits: true``, validation and evaluation windows were
-  centered on the peak midpoint while training windows were centered on
-  the summit. ``fit``'s validation peaks and ``evaluate`` (new
-  ``summits`` key, default ``false``) now use it; negatives stay
-  midpoint-centered.
-* A ``loci`` given as a single string made the pipeline's negatives step
-  read its first character as the peak file.
-* ``merge_parameters`` filled missing nested keys with the default
-  dicts themselves, so a pipeline run writing into them changed the
-  defaults of the next run in the same process.
-* ``cherimoya evaluate`` declares ``signals``, so a JSON without it gets
-  the usual "Must provide value" message rather than ``KeyError``, and
-  it returns with a message rather than failing when no locus falls on
-  its ``chroms``.
-* ``cherimoya negatives`` requires ``-f/--fasta``, ``pipeline-json
-  -sf`` is parsed as a float rather than kept as a string, and the
-  ``--unstranded`` help text no longer says the opposite.
-* With ``random_state=None``, every DDP rank's sampler drew its own seed,
-  so each rank took its slice of a different epoch and some peaks were
-  seen twice per epoch and others not at all.
-  :meth:`~cherimoya.training.CherimoyaModule.setup` now gives every rank
-  rank 0's seed. ``cherimoya fit`` always resolved a seed first, so it
-  was not affected.
-* :func:`~cherimoya.training.fit` raises ``ValueError`` for an empty
-  validation set, and for one with fewer examples than devices, rather
-  than failing with unrelated errors.
-* :func:`~cherimoya.performance.calculate_performance_measures` raises
-  when ``signal_groups`` does not match the number of predicted counts,
-  rather than scoring every count against the all-channel total.
-* ``triton`` is a Linux-only dependency. It publishes no wheels for macOS
-  or Windows, so the unconditional dependency made cherimoya impossible
-  to install there, although the model already runs without Triton on
-  the PyTorch path. The ``setuptools`` build floor is raised to 77, which
-  ``license = "MIT"`` needs.
-* ``import cherimoya`` failed in a source tree that was never installed,
-  which is how Read the Docs builds, so the training, DeepLIFT/SHAP and
-  part of the kernel API pages rendered empty. ``__version__`` is
-  ``"unknown"`` there.
-* The sdist ships the whole test tree, including ``conftest.py`` and
-  ``tests/commands/``; the README images use URLs that render on PyPI;
-  the container leaves out dev dependencies; and ``install-skill
-  --force`` refuses a ``--directory`` that is the bundled skill itself
-  rather than deleting it.
-* **The training kernels were never autotuned.** Their 12 autotune
-  configs passed ``num_warps`` and ``num_stages`` as kernel arguments,
-  where Triton overrides them with its defaults, so every config launched
-  with 4 warps and 3 stages. They are now launch options. On an H200, a
-  training forward+backward at batch 64 became 1.69x faster for a
-  512-filter model in bf16 and 1.04x in fp32; the default and 12-layer
-  128-filter models are unchanged.
-* :class:`~cherimoya.cheri.CheriBlock` on CUDA silently read the wrong
-  elements of a non-contiguous input, such as a transposed view. Inputs
-  are made contiguous first. :class:`~cherimoya.Cherimoya` already did
-  this, so full models were not affected.
-* ``.eval()`` raised ``RuntimeError: Inference tensors do not track
-  version counter`` on a model built or loaded inside
-  ``torch.inference_mode()``.
-* The inference megakernel failed to compile under ``no_grad`` for
-  models with fewer than 16 filters; they now take the fallback path.
+* **``{name}.log``'s training columns are averaged over the epoch's
+  batches.** They held whatever the last full batch produced, a
+  single-batch estimate noisy enough to look flat or non-monotonic while
+  the model improved; expect new logs to sit at a different level and
+  move more smoothly. Thanks to Ethan Armand for the report in issue
+  #19. The log also gains four columns before ``Saved?``, which stays
+  last (see Evaluation).
 
-* ``cherimoya seqlets`` raised ``IndexError: arrays used as indices must
-  be of integer or boolean type`` when no seqlets were found. An empty
-  result is a legitimate outcome — a weak model, or a strict
-  ``threshold`` — but the empty frame ``recursive_seqlets`` returns has
-  ``object`` dtype columns, and indexing the locus table with an object
-  array raises inside pandas rather than producing an empty result.
-  Inside ``cherimoya pipeline`` that ended the run after training had
-  already finished. An empty BED is now written; the annotation step
-  opens that path either way.
+* Keys removed because nothing read them, or because ``fit`` always
+  overwrote them: the fit ``performance_filename``, the seqlets
+  ``exclusion_lists`` and ``in_window``, ``attribute_parameters.out_window``
+  and the pipeline's ``fit_parameters.count_loss_weight``. A JSON that
+  still sets one is accepted and the key ignored.
+  ``marginalize_parameters.output_folder`` is renamed to
+  ``output_filename``, the key ``cherimoya marginalize`` reads.
 
-* ``cherimoya seqlets`` emitted genomic coordinates shifted 857 bases to
-  the left of the seqlets it found. ``cherimoya attribute`` scores a
-  400bp slice centred inside the 2114bp extraction window and saves the
-  attributions over that slice only, so a seqlet position is an offset
-  into the slice; the conversion back to the genome centred a window of
-  ``in_window`` (2114) on each locus instead of one of the slice's own
-  width (400), which puts the reported start
-  ``(2114 - 400) / 2 = 857`` bases early. A seqlet at slice positions
-  100-110 of a peak at ``chr1:10000-11000`` was written as
-  ``chr1:9543-9553`` rather than ``chr1:10400-10410``, outside the peak
-  it came from. The window is now read from the width of the
-  attribution array, so it stays correct if a run attributes a
-  different slice. ``seqlet_parameters.in_window`` is removed; it was
-  only ever used for this conversion. A JSON that still sets it is
-  passed through and ignored.
-
-  This also affected the pipeline's motif annotation: ``ttl`` reads the
-  seqlet BED to pull sequence out of the FASTA, so
-  ``{name}.seqlets_annotated.bed`` and ``{name}.motif_seqlet_count.tsv``
-  were built from the wrong sequence. TF-MoDISco is unaffected — it
-  reads the attribution ``.npz`` files directly and never sees these
-  coordinates. Re-run ``cherimoya seqlets`` over the existing
-  ``.ohe.npz`` / ``.attr.npz`` files to correct an affected run without
-  recomputing attributions.
-
-* The first backward at any new ``(C, L)`` shape returned a wrong
-  gradient. ``_bwd_apply_kernel`` reads the convolution out of a
-  scratch buffer and writes the normalization gradient back over it, so
-  it is not idempotent — and ``triton.autotune`` benchmarks a
-  configuration by running the kernel repeatedly, so every trial after
-  the first read the previous trial's output as though it were the
-  convolution, leaving the buffer garbage before the real launch. The
-  kernel now declares ``restore_value=['Conv_ptr']``, so Triton
-  snapshots that buffer and restores it before each trial.
-
-  Measured against CPU autograd on shapes tuned fresh in their own
-  process, the depthwise weight gradient:
-
-  .. list-table::
-     :header-rows: 1
-
-     * - shape
-       - before
-       - after
-     * - ``C=48, L=176``
-       - 1.60e-01
-       - 8.52e-04
-     * - ``C=80, L=208``
-       - 4.86e-01
-       - 2.43e-03
-     * - ``C=112, L=144``
-       - 3.90e-01
-       - 2.90e-03
-
-  The remaining difference is TF32 in the surrounding ``Linear``
-  layers, not the kernel: with ``torch.set_float32_matmul_precision
-  ('highest')`` it falls to 2.03e-06. The ``linear1`` and ``linear2``
-  gradients were never affected, since they do not pass through that
-  buffer.
-
-  This was documented as a known wart with "warm up the kernel before
-  reading gradients" as the workaround, and estimated at ~7e-2; it is
-  larger than that and it is now fixed. It mattered most for
-  attribution, which is gradient-based — a fresh process attributing
-  one shape hits this path exactly once, with nothing after it to
-  notice.
-
-* Applying an EMA snapshot to a model already in eval mode left the
-  Cheri Block's cached MLP weights holding the *previous* weights, so on
-  CUDA the depthwise convolution ran on the EMA snapshot while the MLP
-  ran on whatever was loaded before it. :meth:`cherimoya.EMA.apply_shadow`
-  and :meth:`~cherimoya.EMA.restore` wrote through ``Tensor.data``, which
-  is precisely the assignment that does not advance a tensor's version
-  counter, and ``CheriBlock.train(False)`` materializes bf16 casts of the
-  MLP weights that only ``train()``/``eval()`` and a ``load_state_dict``
-  post-hook refreshed. Measured on a 9-layer, 128-filter model at fp32
-  on CUDA, the documented ``model.eval(); ema.apply_shadow(model)``
-  sequence produced profile logits **1.9e-2** away from the same weights
-  evaluated with a fresh cache, against an output scale of 0.77 — about
-  2.5% of the signal. It is now exactly 0.
-
-  ``cherimoya fit`` was not affected in practice: ``tangermeme.predict``
-  calls ``model.eval()`` inside ``_preserve_model_state``, after the
-  swap, which happened to rebuild the cache. Direct users of
-  :class:`~cherimoya.EMA` were, and so was any code that writes a weight
-  in place while in eval mode — an optimizer step, a hand-edited tensor.
-
-  Two changes. ``EMA`` no longer writes through ``.data``, so the swap is
-  visible to anything watching the version counter; both methods were
-  already under ``no_grad``, so nothing else about them changes. And
-  ``CheriBlock`` records the version counters its cache was built from
-  and falls back to an inline cast when they have moved, which is the
-  same path a block already takes when the inference kernel is reached
-  without a prior ``.eval()``. Calling ``.eval()`` again rebuilds the
-  cache and restores the fast path.
-
-  Only the fp32 cache branch was affected. Under ``torch.autocast`` the
-  block's input dtype does not match the cached cast, so the inline path
-  was already being taken and fp16/bf16 results were correct.
-
-* The version check added by the entry above broke the compiled eval
-  forward on torch 2.12. Dynamo cannot compare ``Tensor._version``
-  values without a graph break, and a break inside the block loop sends
-  all of ``Cherimoya._forward_impl`` to eager and compiles each
-  ``CheriBlock`` on its own, once per dilation, until it hits
-  ``torch._dynamo hit config.recompile_limit (8)``, a warning printed
-  during validation in ``cherimoya fit``. Results stayed correct,
-  but the eval forward was 6-17% slower than a single graph (0.59 vs
-  0.66 ms for 32 filters, 1.34 vs 1.42 ms for 64, 2.88 vs 3.09 ms for
-  128 at fp32, 1.77 vs 2.08 ms for 128 under bf16 autocast; batch 64, 9
-  layers). torch 2.13 traces the comparison and was not affected.
-
-  ``CheriBlock`` now skips the check under ``torch.compile`` and trusts
-  its cache, and ``Cherimoya.forward``, which runs outside the compiled
-  region, rebuilds the cache of any block whose weights moved before
-  dispatching. The EMA swap is still seen, now without falling back to
-  the inline cast. A ``CheriBlock`` compiled on its own, or a
-  ``Cherimoya`` wrapped in a user's own ``torch.compile``, no longer
-  detects in-place weight writes made after ``.eval()``; call
-  ``.eval()`` again after such a write.
-
-* A hand-written ``pipeline`` JSON that omitted ``motifs`` raised
-  ``KeyError: 'motifs'`` at the seqlet annotation step — after the model
-  had already been trained. ``pipeline.run`` reads
-  ``parameters["motifs"]`` unguarded for the annotation, the MoDISco
-  report and the marginalization step, but ``motifs`` was not a declared
-  default, so only a JSON emitted by ``cherimoya pipeline-json`` (which
-  always writes the key) had it. ``motifs`` is now a top-level pipeline
-  default, documented in the CLI reference, and may be omitted.
-
-* A ``pipeline`` JSON that omitted ``model`` was rejected with ``Must
-  provide value for 'model'``, even though ``pipeline.run`` treats a
-  null model as "train one" and that is the only thing the key does.
-  ``model`` and ``motifs`` are now both omittable.
-
-* ``merge_parameters`` now says what to write when a required key is
-  missing. ``null`` is accepted and an absent key is not, which was not
-  guessable from ``Must provide value for 'x'``; the message now adds
-  "Set it to null if this step is supposed to produce it."
-
-* The CLI reference claimed that any key missing from a JSON falls back
-  to its default. That was false for every key whose default is
-  ``null``, which is most of the input paths. The "Common conventions"
-  section now states which keys must be present and which are genuinely
-  optional.
-
-* ``cherimoya attribute`` never passed ``in_window`` to ``extract_loci``,
-  so every run extracted ``tangermeme``'s own default of 2114bp no
-  matter what the JSON said. A model trained at a different input
-  window was therefore fed the wrong window — and the key was declared
-  in the schema and documented in the CLI reference the whole time. It
-  is now the window that is actually extracted.
-
-* The attributed slice was a hard-coded ``mid - 200, mid + 200`` with no
-  key controlling it. It is now ``attr_window``, defaulting to 400 so
-  existing runs produce byte-identical output, and validated against
-  ``in_window`` rather than silently producing an out-of-range slice.
-  ``cherimoya seqlets`` reads this width back off the saved arrays, so
-  changing it needs no matching setting there.
-
-* ``attribute_parameters.out_window`` is removed. The step extracts
-  sequence only, never signal, so there was no output window to size. A
-  JSON that still sets it is passed through and ignored.
-
-Robustness
-~~~~~~~~~~
-
-* ``Cherimoya.fit`` now warns when an epoch produces no full batch. The
-  loop skips any batch whose size is not exactly ``batch_size``, so a
-  ``batch_size`` that disagrees with the DataLoader's own silently
-  skips *every* batch: the run completes for the full ``max_epochs``
-  having taken no optimizer step, saves a checkpoint and returns a best
-  correlation, with the only evidence a nan in two columns of the log.
-  A single empty epoch remains a supported outcome — a training set
-  smaller than one batch produces it — so this warns rather than
-  raising.
-
-* ``Cherimoya.fit`` rejects a missing ``X_valid`` or ``y_valid`` with a
-  message naming them. Validation is what selects the saved checkpoint
-  and what the returned correlation is computed from, so it is not
-  optional; passing None used to fail inside ``tangermeme.predict``
-  with an error mentioning neither argument. A vestigial
-  ``y_valid_counts`` computation, guarded on ``X_valid is not None``
-  and never read, is removed.
-
-* :class:`~cherimoya.io.PeakNegativeSampler` rejects
-  ``negative_ratio > 0`` with an empty negative set at construction.
-  Those slots can only be filled from the negative set, so the sampler
-  used to raise ``IndexError`` partway into the first epoch, naming
-  neither the ratio nor the set.
-
-* ``spearman_corr``'s docstring said it used a dense ordering. It uses
-  ``argsort().argsort()``, which is an ordinal ranking — every element
-  gets a distinct rank and ties are broken by position rather than
-  shared.
-
-CLI
-~~~
-
-* ``cherimoya attribute`` **now computes DeepLIFT/SHAP attributions by
-  default**, the way bpnet-lite's attribute step does. A new
-  ``algorithm`` key takes ``"deep_lift_shap"`` (the default) or
-  ``"saturation_mutagenesis"``, which is the previous behaviour. An
-  existing attribute or pipeline JSON rerun unchanged now produces
-  DeepLIFT/SHAP scores; add ``"algorithm": "saturation_mutagenesis"`` to
-  keep ISM. Both write ``(n, 4, attr_window)`` arrays to the same files,
-  so ``cherimoya seqlets`` and TF-MoDISco read either. DeepLIFT/SHAP
-  attributes the whole ``in_window`` against dinucleotide-shuffled
-  references with :func:`cherimoya.deep_lift_shap.attribution_ops`
-  registered, and the centred ``attr_window`` slice is saved. Three new
-  keys configure it, with bpnet-lite's defaults: ``n_shuffles`` (20),
-  ``warning_threshold`` (0.001) and ``random_state`` (0; in a pipeline
-  JSON, ``null`` inherits the top-level seed).
-
-* The attribute step's ``batch_size`` default is now 64 rather than 512,
-  for both algorithms, and the pipeline's ``attribute_parameters`` sets
-  64 rather than inheriting the top-level 512. For DeepLIFT/SHAP each
-  item is a sequence-reference pair run forward and backward: on a
-  9-layer, 128-filter model at 2114 bp, 512 pairs peaked at 124 GB of GPU
-  memory and 64 at 15.5 GB, with the same wall time. Saturation
-  mutagenesis is slower at 64: 8.7 s per call against 7.6 s at 512 over
-  128 loci.
-
-* The attribute step no longer compiles the model by default: its
-  ``compile`` key defaults to ``false``, and the pipeline's
-  ``attribute_parameters`` sets ``false`` rather than inheriting the
-  top-level ``true``. Across batch sizes 16–512 and all four
-  ``torch.compile`` modes, neither algorithm ran faster compiled in
-  steady state, and compiling added 6–70 s to the first call.
-  ``"compile": true`` still compiles for saturation mutagenesis. Under
-  DeepLIFT/SHAP the model is never compiled, whatever ``compile`` says;
-  its backward hooks cause graph breaks and recompiles, and the compiled
-  model gave the same attributions no faster.
-
-* A new ``group`` key (default ``0``) selects which signal group of a
-  multi-group model the attribute step attributes, through the
-  ``group`` argument of :class:`~cherimoya.ProfileWrapper` and
-  :class:`~cherimoya.LogCountWrapper` (#52). Single-group models are
-  unaffected. **For a multi-group model this changes the default
-  target** from every group — ISM averaged the count head's outputs,
-  and the profile target softmaxed all groups together — to group 0.
-  ``"group": null`` restores the old target under saturation
-  mutagenesis; DeepLIFT/SHAP raises ``ValueError`` for it with
-  ``output: counts``, since it attributes a single output.
-
-* ``default_pipeline_parameters['marginalize_parameters']`` declared
-  ``output_folder`` while ``cherimoya marginalize`` reads
-  ``output_filename``, so setting it in a pipeline JSON was a silent
-  no-op and the report landed in the default location anyway. The
-  declared key is now ``output_filename``, which is what the CLI
-  reference already documented. ``modisco_report_parameters`` keeps its
-  ``output_folder``; that one is read.
-
-* Removed ``count_loss_weight`` from the pipeline's ``fit_parameters``
-  and from ``merge_parameters``'s omittable list. Nothing read it —
-  not ``fit``, not the model, not the loss. ``loss_weights`` is the key
-  that sets fixed profile and count weights.
-
-* Documented why ``default_fit_parameters['reverse_complement_average']``
-  is not dead, since it reads that way: ``fit`` never uses it, but
-  deepcopies its parameters into the evaluate JSON it generates when
-  training finishes, and ``evaluate`` does read it.
-  
-
-* ``cherimoya marginalize``'s ``shuffle`` did not sample. ``extract_loci``
-  stops as soon as it has ``n_loci`` usable sequences, i.e. it returns
-  the first ``n_loci`` rows of the file, and the shuffle ran *after*
-  that — so it permuted a set already chosen by file order and the
-  truncation that followed was a no-op. Every marginalization report was
-  built from the top of the background BED, in a seed-dependent order,
-  which is the one thing ``shuffle`` exists to avoid. The extraction is
-  no longer capped when shuffling, so the sample is drawn from the whole
-  file. **Reports produced with** ``shuffle: true`` **will now use
-  different background loci**; the unshuffled path is unchanged.
-
-  Drawing a sample means reading the population, so the shuffled path
-  now holds the full locus set in memory. The unshuffled path still
-  stops at ``n_loci``.
-
-* ``calculate_performance_measures`` dropped ``signal_groups`` when
-  recursing to compute the ``within_peak_`` measures, so for a
-  multi-group model those fell through to the legacy "sum every channel
-  into one total" count target while the outer measures pooled counts
-  per group. The two then described different quantities under names
-  that read as the same measure on different rows, and because
-  ``pearson_corr`` broadcasts the collapsed target back up to one value
-  per prediction column, the wrong numbers also arrived in the right
-  shape. No in-repo caller passes ``labels``, so no CLI output changes;
-  this affects external callers of the function.
-
-* ``labels`` was an undocumented parameter of
-  ``calculate_performance_measures``. It now has a ``Parameters`` entry,
-  including the detail that ``auprc`` and ``auroc`` are scored against
-  the first count output only and so describe group 0 rather than the
-  whole model when there is more than one group.
-
-* ``"dry_run": true`` crashed with ``FileNotFoundError`` on any pipeline
-  configured with a motif database. The seqlet annotation step guards
-  the ``ttl`` subprocess behind ``dry_run`` but read that subprocess's
-  output with ``pandas.read_csv`` outside the guard, so the dry run
-  looked for an annotation file it had deliberately not produced. Since
-  running with a motif database is the common case, the documented way
-  to check a config before committing GPU time to it did not work. The
-  tally is now inside the same guard.
-
-* ``ExpectedCountsWrapper(ControlWrapper(model))`` raised
-  ``AttributeError: 'ControlWrapper' object has no attribute
-  'signal_groups'``. :class:`~cherimoya.ControlWrapper` is documented as
-  the inner wrapper the output wrappers are layered on top of, and
-  ``cherimoya attribute`` builds exactly that stack, but
-  ``torch.nn.Module`` does not forward attribute lookups to submodules,
-  so the one output wrapper that reads the model's grouping could not be
-  used over it. ``ControlWrapper`` now exposes ``signal_groups`` from
-  the model it wraps. :class:`~cherimoya.ProfileWrapper` and
-  :class:`~cherimoya.LogCountWrapper` were unaffected — they read no
-  model configuration.
-
-* ``evaluate``, ``attribute`` and ``marginalize`` accept ``compile`` and
-  ``compile_mode``, passed through to :meth:`cherimoya.Cherimoya.load`.
-  Both default to ``load``'s own values, so nothing changes for a JSON
-  that does not set them. Setting either at the top level of a
-  ``pipeline`` JSON reaches every step that loads a model, the same way
-  ``dtype`` and ``device`` do.
-
-  The troubleshooting page and the bundled skill both recommend
-  ``compile=False`` when a run hits a ``torch.compile`` or CUDA-graph
-  error, and the DeepLIFT documentation recommends it for attribution
-  because Inductor cannot trace the backward hooks. None of that was
-  reachable from the CLI, which always loaded with the default
-  ``compile=True, compile_mode='max-autotune'``.
-
-* ``"skip": true`` ended the whole run rather than the step.
-  ``cherimoya pipeline`` calls each subcommand's ``run(args)``
-  in-process, and ``fit``, ``evaluate``, ``attribute``, ``seqlets`` and
-  ``marginalize`` all honoured ``skip`` with ``sys.exit()``, which
-  terminates the interpreter. They now return, so the pipeline moves on
-  to the next step — which is what the key is documented to do. The
-  marginalization guard in ``pipeline`` and the tail of
-  ``pipeline-json`` returned the same way.
-
-* ``cherimoya pipeline-json`` now requires ``-s``, ``-i``, ``-n`` and
-  ``-o``. None were enforced, so omitting one either wrote a JSON full
-  of nulls, produced ``None_*`` filenames several steps later, or
-  failed with ``TypeError: expected str, bytes or os.PathLike object,
-  not NoneType`` from ``open(None)``. **A script that relied on
-  omitting one of these will now fail at parse time** with a message
-  naming the missing flag.
-
-* Removed a dead ``add_parser`` in ``commands/install_skill.py``. The
-  real parser is built in ``__main__.py``; the duplicate was never
-  called and could only drift.
+* ``cherimoya pipeline-json`` requires ``-s``, ``-i``, ``-n`` and
+  ``-o``, and ``cherimoya negatives`` requires ``-f``; omitting one used
+  to produce a JSON of nulls or fail later with ``TypeError``.
 
 Training
 ~~~~~~~~
@@ -579,585 +152,329 @@ Training
   of :func:`cherimoya.training.fit` and of the fit and pipeline JSONs,
   ``1`` by default; ``-1`` uses every visible device. More than one
   device trains with DDP. ``batch_size`` is the global batch, split
-  evenly across the devices, and must be divisible by their number. The
-  new :class:`cherimoya.io.ShardedEpochSampler` gives each device a
+  evenly across the devices, and the new
+  :class:`cherimoya.io.ShardedEpochSampler` gives each device a
   contiguous slice of every global batch, so each step sees exactly the
-  examples one device would, and
-  :class:`~cherimoya.io.PeakNegativeSampler` accepts the
-  ``(epoch, index)`` pairs it yields. Validation is split across the
-  devices without padding and the metrics are computed over the whole
-  validation set. With fixed ``loss_weights``, the per-group read depths
-  the profile loss is divided by are averaged across the devices, so they
-  are those of the global batch, as on one device. Training on more than
-  one device sets ``torch._dynamo.config.optimize_ddp = False`` in the
-  training process, because the DDP graph splitting it controls hung under
-  the model's CUDA-graph compile mode.
+  examples one device would. Validation is split across the devices
+  without padding and its metrics are computed over the whole set. With
+  fixed ``loss_weights``, the read depths the profile loss is divided by
+  are those of the global batch. Lightning starts every rank after the
+  first by re-running the command, so ``cherimoya fit`` prints and
+  evaluates on rank 0 only, and every rank uses rank 0's seed; under
+  ``srun``, which starts every rank at once, each derives the same seed
+  from ``SLURM_JOB_ID`` and ``SLURM_STEP_ID``. In ``cherimoya pipeline``,
+  a ``devices`` other than 1 runs the fit step as its own ``python -m
+  cherimoya_cli fit`` process. Training on several devices sets
+  ``torch._dynamo.config.optimize_ddp = False``, because the DDP graph
+  splitting it controls hung under the model's CUDA-graph compile mode.
 
-  Lightning starts every rank after the first by re-running the current
-  command. ``cherimoya fit`` therefore prints and evaluates on rank 0
-  only, and with ``random_state: null`` the other ranks use the seed
-  rank 0 drew. Under ``srun``, which starts every rank at once, each rank
-  instead derives the same seed from ``SLURM_JOB_ID`` and
-  ``SLURM_STEP_ID``. In ``cherimoya pipeline``, a ``devices`` other than 1
-  runs the fit step as a separate ``python -m cherimoya_cli fit -p
-  {name}.fit.json`` process, so that the re-run command is the fit and
-  not the whole pipeline.
+* **The Kendall loss weights can be replaced by constants.** A
+  ``loss_weights`` tuple, in :func:`~cherimoya.training.fit` and the fit
+  and pipeline JSONs, replaces the learned ``lw0`` / ``lw1``, and the
+  profile loss is then divided by each signal group's own batch-mean
+  read depth, since the MNLL scales with depth and ``lw0``/``lw1`` hold
+  one weight per group. ``(1.333, 0.274)`` reproduces the operating
+  point the learned weights reach: +0.0001 median count Pearson over 44
+  accessibility experiments (95% CI [-0.0012, +0.0011]), within 0.005 on
+  two TF panels of 22 and 26, and on 24 four-experiment multi-task
+  models +0.0021 per group over a pooled divisor (68 of 92 groups) and
+  +0.0014 over the learned weights (59 of 92). ``verbose`` reports which
+  scheme is in force.
 
-* ``dtype='float16'`` now scales the loss. The three ``dtype`` values map
-  to Lightning's ``32-true``, ``bf16-mixed`` and ``16-mixed``
-  precisions, and ``16-mixed`` uses a gradient scaler; the loop it
-  replaces ran fp16 under autocast with no loss scaling.
+* ``dtype='float16'`` scales the loss, through Lightning's
+  ``16-mixed``; the previous loop ran fp16 under autocast with none.
+  ``verbose`` prints the per-epoch table above Lightning's progress bar,
+  and a ``progress_bar`` key (default ``null``) draws the bar only when
+  stdout is a terminal or a Jupyter kernel. ``compile`` and
+  ``compile_mode`` in a fit JSON apply to the training model and the
+  evaluations.
 
-* A training set smaller than one global batch now raises
-  ``ValueError`` before training starts, instead of warning and
-  writing nan training losses for every epoch.
+* :func:`~cherimoya.training.fit` raises ``ValueError`` for a training
+  set smaller than one global batch, an empty validation set, or one
+  with fewer examples than devices, rather than training on nothing or
+  failing with an unrelated error. An unseeded sampler on several
+  devices gets rank 0's seed, rather than each rank taking its slice of
+  a different epoch.
 
-* ``verbose`` still prints the per-epoch table of ``{name}.log``. When
-  Lightning's progress bar is drawn, each row is printed above it and the
-  latest validation profile and count Pearson sit to its right. A new
-  ``progress_bar`` fit parameter (default ``null``) draws the bar only
-  when stdout is a terminal or a Jupyter kernel; ``true`` or ``false``
-  force it on or off, and ``false`` suits several runs sharing one
-  terminal. The ``Cherimoya(verbose=...)`` argument is unused and kept
-  only because every saved checkpoint's config passes it.
+* :class:`~cherimoya.io.PeakNegativeSampler` rejects ``negative_ratio >
+  0`` with an empty negative set at construction, rather than raising
+  ``IndexError`` partway into the first epoch, and
+  :func:`~cherimoya.io.PeakGenerator` accepts ``negatives=None`` for a
+  peaks-only training set with ``negative_ratio=0``; it used to fail
+  inside tangermeme.
 
-* **The Kendall loss weights can be replaced by constants.**
-  :meth:`cherimoya.Cherimoya.fit` takes a ``loss_weights`` tuple, exposed
-  as ``loss_weights`` in the fit and pipeline JSONs, which replaces the
-  learned ``lw0`` / ``lw1`` with fixed values and stops the ``lw_*``
-  optimizer receiving gradient. The default is ``None``, which keeps the
-  existing behaviour.
+* The CUDA limit on reproducibility is documented. The fused convolution
+  + normalization kernel accumulates its statistics with atomic adds,
+  whose order varies between launches, so two seeded GPU runs share an
+  initialization and an example order but are not bitwise equal. CPU
+  runs with the same seed are bitwise identical.
 
-  When set, the profile loss is first divided by **each signal group's own**
-  batch-mean read depth. That division is the point: ``lw0`` and ``lw1`` are
-  ``Parameter(torch.ones(n_groups))``, so on a multi-task model the Kendall
-  mechanism learns one weight per experiment, and the profile MNLL is a sum
-  of per-read log-likelihoods that scales with read depth. Dividing every
-  group by one pooled number would rescale them all equally and leave their
-  weights relative to each other untouched. The count MSE needs no such
-  division: it is computed on ``log1p`` counts, where depth is an additive
-  shift the model absorbs into its bias.
+Evaluation
+~~~~~~~~~~
 
-  ``cherimoya fit`` reports which scheme is in force. With ``verbose``
-  set it printed ``SGD Optimizer (lw): lr=..., wd=..., momentum=...``
-  unconditionally, which describes an optimizer that takes no effective
-  step once ``loss_weights`` is given. It now prints ``Fixed Loss
-  Weights: profile=..., count=...`` instead when the weights are fixed.
+* **Measures that use the negatives.** ``cherimoya fit`` adds every
+  ``negatives`` locus on the ``validation_chroms`` to the validation set,
+  and ``cherimoya evaluate`` reads an optional ``negatives`` key, which
+  the evaluate JSONs ``fit`` writes carry. Both report the count Pearson
+  and MSE over peaks and negatives together and the AUROC and AUPRC of
+  the predicted log counts at separating peaks from negatives, per
+  signal group; the existing measures and the checkpoint criterion stay
+  on the peaks. ``{name}.log`` gains ``Validation Count Pearson
+  (Peaks+Negatives)``, ``Validation Count MSE (Peaks+Negatives)``,
+  ``Validation AUROC`` and ``Validation AUPRC`` before ``Saved?``;
+  ``{name}.detailed.log`` gains ``AUROC_g{i}`` and ``AUPRC_g{i}``; and the
+  performance TSVs gain ``all_count_pearson``, ``all_count_spearman``,
+  ``all_count_mse``, ``auroc`` and ``auprc``. They are empty or ``nan``
+  where there are no negatives. In Python, ``labels_valid`` marks the
+  negative rows, and ``trainer.callback_metrics`` gains
+  ``valid_count_pearson_all``, ``valid_count_mse_all``, ``valid_auroc``
+  and ``valid_auprc``.
 
-  ``(1.333, 0.274)`` reproduces the operating point the learned weights
-  reach. On single-experiment models this is free: +0.0001 median count
-  Pearson over 44 accessibility experiments (95% CI [-0.0012, +0.0011]) and
-  within 0.005 on two TF panels of 22 and 26. On 24 four-experiment
-  multi-task models it is +0.0021 per group over a pooled divisor
-  (68 of 92 groups) and +0.0014 over the learned weights (59 of 92).
-  ``lw0`` and ``lw1`` remain on the model, so checkpoints are unaffected.
+* **``reverse_complement_average`` scrambled the channels of multi-group
+  models.** Flipping the whole channel axis averaged, for groups
+  ``[1, 2]``, the ATAC prediction into the TF's minus strand. The
+  reverse complement now swaps strands within each group, as training
+  does. Single-group models are unchanged.
 
-* **A minimum optimizer step count now overrides** ``max_epochs``.
-  ``min_total_steps`` is a new CLI parameter, ``20000`` by default in
-  ``default_fit_parameters`` and in the ``fit_parameters`` block of
-  ``default_pipeline_parameters``. An epoch is one pass over the peaks,
-  so ``max_epochs`` alone buys a number of optimizer steps proportional
-  to how many peaks an experiment has -- 20 epochs is 280 steps for an
-  experiment with 14 batches of peaks and 54,000 for one with 2,700.
-  ``cherimoya fit`` now raises ``max_epochs`` until the run reaches
-  ``min_total_steps``, and lays the warmup and cosine decay out over the
-  raised value so the schedule stretches with the run rather than
-  decaying inside the original budget. The new epoch count and total
-  step count are printed when ``verbose`` is set. Experiments that
-  already clear the floor are untouched, and ``min_total_steps: null``
-  disables it. :meth:`cherimoya.Cherimoya.fit` is unchanged.
+* With ``summits: true``, validation and evaluation windows were
+  centered on the peak midpoint while training windows were centered on
+  the summit; both now use it (``evaluate`` gains a ``summits`` key).
+  ``evaluate`` declares ``signals``, returns with a message when no
+  locus falls on its ``chroms``, and handles a negatives file with
+  nothing on them.
 
-* **Early stopping is now off by default.** ``early_stopping`` is
-  ``None`` in ``default_fit_parameters`` and in the ``fit_parameters``
-  block of ``default_pipeline_parameters``; it was ``5``. A run with
-  the default parameters now trains all ``max_epochs`` and keeps the
-  epoch with the best validation count Pearson, rather than halting
-  after five epochs without an improvement. The learning rate
-  schedule is laid out over ``max_epochs`` and the validation metric
-  is measured on the EMA weights, so a patience counter over that
-  metric was ending runs partway through the cosine decay.
-  :meth:`cherimoya.Cherimoya.fit` already defaulted to ``None``; only
-  the CLI defaults disagreed. Set ``early_stopping`` to an integer in
-  the fit or pipeline JSON to get the old behavior.
-
-Reproducibility
-~~~~~~~~~~~~~~~
-
-* Training is now seeded by default. ``random_state`` defaults to ``0``
-  in ``default_fit_parameters`` and at the top level of
-  ``default_pipeline_parameters``, and :class:`cherimoya.Cherimoya` takes
-  a ``random_state`` that seeds its initialization from a local
-  ``torch.Generator``. The seed previously reached only the
-  peak/negative sampler, so two runs with the same ``random_state`` saw
-  the same examples in the same order but started from different
-  weights — the larger of the two sources of run-to-run variance was
-  unseeded. **Rerunning an unchanged fit JSON now rebuilds the same
-  model rather than producing an independent replicate; vary**
-  ``random_state`` **to get replicates.**
-
-* ``random_state: null`` no longer means "run unseeded". ``cherimoya
-  fit`` draws a seed, prints it whether or not ``verbose`` is set, and
-  stores it back into the parameters it deepcopies into the generated
-  evaluate JSON. The drawn seed used to be created inside
-  :class:`~cherimoya.io.PeakNegativeSampler` and never printed, logged,
-  or saved, so a run made with the old default could not be repeated
-  even in principle.
-
-* A fit JSON that omits ``random_state`` is now accepted. ``merge_parameters``
-  rejects a missing key whose default is ``None`` unless the key is in a
-  small whitelist, and ``random_state`` was not in it, so a hand-written
-  JSON that left the seed out failed with ``Must provide value for
-  'random_state'`` instead of falling back to a default.
-
-* ``cherimoya marginalize`` now uses the ``random_state`` it documents.
-  The locus shuffle called ``numpy.random.shuffle`` directly, so the seed
-  in ``default_marginalize_parameters`` — and the ``0`` printed for it in
-  the CLI reference — had no effect, and every report was built from a
-  different sample of background loci.
-
-* The bundled Claude Code agent skill gains a ``random_state`` entry in
-  its training vocabulary and a note in the pipeline reference that a
-  rerun of an unchanged JSON is not a replicate. Re-run ``cherimoya
-  install-skill --force`` to pick them up.
-
-* The reproducibility claims in the README and in the architecture page
-  now state the CUDA limit. The fused convolution + normalization kernel
-  accumulates its per-example statistics with relaxed atomic adds, so the
-  order of that floating-point reduction varies between launches: two
-  seeded GPU runs share an initialization and an example order but are
-  not bitwise equal, and training compounds the difference rather than
-  holding it at rounding scale. CPU runs with the same seed are bitwise
-  identical, across separate processes and thread counts.
-
-Logging
-~~~~~~~
-
-* The **Training MNLL** and **Training Count MSE** columns of
-  ``{name}.log`` are now averaged over the epoch's batches. They
-  previously held whatever the last full batch of the epoch produced,
-  a single-batch estimate noisy enough that the two training columns
-  could look flat or non-monotonic while the model was improving.
-  Expect the columns in a new log to sit at a different level, and to
-  move far more smoothly, than in one written before this change; the
-  validation columns are unchanged. Thanks to Ethan Armand for the
-  report in issue #19.
-
-* An epoch in which the loader yields no full batch now writes a row
-  with nan in those two columns instead of raising. The training loop
-  skips any batch smaller than ``batch_size``, so a dataset smaller
-  than one batch used to end the run with a ``NameError`` from the
-  logging code rather than a row showing that nothing trained.
+* :func:`~cherimoya.performance.calculate_performance_measures` dropped
+  ``signal_groups`` for its ``within_peak_`` measures, so for a
+  multi-group model they used a different count target from the outer
+  measures, and it scored every count against the all-channel total when
+  ``signal_groups`` did not match the count head; it now passes the
+  groups through and raises on a mismatch. ``labels`` is documented.
 
 Attribution
 ~~~~~~~~~~~
 
-* :func:`cherimoya.deep_lift_shap.attribution_ops` is now declared public
-  API, alongside the other module-level symbols listed in
-  :doc:`development`. It is imported from ``cherimoya.deep_lift_shap``
-  and is not re-exported from ``cherimoya``.
+* The fused dilated convolution + per-example norm inside
+  :class:`cherimoya.CheriBlock` lives on a
+  :class:`~cherimoya.cheri.FusedDilatedConvNorm` submodule
+  (``block.conv``), so DeepLIFT and SHAP have a concrete node to hook.
+  The kernel, the dispatch and the numerics are unchanged, and nothing is
+  registered against the node by default, so existing results do not
+  change. Thanks @watiss! (#34)
+
+* :mod:`cherimoya.deep_lift_shap` provides the rule a Cherimoya model
+  needs before ``tangermeme.deep_lift_shap.deep_lift_shap`` can attribute
+  it correctly; :func:`~cherimoya.deep_lift_shap.attribution_ops`, now
+  public, returns it for ``additional_nonlinear_ops``. ``conv_norm_op``
+  recomputes the convolution, applies the closed-form normalization
+  rule tangermeme uses for ``torch.nn.LayerNorm``, and pushes the result
+  back through the linear convolution. It reproduces the attributions
+  of the model rewritten as ``F.conv1d`` plus ``LayerNorm`` to 1.5e-08
+  on CPU and 7.5e-09 on CUDA, faster than that rewrite (4.85 against
+  5.78 ms per sequence for a 9-layer, 128-filter model on an H200).
+  Treating the op as linear is not safe in general: one block over a
+  short window leaves a convergence delta a quarter of the prediction.
+  Requires ``tangermeme >= 1.5.0``. On CUDA, check agreement against a
+  decomposed model rather than the convergence delta, which comes from
+  PyTorch's CUDA path and is not stable between processes.
+
+* The profile head's product of its logits and their softmax is a
+  tangermeme ``BilinearOp``, so DeepLIFT/SHAP through
+  :class:`cherimoya.ProfileWrapper` converges with tangermeme's own
+  rules. As a bare multiplication it was treated as linear, leaving a
+  convergence delta larger than the prediction on a 2-layer model; with
+  ``BilinearOp`` it is 1.6e-09. An elementwise rescale rule for the
+  softmax scaling, as first proposed, drops the change wherever a logit
+  does not move, because the softmax couples positions (#83). Compared
+  with that rule, against *in silico* saturation mutagenesis on six
+  trained models, the median per-locus Pearson rose from 0.399-0.449 to 0.651-0.721 for two ATAC-seq
+  and one DNase-seq model and from 0.828-0.880 to 0.875-0.894 for three
+  TF ChIP-seq models (Wilcoxon signed-rank p <= 2.6e-09 each), and the
+  CPU-CUDA difference on a CTCF model fell from 6.9e-02 to 7.9e-06 of
+  the largest attribution (#83). Thanks @bjmt! Forward outputs are
+  unchanged.
 
 * :class:`cherimoya.ProfileWrapper` and :class:`cherimoya.LogCountWrapper`
-  take an optional ``group`` index into ``signal_groups``, so one modality
-  of a multi-group model can be attributed on its own (#52).
-  ``ProfileWrapper(model, group=i)`` mean-centres and softmaxes group
-  ``i``'s channels and positions only; ``LogCountWrapper(model, group=i)``
-  returns group ``i``'s log-count with shape ``(batch_size, 1)``. An index
-  outside the model's groups raises ``ValueError`` when the wrapper is
-  built. The default, ``None``, is the previous behaviour. ``cherimoya
-  attribute`` exposes it as the ``group`` key (see CLI below).
+  take an optional ``group`` index, so one modality of a multi-group
+  model can be attributed on its own (#52), and
+  ``ExpectedCountsWrapper(ControlWrapper(model))`` works:
+  :class:`~cherimoya.ControlWrapper` exposes ``signal_groups``.
 
-* The fused dilated convolution + per-example norm inside
-  :class:`cherimoya.CheriBlock` now lives on a
-  :class:`~cherimoya.cheri.FusedDilatedConvNorm` submodule
-  (``block.conv``) rather than being called inline. Attribution methods
-  that walk the module tree — DeepLIFT and SHAP in particular — now have
-  a concrete node to hook, which is a prerequisite for correct DeepLIFT
-  support. The kernel, the conditions under which each forward path
-  dispatches, and the numerics are all unchanged. The class is public;
-  import it from ``cherimoya.cheri``, since registering a rule for it
-  means naming the type.
+* **``cherimoya seqlets`` emitted coordinates 857 bases to the left of
+  the seqlets it found.** It converted positions in the 400 bp
+  attributed slice as though they were in the 2114 bp extraction
+  window, so a seqlet at slice positions 100-110 of ``chr1:10000-11000``
+  was written as ``chr1:9543-9553`` rather than ``chr1:10400-10410``.
+  The window is now read from the saved arrays. This also affected the
+  pipeline's tomtom-lite annotation, which reads sequence at those
+  coordinates; TF-MoDISco reads the attribution arrays and was not
+  affected. Re-run ``cherimoya seqlets`` on existing ``.npz`` files to
+  correct a run. ``seqlets`` also writes an empty BED rather than
+  raising when no seqlets are found.
 
-* Note that the inference megakernel calls the fused op directly rather
-  than through ``block.conv``, so hooks on that submodule fire on the CPU
-  and Triton training paths but not under ``no_grad`` on CUDA.
-  Attribution is unaffected, since it runs with gradients enabled.
+* ``cherimoya attribute`` extracted tangermeme's default 2114 bp
+  whatever ``in_window`` said, and ignored ``exclusion_lists``; both now
+  reach ``extract_loci``. The attributed slice is a new ``attr_window``
+  key (default 400, the previous hard-coded slice). Dropping loci near a
+  chromosome end no longer raises ``IndexError``: the ambiguous-base
+  filter is projected back into peak space. Thanks @ramirc0! (#31)
 
-* Nothing is registered against the new node by default. An attribution
-  method only acts on a module it has been given a rule for, so runs that
-  do not mention the class behave exactly as they did before — the node
-  exists to be opted into, and adding it changes no existing result.
+Kernels and model
+~~~~~~~~~~~~~~~~~
 
-* **The count head's control-track log stays an inline** ``torch.log``.
-  An earlier revision of this work wrapped it in a module for symmetry
-  with the convolution, and that module has been removed again: it could
-  not affect an attribution. That log's input is the summed control
-  tracks, which attribution holds fixed between a sequence and its
-  references, so the difference across the node is exactly zero and the
-  rescale rule has no multiplier to correct — registering a rule for it
-  was measured to leave attributions bitwise identical. It would only
-  become a useful hook point for attributions taken with respect to the
-  control tracks themselves, which is not a supported path.
+* **The training kernels were never autotuned.** Their 12 configs
+  passed ``num_warps`` and ``num_stages`` as kernel arguments, where
+  Triton overrides them, so every config launched with 4 warps and 3
+  stages. On an H200 a training forward+backward at batch 64 became 1.69x
+  faster for a 512-filter model in bf16 and 1.04x in fp32; 128-filter
+  models are unchanged.
 
-* Adds :mod:`cherimoya.deep_lift_shap`, the DeepLIFT rules a Cherimoya
-  model needs before ``tangermeme.deep_lift_shap.deep_lift_shap`` can
-  attribute it correctly. ``deep_lift_shap`` corrects the module types
-  it knows and treats the rest as linear, and ``FusedDilatedConvNorm``
-  is neither known nor linear, so this is a correctness question rather
-  than a performance one. ``attribution_ops()`` returns its rule for
-  ``additional_nonlinear_ops``. Requires ``tangermeme >= 1.5.0``, where
-  the closed-form normalization rule it reuses was added.
+* **The first backward at any new** ``(C, L)`` **returned a wrong
+  gradient.** ``_bwd_apply_kernel`` overwrites the scratch buffer it
+  reads, and autotune's trials ran it repeatedly, so the real launch
+  read garbage; the depthwise weight gradient was off by up to 4.9e-01
+  against CPU autograd. It now declares ``restore_value=['Conv_ptr']``,
+  and the error is 2.9e-03 or less, TF32 in the surrounding ``Linear``
+  layers (2.0e-06 at ``'highest'`` matmul precision). This mattered most
+  for attribution, where a fresh process hits each shape once.
 
-* ``conv_norm_op`` gives :class:`~cherimoya.cheri.FusedDilatedConvNorm` a
-  closed-form rule without giving up the Triton kernel. The fused op is a
-  normalization applied to a depthwise convolution; the convolution is
-  linear, so only the normalization needs a rule, and the closed form for
-  that already exists for ``torch.nn.LayerNorm`` — the same operation the
-  kernel performs. The rule recomputes the convolution from the cached
-  input, evaluates the normalization multiplier at its output, and pushes
-  the result back through the convolution with autograd, which is exact
-  because the convolution is linear. It reproduces the attributions of a
-  model rewritten as ``F.conv1d`` plus ``torch.nn.LayerNorm`` to 1.5e-08
-  on CPU and 7.5e-09 on CUDA, and is faster than that rewrite -- 4.85
-  against 5.78 ms per sequence for a 9-layer, 128-filter model at 2114bp
-  on an H200 -- since the rewrite gives up the kernel for the whole
-  forward and backward. ``integrated_gradients_op`` also converges but is
-  a path integral rather than the closed form, and lands 2.78% away from
-  it on both devices.
+* **Applying an EMA snapshot to a model in eval mode left the Cheri
+  Block's cached MLP weights stale**, so on CUDA the convolution ran on
+  the snapshot and the MLP on the previous weights: profile logits
+  1.9e-2 off, about 2.5% of the signal, for ``model.eval();
+  ema.apply_shadow(model)``. :class:`~cherimoya.EMA` no longer writes
+  through ``.data``, and ``CheriBlock`` checks its weights' version
+  counters, falling back to an inline cast when they moved; under
+  ``torch.compile`` the check is skipped and ``Cherimoya.forward``
+  rebuilds stale caches before the compiled region, which avoids a graph
+  break that made the compiled eval forward 6-17% slower on torch 2.12.
 
-  Registering nothing is not safe in general. The op is genuinely
-  non-linear, and whether it can be treated as linear depends on how far
-  the normalization's statistics move between a sequence and its
-  reference, which is a property of the model and the inputs rather than
-  of the layer. A 9-layer model over 2114bp reduces over 270,000 elements
-  per statistic and barely moves them; one block over a short window
-  leaves a convergence delta a quarter of the size of the prediction.
+* :class:`~cherimoya.cheri.CheriBlock` on CUDA read the wrong elements of
+  a non-contiguous input (full models were not affected); ``.eval()``
+  raised on a model loaded inside ``torch.inference_mode()``; and the
+  inference megakernel failed to compile below 16 filters, which now take
+  the fallback path.
 
-* On CUDA the convergence delta of the test fixture is not a stable
-  check. It lands at 1.0e-07 in most processes and at 3.3e-04 in a few
-  (1 in 8 and 1 in 16 in two runs), and the same happens to the fixture
-  rewritten as ``F.conv1d`` plus ``torch.nn.LayerNorm``, which launches
-  no Triton kernel -- so it comes from PyTorch's CUDA path, not from
-  ``conv_norm_op`` or the fused kernel. The attributions still match the
-  decomposed model in every process. Check agreement against a
-  decomposed model rather than the delta when validating on GPU.
+CLI and pipeline
+~~~~~~~~~~~~~~~~
 
-* The profile head's product of its logits and their softmax is now a
-  tangermeme ``BilinearOp``, so DeepLIFT/SHAP through
-  :class:`cherimoya.ProfileWrapper` converges with tangermeme's own rules
-  and ``attribution_ops`` needs no entry for it. As a bare multiplication
-  it was treated as linear, which on a 2-layer model leaves a convergence
-  delta of 8.0e-04 against a prediction of 3.7e-04 — the error exceeds
-  the signal, so the attributions carry no information about their own
-  scale. With ``BilinearOp`` and no rules registered at all the delta is
-  1.6e-09. Forward outputs and ordinary gradients are bitwise unchanged,
-  and the count head is unaffected.
+* **The pipeline's marginalization inserted motifs into the peaks.** It
+  copied the top-level ``loci`` before falling back to ``negatives``, so
+  the fallback never applied. ``cherimoya marginalize`` also extracted
+  tangermeme's default 2114 bp rather than its ``in_window``, ignored
+  ``exclusion_lists``, ignored its ``random_state``, and did not sample
+  under ``shuffle`` -- it permuted the first ``n_loci`` rows of the file.
+  **Marginalization reports now use different background loci.**
 
-  An earlier revision of this work registered ``_ProfileLogitScaling``
-  with tangermeme's elementwise rescale rule instead (#83). The softmax
-  couples positions, and that rule gives each position's change in
-  output to that position's own logit, so it drops the change wherever a
-  logit does not move (a conservation error of 0.13 on the example in
-  #83), and its
-  multiplier, the change in output over the change in logit, reached
-  95,000 times its median on a trained CTCF ChIP-seq model. On six
-  trained models (fold 0, 50 validation peaks, 20 dinucleotide shuffles,
-  CPU, fp32), the median per-locus Pearson correlation between profile
-  attributions and *in silico* saturation mutagenesis (ISM) rose from
-  0.399-0.449 to 0.651-0.721 for two ATAC-seq and one DNase-seq model,
-  and from 0.828-0.880 to 0.875-0.894 for three TF ChIP-seq models
-  (Wilcoxon signed-rank p <= 2.6e-09 for each). On the CTCF model the
-  largest difference between CPU and CUDA attributions fell from 6.9e-02
-  to 7.9e-06 of the largest attribution. Thanks @bjmt!
+* ``"skip": true`` ended the whole run rather than the step, because
+  the subcommands honoured it with ``sys.exit()``; a top-level ``skip``
+  still ran MACS3, ``bam2bw``, negative sampling and TF-MoDISco; and
+  ``annotation_parameters.skip`` was ignored. All three now behave as
+  documented.
 
-* ``_cheri_conv`` splits the 3-tap depthwise dilated convolution out of
-  ``_cheri_conv_norm_cpu``, so the CPU reference and ``conv_norm_op``
-  share one definition of the weight layout and the padding instead of
-  two that can drift. No behavior change.
+* ``evaluate``, ``attribute`` and ``marginalize`` accept ``compile`` and
+  ``compile_mode``, and the pipeline's top-level values reach every step
+  that loads a model, including training and the evaluations; the
+  documented ``compile: false`` fix for CUDA-graph errors was not
+  reachable from the CLI.
+
+* Pipeline JSONs may omit ``motifs`` and ``model``, which used to raise
+  ``KeyError`` after training or ``Must provide value``; the
+  "Must provide value" message says to write ``null``; ``"dry_run":
+  true`` no longer crashes with a motif database; a ``loci`` given as a
+  string no longer makes the negatives step read its first character;
+  and a second pipeline run in one process no longer inherits the
+  first's output names.
+
+* ``pipeline-json -sf`` is parsed as a float, the ``--unstranded`` help
+  no longer says the opposite, and ``install-skill --force`` refuses a
+  ``--directory`` that is the bundled skill itself.
 
 Compatibility
 ~~~~~~~~~~~~~
 
-* **Existing checkpoints are unaffected — bit-for-bit.** The depthwise
+* **Existing checkpoints are unaffected, bit for bit.** The depthwise
   weight is still written to and read from ``state_dict`` under its
-  historical ``conv_weight`` key, in its original position, even though
-  the parameter now lives at ``block.conv.conv_weight``. Checkpoints
-  round-trip between this version and earlier ones in both directions,
-  and loading a pre-existing model reproduces identical forward output,
-  input gradients, and parameter gradients. Loading accepts either
-  spelling, so a state dict assembled by hand or from a
-  ``named_parameters()`` walk loads as well.
+  historical ``conv_weight`` key, even though the parameter now lives at
+  ``block.conv.conv_weight``, and loading accepts either spelling.
+  Checkpoints round-trip with earlier versions in both directions, and
+  block initialization draws from the RNG in the same order. Thanks
+  @watiss! (#34)
 
-* The parameter's *name* does change even though its checkpoint key does
-  not. ``named_parameters()`` now reports ``blocks.N.conv.conv_weight``
-  where it reported ``blocks.N.conv_weight``, and the module tree gains a
-  ``blocks.N.conv`` node per block. Code that
-  matches parameter names by substring is unaffected — including the
-  Muon / AdamW / SGD split in ``cherimoya fit``, whose ``conv_weight``
-  exclusion is a substring test and still routes every parameter to the
-  optimizer it went to before. What needs the new name is anything that
-  looks the parameter up *exactly* by its ``named_parameters()`` name —
-  ``dict(model.named_parameters())["blocks.0.conv_weight"]`` now raises
-  ``KeyError``, as does any per-parameter map (learning rates, weight
-  decay, a hand-rolled EMA) built before the change and keyed by name.
-  Attribute-path lookups are fine: ``model.get_parameter`` resolves
-  through the alias property, so both spellings return the parameter.
+* The parameter's *name* changes: ``named_parameters()`` reports
+  ``blocks.N.conv.conv_weight`` rather than ``blocks.N.conv_weight``, so
+  a lookup by the exact old name raises ``KeyError``. Substring matches,
+  including the optimizer routing, and ``model.get_parameter`` are
+  unaffected. ``CheriBlock.conv_weight`` remains as a read-only alias.
 
-* Block initialization draws from the RNG in the same order as before, so
-  a given seed still rebuilds an identical block.
+Packaging and installation
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* ``CheriBlock.conv_weight`` remains available as a read-only property
-  aliasing ``block.conv.conv_weight``, and reads return the same object.
-  Assignment through it now raises instead of silently leaving the
-  submodule holding the old parameter — assign to
-  ``block.conv.conv_weight`` instead.
+* New dependencies: ``lightning>=2.6.1`` and ``scikit-learn>=1.7.2``.
+  ``triton`` is a Linux-only dependency, since it publishes no wheels for
+  macOS or Windows, which made cherimoya impossible to install there
+  although the model runs without Triton. The ``tangermeme`` floor is
+  ``>=1.5.0``; the old ``>=0.2.3`` admitted releases that could not run
+  the package. The ``setuptools`` build floor is 77, which ``license =
+  "MIT"`` needs.
 
-Packaging
-~~~~~~~~~
+* A container image is published to the GitHub Container Registry on
+  every push to ``main`` (``ghcr.io/jmschrei/cherimoya``), built from
+  ``uv.lock`` without dev dependencies. Thanks @ramirc0! (#27, #28, #29,
+  #30)
 
-* ``lightning>=2.6.1`` is a new required dependency, for the training
-  loop in :mod:`cherimoya.training`. ``uv.lock`` pins lightning 2.6.6
-  and its dependencies; the lock had been left without them, so the
-  Docker image, which installs from it with ``uv sync --frozen``, had no
-  ``lightning`` and could not train.
+* The installation guide covers ``sm_70`` GPUs such as the V100, which
+  the default PyPI torch build no longer supports: install torch from
+  the CUDA 12.6 index first. Thanks @ramirc0! (#81)
 
-* The ``tangermeme`` floor was ``>=0.2.3``, which no release satisfying
-  it can actually run: Cherimoya uses ``extract_loci(return_mask=...)``,
-  ``io._interleave_loci``, ``predict``'s dtype/device handling,
-  ``seqlet.recursive_seqlets``, ``utils.example_to_fasta_coords``,
-  ``match.extract_matching_loci`` and ``saturation_mutagenesis``. A
-  fresh resolve that picked an old tangermeme failed with
-  ``TypeError``/``ImportError`` deep in a subcommand rather than with a
-  version error at install time. Raised to ``>=1.4.0``, the version the
-  test suite is run against, with a comment in ``pyproject.toml``
-  recording the policy so it does not drift again.
+* A one-week ``exclude-newer`` window added to ``[tool.uv]`` with the
+  0.2.1 version bump (#32) hid just-released dependencies from the
+  resolver and is removed. Thanks @ramirc0! ``uv.lock`` now includes
+  lightning, which the container needs to train.
 
-* Removed the one-week ``exclude-newer`` window from ``[tool.uv]`` in
-  ``pyproject.toml``. It hid every release younger than a week from the
-  resolver, so ``uv sync`` could not satisfy a floor on a just-released
-  dependency such as ``tangermeme>=1.5.0``. ``uv.lock`` now pins
-  tangermeme 1.5.0.
+* ``import cherimoya`` works from a source tree that was never installed,
+  as on Read the Docs, where the training, DeepLIFT/SHAP and kernel API
+  pages rendered empty. The sdist ships the whole test tree, and the
+  README's images render on PyPI.
 
 Documentation
 ~~~~~~~~~~~~~
 
-* Training on several GPUs is documented where users look for it: the
-  CLI reference's "Training on several devices" section covers GPU
-  selection with ``CUDA_VISIBLE_DEVICES``, per-GPU and host memory, why
-  the schedule does not change, and launching under SLURM with
-  ``srun``; the Python API tutorial covers running from a script rather
-  than a notebook, seeding ``PeakGenerator`` so the ranks draw the same
-  examples, guarding post-training code with ``trainer.is_global_zero``,
-  and what the returned trainer holds; troubleshooting lists the errors
-  specific to multi-GPU training; the glossary defines DDP and the
-  global batch size. The bundled skill covers the same, plus ``verbose``
-  and ``progress_bar``. Re-run ``cherimoya install-skill --force`` to
-  pick them up.
-
-* The architecture page described two optimizers, with ``lw0``/``lw1``
-  under AdamW; training uses three, with SGD for the loss weights and
-  the depthwise ``conv_weight`` routed to AdamW. The landing page said
-  Muon-routed weights get no weight decay; they are the only ones that
-  do (``muon_wd`` 0.03). The installation page cited a 50-epoch default
-  schedule; the default is 20 epochs, raised to reach
-  ``min_total_steps``. The differential recipe pointed at the removed
-  ``batch`` subcommand.
-
-* The bundled Claude Code agent skill now writes its cross-references as
-  complete skill-root-relative paths (``references/cli.md``) rather than
-  bare filenames (``cli.md``). A bare name does not say which directory
-  the file is in, so an agent following a pointer had to search for the
-  target first. All 26 mentions across the nine reference files were
-  converted and every target verified to exist. No guidance changed.
-  Re-run ``cherimoya install-skill --force`` to pick up the corrections.
+* Training on several GPUs is documented in the CLI reference (GPU
+  selection, memory, the schedule, SLURM), the Python tutorial,
+  troubleshooting and the glossary. The README has a multi-GPU section
+  with measured speedups.
 
 * The three forward paths were documented as agreeing to "~1e-5
-  max-abs" in the README, on the landing page, and in the architecture,
-  benchmarks and ``cherimoya.cheri`` pages. Measured on the default
-  9-layer, 128-filter model over a batch of 4 sequences of 2114 bp,
-  worst of three seeds, against a profile-logit scale of 0.73:
+  max-abs". On the default model over 2114 bp, against a profile-logit
+  scale of 0.73, they agree to 1.4e-04-2.5e-04 in fp32, 4.9e-04-5.9e-04
+  in fp16 and 3.9e-03-5.0e-03 in bf16, and every page now says so. The
+  receptive field is 1117 bp, not 1115.
 
-  .. list-table::
-     :header-rows: 1
-
-     * - input dtype
-       - CPU vs training kernel
-       - CPU vs megakernel
-       - training kernel vs megakernel
-     * - fp32
-       - 2.5e-04
-       - 2.1e-04
-       - 1.4e-04
-     * - fp16 (autocast)
-       - 5.9e-04
-       - 5.9e-04
-       - 4.9e-04
-     * - bf16 (autocast)
-       - 5.0e-03
-       - 5.0e-03
-       - 3.9e-03
-
-  So the published figure was optimistic by roughly 20x at fp32 and
-  500x at bf16, and the test suite never enforced it — the tolerances
-  that exist are 1e-4 for a single block, 5e-3 for gradient parity and
-  5e-2 for the whole model. Every page now carries the measured numbers
-  and the configuration that produced them.
-
-  ``cheri.py`` also contradicted itself: the module and ``CheriBlock``
-  docstrings said ~1e-5 while two comments in the same file said ~1e-2.
-  All four now say the same measured thing.
-
-  The earlier figure remains in the v0.2.0 changelog entry below, which
-  is a record of what was claimed at the time rather than a current
-  statement.
-
-* The receptive field was documented as 1115 bp. Measured, it is
-  **1117 bp**: the 21-bp stem reaches 10 bases each side, the dilated
-  stack 511, and the 75-bp profile head 37, for a half-width of 558.
-  The architecture page's own derivation already summed to 558 while
-  stating the ``46`` trimming constant, which is 47 minus one — so
-  ``trimming`` is 557 against a half-width of 558, and the outermost
-  output position on each side reads one base of zero padding rather
-  than having "full context" as the page claimed. The constant is not
-  changed: it would change every model's output window.
-
-* ``docs/conf.py`` hard-coded ``release = '0.2.0'`` while
-  ``pyproject.toml`` said ``0.2.1``. It now reads the installed
-  metadata.
-
-* The README described the Kendall weighting as "one learnable weight
-  per output track"; there are two per signal *group*, ``lw0`` for the
-  profile term and ``lw1`` for the counts term. It also described
-  "minimal weight decay on the Muon-routed projection weights", which
-  are in fact the only weights that get any — ``muon_wd`` is 0.03 and
-  ``adam_wd`` is 0.
-
-* ``docs/development.rst``'s repository layout omitted
-  ``cherimoya/wrappers.py``, ``cherimoya_cli/skills/`` and
-  ``cherimoya_cli/commands/install_skill.py``.
+* The docs, the bundled skill and the docstrings were checked against
+  the code, and some forty statements corrected: defaults (``max_epochs``
+  20, the ATAC shifts), file and key names, the autotune grids, the
+  optimizers and loss weights, and advice to set ``min_counts`` and
+  ``max_counts``, which ``fit`` never read. Links to the top-level
+  re-exports such as :class:`cherimoya.Cherimoya` now resolve. Re-run
+  ``cherimoya install-skill --force`` to pick up the skill's changes.
 
 Tooling
 ~~~~~~~
 
-* ``test_evaluate_single_group_value_equals_legacy_full_mean`` failed
-  intermittently, on one leg of the CI matrix at a time. It ran
-  ``evaluate`` — which predicts in batches through
-  ``tangermeme.predict`` — and then recomputed the same thing with a
-  single unbatched ``model(X)``, asserting the two agreed to ``1e-4``.
-  The paths agree only to within a few float32 ULPs, and
-  ``profile_spearman`` ranks with ``argsort().argsort()``: one swapped
-  pair moves the metric far more than the float difference that caused
-  it, so no tolerance was safe.
+* CI runs a strict Sphinx build and ``ruff``'s error-class rules on
+  every pull request, and
+  its pip cache is keyed on ``pyproject.toml``, so source-only
+  dependencies are no longer rebuilt on every run. No hosted runner has
+  a GPU; ``docs/development.rst`` says which checks, including the
+  three-way forward parity, are run by hand.
 
-  The test now predicts the way ``evaluate`` does, at the same batch
-  size, and pins ``compile`` on both sides — ``Cherimoya.load
-  (compile=True)`` and ``compile=False`` are not bit-identical even
-  under ``TORCH_COMPILE_DISABLE=1``, which was a second source of
-  divergence worth about 1.5e-08. With both matched the two sides see
-  bit-identical predictions, so every metric agrees by construction
-  rather than by luck, and the residual measures 0 across eight seeds.
-
-* The models in ``tests/commands/test_evaluate.py`` are seeded.
-  ``_build_and_save`` never passed ``random_state``, so every run drew
-  different weights and each assertion in the file passed or failed on
-  the draw.
-
-* The CLI tests are now named after the modules they cover, mirroring
-  the package layout with the top-level package name elided the way
-  ``cherimoya/io.py`` maps to ``tests/test_io.py``:
-  ``tests/test_cli_utils.py`` becomes ``tests/test_utils.py``, and
-  ``tests/test_evaluate_cli.py``, ``tests/test_fit_wiring.py`` and
-  ``tests/test_install_skill.py`` move under a new ``tests/commands/``
-  subpackage as ``test_evaluate.py``, ``test_fit.py`` and
-  ``test_install_skill.py``. Renames only — no test content changed and
-  the suite count is unchanged. ``cherimoya_cli/utils.py`` is a
-  top-level module rather than a command, so its test stays at the
-  ``tests/`` root. Each file's docstring still records the slice of its
-  module it covers, which the filename alone does not: ``test_fit.py``
-  exercises parameter wiring and optimizer routing without training,
-  and ``test_evaluate.py`` covers the TSV output shape.
-
-* Continuous integration gained two jobs. ``docs`` runs the Sphinx
-  build with ``-W``, so a broken ``:doc:`` or ``:ref:`` link fails the
-  build rather than shipping; nothing checked the documentation before.
-  ``lint`` runs ``ruff`` restricted to syntax errors, undefined names
-  and broken comparisons — deliberately narrow, because the full rule
-  set reports findings on this tree that are worth fixing separately
-  from adding the gate.
-
-* ``docs/development.rst`` now states what CI does not cover: no hosted
-  runner has a GPU, so the CUDA and Triton paths — including the
-  three-way forward parity that is the repository's central numerical
-  invariant — are verified only by running ``pytest -m "cuda or
-  triton"`` and the ``compat`` sweep by hand before merging.
-
-* Added tests for ``cherimoya negatives``, which had no coverage at all.
-  They pin the flag-to-kwarg forwarding — most flags are renamed on the
-  way into ``extract_matching_loci`` — the headerless BED output that
-  feeds straight into ``fit`` as a locus file, and the argparse
-  defaults, which live only in the parser and so can drift from the CLI
-  reference unchecked.
-
-* ``cherimoya attribute`` and ``cherimoya seqlets`` are now tested
-  across the seam between them, in
-  ``tests/commands/test_attribute_to_seqlets.py``. ``attribute`` saves
-  a slice centred on the locus midpoint and ``seqlets`` converts a
-  position in that saved array back to a genomic coordinate by assuming
-  exactly that; nothing checked the two against each other. Each
-  command's own tests pin the arithmetic against literal offsets, so
-  editing those offsets to match a changed ``attribute`` leaves them
-  green — the 857bp shift is the bug this class produces. The new tests
-  run both commands for real and recover the slice offset by locating
-  the saved array inside the extracted window, so neither side
-  re-derives the other's arithmetic.
-
-* The ``compile`` and ``compile_mode`` keys are now tested as reaching
-  ``Cherimoya.load`` from all three subcommands that load a model.
-  Previously only ``evaluate`` had a forwarding test, while the
-  key-declaration test was parametrized over all three, which read as
-  three-way coverage. All three already forwarded the keys correctly.
-
-* Tests that assert only that a removed key is still removed are gone,
-  along with the four near-identical pipeline-JSON builders the CLI
-  tests each carried; shared fixtures now live in
-  ``tests/commands/conftest.py``. The dead-key checks for
-  ``marginalize_parameters.output_folder`` and
-  ``fit_parameters.count_loss_weight`` are replaced by one invariant
-  over every step the pipeline forwards — each declared key must be one
-  the receiving subcommand reads — which covers both of those and
-  ``annotation_parameters``, which nothing checked. Two assertions that
-  could not fail for the reason they were written were strengthened to
-  compare values rather than shapes.
-
-* ``docs/development.rst`` listed ``tests/test_fit_wiring.py`` and
-  ``tests/test_cli_utils.py``, which were renamed away in v0.2.1, and
-  omitted ``tests/commands/`` entirely. The table now matches the
-  tree.
-
-* The bundled skill's ``SKILL.md`` frontmatter is now tested, in
-  ``tests/commands/test_install_skill.py``. Claude Code reads only the
-  frontmatter before deciding to load a skill, so a missing ``name`` or
-  ``description``, a ``name`` that differs from the ``cherimoya`` install
-  directory, or a description over the 1024-character limit stops the skill
-  from loading or triggering, and no other test would notice. The check
-  parses the frontmatter directly because PyYAML is not a dependency.
-
-v0.2.1
-------
-
-Bug fixes
-~~~~~~~~~
-
-* Fixed an ``IndexError`` in ``cherimoya attribute`` when ``extract_loci``
-  drops loci near a chromosome end. The ambiguous-base filter is now
-  projected back into peak space so the saved index array stays aligned
-  with ``X``.
-
-Tooling
-~~~~~~~
-
-* Pinned the ``uv`` resolver to a one-week ``exclude-newer`` window via
-  ``[tool.uv]`` in ``pyproject.toml`` and updated ``uv.lock`` for
-  reproducible dependency resolution.
+* The test suite gained coverage for ``cherimoya negatives``, the
+  attribute-to-seqlets seam, the compile keys, the pipeline's step
+  wiring, the evaluate step after training and multi-device setup, and
+  lost tests that could not fail, among them five compile-parity tests
+  that ran eager on both sides under ``TORCH_COMPILE_DISABLE``. The CLI
+  tests live under ``tests/commands/``, named after the modules they
+  cover.
 
 v0.2.0
 ------
