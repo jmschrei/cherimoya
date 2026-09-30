@@ -67,16 +67,14 @@ separately. Nothing to fix.
 ## "Training loss is NaN"
 
 By likelihood:
-1. **A peak with zero counts** makes the multinomial log-likelihood `-inf`. The
-   `min_counts`/`max_counts` filters are `PeakGenerator` arguments **not exposed
-   through the CLI JSON**, so the CLI fix is to **remove empty/zero-count peaks
-   from the peak BED upstream** before training. (`min_counts` is only reachable
-   by writing a custom Python loop with `cherimoya.io.PeakGenerator`.)
-2. **Mismatched strand counts** — stranded data passed flat (or unstranded data
+1. **Mismatched strand counts** — stranded data passed flat (or unstranded data
    as a pair) gives `y` the wrong shape. Compare the number of signal files with
    the grouping the user intends. Confirm a stranded `(+, -)` pair
    is nested (`[["plus.bw","minus.bw"]]`), not flat (see
    `references/input-files.md`).
+2. **bf16 overflow in the count head** — with `dtype: "bfloat16"` and very large
+   per-locus counts. Rerun in `float32` to confirm; if that fixes it, scale the
+   signal down with `preprocessing_parameters.scale_factor`.
 
 ## "Stranded predictions come almost entirely from one strand"
 
