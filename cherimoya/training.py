@@ -50,8 +50,8 @@ _PRECISION = {
 }
 
 # The columns of the training log, `{name}.log`, which is also the table
-# printed under `verbose`. `{name}.detailed.log` adds a profile and a count
-# Pearson column per signal group.
+# printed under `verbose`. `{name}.detailed.log` adds a profile Pearson, count
+# Pearson, AUROC and AUPRC column per signal group.
 _LOG_COLUMNS = ["Epoch", "Iteration", "Training Time", "Validation Time",
 	"Training MNLL", "Training Count MSE", "Validation MNLL",
 	"Validation Profile Pearson", "Validation Count Pearson",

@@ -147,10 +147,10 @@ def _kl_divergence(probs1, probs2):
 
 	Parameters
 	----------
-	logps: torch.Tensor
+	probs1: torch.Tensor
 		A tensor of probabilities. This must not be log probabilities.
 
-	true_counts: torch.Tensor
+	probs2: torch.Tensor
 		A tensor of probabilities. This must not be log probabilities.
 
 
@@ -171,10 +171,12 @@ def _kl_divergence(probs1, probs2):
 def jensen_shannon_distance(logps, true_counts):
 	"""The Jensen-Shannon distance between two tensors across the last axis.
 
-	Computes the Jensen-Shannon distance in the last dimension of `logps` and
-	`true_counts`. These two tensors must be the same shape. For example, if they
-	are both A x B x L arrays, then the KL divergence of corresponding L-arrays
-	will be computed and returned in an A x B array. This will renormalize the
+	Computes the Jensen-Shannon divergence in the last dimension of `logps` and
+	`true_counts`; despite the name, no square root is taken, so this is the
+	divergence rather than the distance. These two tensors must be the same
+	shape. For example, if they are both A x B x L arrays, then the divergence
+	of corresponding L-arrays will be computed and returned in an A x B array.
+	This will renormalize the
 	arrays so that each subarray sums to 1. If the sum of a subarray is 0, then
 	the resulting JSD will be NaN.
 
@@ -264,8 +266,8 @@ def spearman_corr(arr1, arr2):
 	Parameters
 	----------
 	arr1: torch.Tensor
-		One of the tensor to correlate. This can be any number of dimensions but the MSE is
-		calculated across the last dimension.
+		One of the tensor to correlate. This can be any number of dimensions but the
+		correlation is calculated across the last dimension.
 
 	arr2: torch.Tensor
 		The other tensor to correlation.
@@ -405,8 +407,11 @@ def calculate_performance_measures(logps, true_counts, pred_log_counts,
 	measures_: dict of torch.Tensors
 		A dictionary where the keys are the names of performance measures and the
 		values are tensors containing the values. Each profile performance measure
-		will have the shape (n, 1) and each count performance measure will have
-		the shape (1,).
+		has the shape (n, n_channels), and each count performance measure the
+		shape (n_groups,) when `signal_groups` is given and (n_outputs,)
+		otherwise. With `labels`, the measures on the peaks alone are added
+		under a ``within_peak_`` prefix, along with the floats ``auprc`` and
+		``auroc``.
 	"""
 
 	from sklearn.metrics import average_precision_score

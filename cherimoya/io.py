@@ -171,9 +171,10 @@ class PeakNegativeSampler(torch.utils.data.Dataset):
 	data tuples as ``num_workers = 1`` — the DataLoader yields identical
 	batch sequences, just faster.
 
-	Each peak is drawn exactly once per epoch; the peak/negative
-	interleaving and all augmentations are reproducible from
-	``(random_state, epoch)``.
+	Each peak appears exactly once in an epoch's order, although a loader
+	that drops a trailing partial batch, as training's does, leaves the
+	last few out of that epoch; the peak/negative interleaving and all
+	augmentations are reproducible from ``(random_state, epoch)``.
 
 	In the documentation below, ``mj`` = max_jitter.
 
@@ -222,7 +223,9 @@ class PeakNegativeSampler(torch.utils.data.Dataset):
 	random_state: int or None, optional
 		Base seed for the deterministic per-epoch RNG. If None, a random
 		seed is captured once at construction time so that all forked
-		worker processes share it.
+		worker processes share it. Under DDP each rank constructs its own
+		sampler, and :meth:`cherimoya.training.CherimoyaModule.setup` gives
+		every rank rank 0's seed.
 
 	signal_perm: torch.LongTensor or None, optional
 		The channel permutation to apply to ``peak_signals`` /
@@ -485,8 +488,11 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 	"""This is a constructor function that handles all IO.
 
 	This function will extract signal from all signal and control files,
-	pass that into a DataGenerator, and wrap that using a PyTorch data
-	loader. This is the only function that needs to be used.
+	build a :class:`PeakNegativeSampler` from them, and wrap it in a PyTorch
+	DataLoader. :func:`cherimoya.training.fit` builds its own loader, so
+	pass it the sampler, ``PeakGenerator(...).dataset``; the DataLoader,
+	with ``batch_size``, ``pin_memory`` and ``num_workers``, is for loops
+	written by hand.
 
 
 	Parameters
@@ -626,7 +632,8 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 	Returns
 	-------
 	X: torch.utils.data.DataLoader
-		A PyTorch DataLoader wrapped DataGenerator object.
+		A PyTorch DataLoader around the :class:`PeakNegativeSampler`, which
+		is its ``dataset``.
 	"""
 
 	# Normalize structured (list-of-lists / mixed) signal specs into a
