@@ -20,6 +20,8 @@ Repository layout
    │   ├── io.py                   # PeakGenerator + PeakNegativeSampler + ShardedEpochSampler
    │   ├── losses.py               # Profile MNLL + log1pMSE mixture loss
    │   ├── wrappers.py             # Control / profile / count output wrappers
+   │   ├── deep_lift_shap.py       # DeepLIFT rules for tangermeme's deep_lift_shap
+   │   ├── fast_deep_lift_shap/    # The fast DeepLIFT/SHAP engine for the count head
    │   └── performance.py          # Evaluation metrics
    ├── cherimoya_cli/              # The CLI entry-point package
    │   ├── __main__.py             # Argparse driver and subcommand registry
@@ -182,6 +184,22 @@ the ``cherimoya`` CLI:
    * - ``tests/test_wrappers.py``
      - The output wrappers on their own and composed over
        ``ControlWrapper``.
+   * - ``tests/test_fast_deep_lift_shap.py``
+     - The fast DeepLIFT/SHAP engine against the model's forward and
+       tangermeme's ``deep_lift_shap`` on small models: raw multipliers,
+       hypothetical attributions, convergence deltas, conservation and
+       step-size invariance; the engine's arguments and its audit's
+       comparison.
+   * - ``tests/test_fast_deep_lift_shap_rules.py``
+     - Each of the engine's backward rules against the tangermeme or
+       cherimoya function it replaces.
+   * - ``tests/test_fast_deep_lift_shap_references.py``
+     - The engine's references, bit for bit tangermeme's dinucleotide
+       shuffles, drawn in a pool of worker processes.
+   * - ``tests/test_fast_deep_lift_shap_cuda.py``
+     - The engine on a GPU: compiled passes against eager ones and the
+       GPU against the CPU, both against float64; one synchronization per
+       step; recovery from running out of memory.
    * - ``tests/test_utils.py``
      - JSON merge and default-handling helpers.
    * - ``tests/commands/test_fit.py``
@@ -205,6 +223,10 @@ the ``cherimoya`` CLI:
    * - ``tests/commands/test_attribute_to_seqlets.py``
      - The seam between the two: the coordinate ``seqlets`` reports
        is the genome position of the base ``attribute`` scored.
+   * - ``tests/commands/test_attribute_fast.py``
+     - ``cherimoya attribute`` with ``"engine": "fast"`` against its
+       default engine, its options, its two extra files, the self-check
+       and the audit.
    * - ``tests/commands/test_attribute.py``,
        ``test_seqlets.py``, ``test_evaluate.py``,
        ``test_marginalize.py``, ``test_negatives.py``,

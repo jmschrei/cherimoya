@@ -52,7 +52,8 @@ def merge_parameters(parameters, default_parameters):
 
 	# Keys whose default is None and which may simply be left out.
 	unset_parameters = ("controls", "warning_threshold", "early_stopping",
-		"exclusion_lists", "loss_weights", "model", "motifs", "progress_bar")
+		"exclusion_lists", "loss_weights", "model", "motifs", "progress_bar",
+		"ref_workers")
 	for parameter, value in default_parameters.items():
 		if parameter not in parameters:
 			if value is None and parameter not in unset_parameters:

@@ -24,7 +24,8 @@ Common conventions
   will produce. The exceptions are the keys that are optional by
   design, which may simply be left out: ``controls``, ``model``,
   ``motifs``, ``exclusion_lists``, ``early_stopping``,
-  ``loss_weights``, ``progress_bar`` and ``warning_threshold``.
+  ``loss_weights``, ``progress_bar``, ``warning_threshold`` and
+  ``ref_workers``.
 * The ``fit``, ``evaluate``, ``attribute``, ``seqlets`` and
   ``marginalize`` JSONs accept ``"skip": true`` to no-op the step. In
   the ``pipeline`` JSON, a top-level ``"skip": true`` no-ops the whole
@@ -521,6 +522,47 @@ attribute_parameters
    * - ``dtype`` / ``device``
      - ``"float32"`` / ``"cuda"``
      - Inference dtype and device.
+   * - ``engine``
+     - ``"default"``
+     - How DeepLIFT/SHAP is computed: ``"default"``, tangermeme's
+       ``deep_lift_shap``, or ``"fast"``, Cherimoya's fast engine for the
+       count head, which agrees with the default engine nearly as closely
+       as two runs of the default engine agree with each other, runs
+       several times faster on a GPU, checks itself on every run and
+       writes two more files (see :doc:`tutorials/attribution`). With
+       ``"output": "profile"``, ``"fast"`` warns and the default engine
+       runs.
+       Saturation mutagenesis ignores it. ``"fast"`` needs ``dtype``
+       ``"float32"`` or ``null``, and was validated with tangermeme
+       1.5.0; another tangermeme release warns.
+   * - ``precision``
+     - ``"tf32"``
+     - ``"fast"`` engine only. ``"tf32"``: matrix products and
+       convolutions in TF32 where the GPU supports it, the precision the
+       default engine computes in; ``"fp32"``: strict IEEE float32.
+   * - ``seqs_per_step``
+     - ``"auto"``
+     - ``"fast"`` engine only. Sequences per step, each with its
+       ``n_shuffles`` references. ``"auto"`` takes the largest step whose
+       estimated memory fits ``mem_budget_gb`` and 0.6 of the GPU memory
+       this process can use, at most 32 sequences, and 8 on the CPU. A
+       step that runs out of memory is halved and retried.
+   * - ``mem_budget_gb``
+     - 12.0
+     - ``"fast"`` engine only. The GPU memory, in GB of 1e9 bytes, that
+       ``"auto"`` plans a step for.
+   * - ``ref_workers``
+     - ``null``
+     - ``"fast"`` engine only. Processes that draw the references ahead
+       of the GPU. ``null`` is min(8, CPUs - 2), at least 1; 0 draws them in
+       the main process.
+   * - ``audit``
+     - 8
+     - ``"fast"`` engine only. Evenly spaced sequences that tangermeme's
+       ``deep_lift_shap`` attributes again after the run, with the
+       engine's references, to compare; 0 turns the audit off. A
+       sequence beyond the bounds fails the run after the outputs are
+       written.
 
 
 seqlet_parameters
@@ -894,6 +936,26 @@ mutagenesis with ``"algorithm": "saturation_mutagenesis"``; see
 
 JSON schema: the ``attribute_parameters`` table above, plus
 ``model``, ``sequences``, ``loci`` and ``exclusion_lists``.
+
+With ``"engine": "fast"`` the command also writes, next to
+``attr_filename`` without its ``.npz``, ``.deltas.npy`` (the convergence
+delta of every sequence-reference pair) and ``.meta.json`` (a record of
+the run, its self-check and its audit), and a failed audit raises after
+every file is written. Before it imports Cherimoya and tangermeme, it sets
+two environment variables that are unset:
+
+* ``NUMBA_CACHE_DIR`` to ``numba_cache_<user>`` in the temporary
+  directory. tangermeme compiles its numba shuffle kernel, with caching
+  on, when it is imported, and the engine's reference workers load it from
+  that cache rather than compiling it themselves.
+* ``TRITON_CACHE_AUTOTUNING`` to ``1``, so that Triton keeps the
+  autotuning results of Cherimoya's kernels, which the self-check and the
+  audit run, and a later run on the same machine does not autotune them
+  again.
+
+A value already set is kept. Run as a step of ``cherimoya pipeline``,
+which has imported both packages by then, the variables reach only the
+reference workers.
 
 
 cherimoya seqlets

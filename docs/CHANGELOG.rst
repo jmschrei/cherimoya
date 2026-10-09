@@ -4,6 +4,31 @@ Changelog
 v0.3.1 (unreleased)
 -------------------
 
+Attribution
+~~~~~~~~~~~
+
+* ``cherimoya attribute`` has a fast DeepLIFT/SHAP engine for the count
+  head, ``"engine": "fast"``, in ``cherimoya.fast_deep_lift_shap``. It
+  computes what tangermeme's ``deep_lift_shap`` computes with Cherimoya's
+  rules, up to floating-point rounding: the same rules, the same
+  dinucleotide-shuffled references with the same seeds, and the same
+  hypothetical projection. It forwards each sequence once rather than
+  once per reference, runs the backward over the sequence half of each
+  pair only, and compiles its passes on a GPU. In an interleaved
+  benchmark on one H100 shared with four, then five, other processes
+  (three of them training runs), it attributed 948 sequence-reference
+  pairs per second at steady state, with ``mem_budget_gb`` 7.5 and
+  ``ref_workers`` 3, against the default engine's 106 at a
+  ``batch_size`` of 20.
+  Every run compares its forward with the model's before it starts and,
+  after writing its outputs, attributes 8 evenly spaced sequences again
+  with ``deep_lift_shap`` to compare (``audit``). It also writes the
+  convergence deltas and a record of the run next to ``attr_filename``.
+  The default engine is unchanged, and the profile head and saturation
+  mutagenesis always use it. New keys: ``engine``, ``precision``,
+  ``seqs_per_step``, ``mem_budget_gb``, ``ref_workers`` and ``audit``;
+  ``engine`` is also in the pipeline's ``attribute_parameters``.
+
 CLI and pipeline
 ~~~~~~~~~~~~~~~~
 

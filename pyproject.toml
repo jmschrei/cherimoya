@@ -54,7 +54,8 @@ docs = [
 cherimoya = "cherimoya_cli.__main__:main"
 
 [tool.setuptools]
-packages = ["cherimoya", "cherimoya_cli", "cherimoya_cli.commands"]
+packages = ["cherimoya", "cherimoya.fast_deep_lift_shap", "cherimoya_cli",
+    "cherimoya_cli.commands"]
 
 [tool.setuptools.package-data]
 cherimoya_cli = ["skills/cherimoya/SKILL.md", "skills/cherimoya/references/*.md"]

@@ -79,6 +79,13 @@ its backward hooks cause graph breaks and recompiles. Neither algorithm ran
 faster compiled in our measurements, and compiling lengthened the first
 call.
 
+``engine`` chooses how DeepLIFT/SHAP is computed for the count head:
+``"default"``, tangermeme's ``deep_lift_shap`` as above, or ``"fast"``, an
+engine that runs several times faster on a GPU and whose attributions agree
+with the default engine's nearly as closely as two runs of the default
+engine agree with each other (see `The fast DeepLIFT/SHAP engine for the
+count head`_).
+
 The CLI automatically:
 
 1. Loads sequences from ``loci`` on ``chroms`` and filters out any
@@ -156,6 +163,130 @@ tangermeme's ``deep_lift_shap`` attributes output ``target=0`` of the
 model it is given. ``LogCountWrapper`` without ``group`` returns one
 count per signal group, so on a multi-group model it would silently
 attribute group 0 only; pass ``group`` to say which one you mean.
+
+
+The fast DeepLIFT/SHAP engine for the count head
+------------------------------------------------
+
+With ``"engine": "fast"``, ``cherimoya attribute`` computes the count
+head's DeepLIFT/SHAP attributions with ``cherimoya.fast_deep_lift_shap``
+instead of tangermeme's ``deep_lift_shap``. The method is the same:
+the same rules (tangermeme's rescale rule at every GELU and the
+normalization rule of ``conv_norm_op``), the same dinucleotide-shuffled
+references with the same seeds, and the same hypothetical projection and
+mean over references. What changes is how they are computed:
+
+* Each sequence is forwarded once per step together with its references,
+  rather than once per reference: every operation acts on each row alone,
+  so the copies of a sequence that ``deep_lift_shap`` forwards are the
+  same row.
+* The backward runs over the sequence half of each sequence-reference pair
+  only. DeepLIFT's rule for a sequence reads the reference's activations
+  but never the reference's gradient, so the reference half is never
+  needed.
+* The forward, the backward rules and the final projection are written out
+  by hand and, on a GPU, compiled with ``torch.compile``; the references
+  are drawn in worker processes ahead of the GPU, and the host waits for
+  the GPU once per step.
+
+.. code-block:: json
+
+   {
+       "model": "my_model.torch",
+       "sequences": "hg38.fa",
+       "loci": "peaks.narrowPeak",
+       "algorithm": "deep_lift_shap",
+       "output": "counts",
+       "engine": "fast",
+       "device": "cuda",
+       "ohe_filename": "attributions.ohe.npz",
+       "attr_filename": "attributions.attr.npz",
+       "idx_filename": "attributions.idx.npy"
+   }
+
+It covers the count head (:class:`cherimoya.LogCountWrapper`) only. With
+``"output": "profile"`` it warns and the default engine attributes the
+profile head, whose softmax couples every position to every other and has
+no counterpart in the fast engine. Saturation mutagenesis ignores
+``engine``. ``dtype`` must be ``"float32"`` or ``null``: tangermeme runs
+``"bfloat16"`` and ``"float16"`` under autocast, which computes a different
+function.
+
+How close the two engines are. On the CPU the tests hold the fast engine
+to tangermeme's ``deep_lift_shap`` on small models: the references are
+equal bit for bit, and the multipliers of every sequence-reference pair
+agree to a relative L2 distance of 1e-9 in float64. On a GPU neither
+engine is bitwise reproducible: with ``"precision": "tf32"``, the default,
+matrix products and convolutions round in TF32, and cuDNN and Triton pick
+their kernels by timing in each process, so two runs of the default engine
+on the same inputs differ too. On five trained models (256 sequences, 20
+references each), the fast engine's per-sequence hypothetical attributions
+were a median relative L2 distance of 8.4e-5 to 9.9e-5 from the default
+engine's, against 7.0e-5 to 8.4e-5 between two runs of the default engine.
+The fast engine is therefore checked on every run against fixed tolerances
+set above that noise, rather than for equality (below).
+
+The engine reproduces tangermeme's rules, so it is tied to the tangermeme
+it was validated against: tangermeme 1.5.0
+(``cherimoya.fast_deep_lift_shap.VALIDATED_TANGERMEME_VERSIONS``). With
+another release it runs and warns; its audit then compares it with that
+release's ``deep_lift_shap``.
+
+Every run checks itself twice:
+
+1. **A forward self-check**, before anything is attributed: on the first
+   four sequences, the engine's count output and the model's own forward
+   in strict float32 must agree to 2.5e-4. Otherwise the run stops, and
+   nothing is written.
+2. **An audit**, after the outputs are written: ``audit`` evenly spaced
+   sequences (8 by default; 0 turns it off) are attributed again with
+   tangermeme's ``deep_lift_shap``, given the references the engine used,
+   which are first compared bit for bit with tangermeme's own draw. A
+   sequence whose attributions have a Pearson correlation below 0.9999, or
+   a relative L2 distance above 1e-2, with tangermeme's, or references
+   that are not tangermeme's, fail the run with ``AuditFailed``; a median
+   distance above 3e-4 warns.
+
+Besides the three files, the fast engine writes two next to
+``attr_filename``, without its ``.npz``: ``.deltas.npy``, the convergence
+delta of every sequence-reference pair, and ``.meta.json``, a record of
+the run (settings, timings, memory, the self-check and the audit). It
+warns once per run when deltas exceed ``warning_threshold``, where the
+default engine warns once per batch.
+
+Its options, all ignored by the default engine (see :doc:`../cli`):
+
+* ``precision`` — ``"tf32"`` (default), the precision the default engine
+  computes in on a GPU with TF32, or ``"fp32"``, strict IEEE float32.
+* ``seqs_per_step`` and ``mem_budget_gb`` — sequences per step, each with
+  its ``n_shuffles`` references, or ``"auto"`` (default), which takes the
+  largest step whose estimated memory fits ``mem_budget_gb`` (12 by
+  default) and 0.6 of the GPU memory this process can use, at most 32
+  sequences, and 8 sequences on the CPU. A step that runs out of memory is
+  halved and retried. ``batch_size`` does not size the fast engine's steps.
+* ``ref_workers`` — processes drawing the references; ``null`` (default)
+  is min(8, CPUs - 2), at least 1, and 0 draws them in the main process.
+* ``audit`` — sequences the audit attributes again.
+
+From Python, the engine takes the model and returns the attributions over
+a window, averaged over each sequence's references, as a float32 tensor of
+shape ``(n, 4, end - start)``:
+
+.. code-block:: python
+
+   from cherimoya import Cherimoya
+   from cherimoya.fast_deep_lift_shap import Engine
+
+   model = Cherimoya.load("my_model.torch", device="cuda", compile=False)
+   engine = Engine(model, group=0, n_shuffles=20, random_state=0)
+
+   mid = X.shape[-1] // 2
+   result = engine.run(X, mid - 200, mid + 200)
+   X_attr = result.attr
+
+The reference workers are spawned processes, so a script that calls
+``Engine.run`` needs the ``if __name__ == "__main__":`` guard that any
+spawned multiprocessing needs; ``ref_workers=0`` avoids them.
 
 
 Saturation mutagenesis instead of DeepLIFT/SHAP

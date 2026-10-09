@@ -46,8 +46,8 @@ default is `null` must be *present*, so a from-scratch JSON fails with
 `Must provide value for 'x'. Set it to null if this step is supposed to
 produce it.` Writing `null` is how you say "MACS3 / the negatives step makes
 this later". Only `controls`, `model`, `motifs`, `exclusion_lists`,
-`early_stopping`, `loss_weights`, `progress_bar` and `warning_threshold` may be
-left out entirely.
+`early_stopping`, `loss_weights`, `progress_bar`, `warning_threshold` and
+`ref_workers` may be left out entirely.
 
 Common novice edits — always explain the change you make:
 
