@@ -1287,19 +1287,10 @@ class Engine:
 				"head only; attribute the profile head with tangermeme's "
 				"deep_lift_shap")
 
-		if precision not in PRECISIONS:
-			raise ValueError("precision must be one of {}, got {!r}".format(
-				PRECISIONS, precision))
-
+		check_options(precision, seqs_per_step, mem_budget_gb)
 		if not isinstance(deterministic, bool):
 			raise ValueError("deterministic must be True or False, got "
 				"{!r}".format(deterministic))
-
-		if (isinstance(mem_budget_gb, bool)
-				or not isinstance(mem_budget_gb, numbers.Real)
-				or not mem_budget_gb > 0):
-			raise ValueError("mem_budget_gb must be a positive number, got "
-				"{!r}".format(mem_budget_gb))
 
 		check_tangermeme_version()
 		if deterministic and _target_device_type(model, device) == "cuda":
@@ -1318,11 +1309,8 @@ class Engine:
 		self.compile = resolve_compile(compile, self.weights.device)
 		self.mem_budget_gb = float(mem_budget_gb)
 		self.n_shuffles = _positive_int(n_shuffles, "n_shuffles")
-		if seqs_per_step != "auto":
-			seqs_per_step = _positive_int(seqs_per_step, "seqs_per_step",
-				"'auto' or ")
-
-		self.seqs_per_step = seqs_per_step
+		self.seqs_per_step = (seqs_per_step if seqs_per_step == "auto"
+			else int(seqs_per_step))
 
 		if random_state is None:
 			random_state = int(numpy.random.randint(0, SEED_RANGE))
@@ -1879,6 +1867,25 @@ class Engine:
 			"step_peak_bytes": None,
 			"step_estimate_bytes": None,
 		}
+
+
+def check_options(precision="tf32", seqs_per_step="auto", mem_budget_gb=12.0):
+	"""Raise a ValueError for a `precision`, `seqs_per_step` or
+	`mem_budget_gb` that `Engine` does not take. `cherimoya attribute` calls
+	it before it loads the model."""
+
+	if precision not in PRECISIONS:
+		raise ValueError("precision must be one of {}, got {!r}".format(
+			PRECISIONS, precision))
+
+	if seqs_per_step != "auto":
+		_positive_int(seqs_per_step, "seqs_per_step", "'auto' or ")
+
+	if (isinstance(mem_budget_gb, bool)
+			or not isinstance(mem_budget_gb, numbers.Real)
+			or not mem_budget_gb > 0):
+		raise ValueError("mem_budget_gb must be a positive number, got "
+			"{!r}".format(mem_budget_gb))
 
 
 def _compile_isolates_recompiles():

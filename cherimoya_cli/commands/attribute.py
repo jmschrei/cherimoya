@@ -8,7 +8,6 @@ import warnings
 
 
 ENGINES = ("default", "fast")
-PRECISIONS = ("tf32", "fp32")
 
 
 def run(args):
@@ -25,11 +24,16 @@ def run(args):
 		raise ValueError("algorithm must be either `deep_lift_shap` or "
 			"`saturation_mutagenesis`, got {!r}".format(algorithm))
 
-	# The fast engine's options are checked before anything is loaded, and
-	# its cache default is set before cherimoya is imported, which is when
-	# cherimoya decorates its Triton kernels.
+	# Whether the fast engine runs is decided, and its cache default set,
+	# before cherimoya is imported, which is when cherimoya decorates its
+	# Triton kernels. Its options are checked before anything is loaded.
 	fast = _fast_engine_selected(parameters)
 	environment = _set_cache_defaults() if fast else None
+	if fast:
+		from cherimoya.fast_deep_lift_shap.engine import check_options
+
+		check_options(parameters["precision"], parameters["seqs_per_step"],
+			parameters["mem_budget_gb"])
 
 	###
 
@@ -143,8 +147,9 @@ def run(args):
 
 def _fast_engine_selected(parameters):
 	"""Whether this run uses the fast engine, after checking `engine` and,
-	if the fast engine runs, its options, so that a bad value fails before
-	the model is loaded."""
+	if the fast engine runs, the options only the command has, so that a
+	bad value fails before the model is loaded. The engine checks its
+	own (`check_options`)."""
 
 	engine = parameters["engine"]
 	if engine not in ENGINES:
@@ -169,18 +174,6 @@ def _fast_engine_selected(parameters):
 	def bad(key, want):
 		return ValueError("`{}` must be {} for engine `fast`, got {!r}".format(
 			key, want, parameters[key]))
-
-	if parameters["precision"] not in PRECISIONS:
-		raise bad("precision", "`tf32` or `fp32`")
-
-	S = parameters["seqs_per_step"]
-	if S != "auto" and (isinstance(S, bool) or not isinstance(S, int) or S < 1):
-		raise bad("seqs_per_step", "`auto` or a positive integer")
-
-	budget = parameters["mem_budget_gb"]
-	if (isinstance(budget, bool) or not isinstance(budget, (int, float))
-			or not budget > 0):
-		raise bad("mem_budget_gb", "a positive number")
 
 	n_audit = parameters["audit"]
 	if isinstance(n_audit, bool) or not isinstance(n_audit, int) or n_audit < 0:
