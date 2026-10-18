@@ -12,10 +12,9 @@ Each rule gets the same inputs as the function it replaces, in float64:
   through it: <= 1e-14.
 * `counts_cotangent` against autograd through the real
   ``LogCountWrapper(ControlWrapper(model))``: equal.
-* The window of hypothetical attributions against tangermeme's
-  `hypothetical_attributions`, sliced: equal.
-* The mean over references against tangermeme's stack-and-mean of the
-  full-length attributions, sliced: equal.
+* The mean over references of the window of hypothetical attributions
+  against tangermeme's stack-and-mean of its full-length
+  `hypothetical_attributions`, sliced: within rounding.
 
 tangermeme's rules read the activations off the module they correct, so
 each reference call gets a stub holding tangermeme's joint layout: one copy
@@ -31,7 +30,6 @@ path on both sides. The composite tests run on the tiny models' real shapes
 and are bounded by relative error.
 """
 
-import contextlib
 
 import pytest
 import torch
@@ -64,16 +62,6 @@ LN_TOL = 1e-13
 RESCALE_EPS = 1e-6  # where tangermeme's rescale rule takes the plain gradient
 DW3_TOL = 1e-14
 COMPOSITE_TOL = 1e-13
-
-
-@contextlib.contextmanager
-def _threads(n):
-	previous = torch.get_num_threads()
-	torch.set_num_threads(n)
-	try:
-		yield
-	finally:
-		torch.set_num_threads(previous)
 
 
 def _ulps(a, b):
@@ -345,25 +333,38 @@ def _pairs(L, n_s, n_k, dtype, seed):
 	return torch.cat([X, refs]), m, y
 
 
-@pytest.mark.parametrize("dtype", DTYPES)
-@pytest.mark.parametrize("L, W", [(2114, 400), (256, 64), (200, 50),
-	(2114, 100)])
-def test_window_hyp_is_hypothetical_attributions_sliced(L, W, dtype):
-	"""For one-hot (or N) references both sides round once, to fl(m_i -
-	m_b), so the window equals tangermeme's full-length projection, sliced
-	afterwards."""
+MEAN_TOL = {torch.float32: 1e-6, torch.float64: 1e-14}
 
-	n_s, n_k = 2, 3
-	X1h, m, y = _pairs(L, n_s, n_k, dtype, seed=L + W)
+
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("n_k, L, W", [(20, 2114, 400), (4, 256, 64),
+	(5, 200, 50), (20, 2114, 100), (5, 256, 256), (3, 2114, 2100)])
+def test_epilogue_attr_is_the_mean_of_tangermemes_projection(n_k, L, W,
+	dtype):
+	"""The window of each pair's hypothetical attributions is tangermeme's
+	full-length projection, sliced, and the epilogue averages it over each
+	sequence's references. tangermeme stacks the full-length attributions
+	and averages them on the CPU, which sums in another order, so the two
+	agree to rounding. The shapes include windows that are not a multiple of
+	16 wide, the full length, and a window ending 7 positions before the
+	end."""
+
+	n_s = 2
+	X1h, m, y = _pairs(L, n_s, n_k, dtype, seed=n_k * L + W)
 	start, end = _window(L, W)
-	hyp, _ = fdls.epilogue(m, X1h, y[:n_s], y[n_s:].view(n_s, n_k), start,
+	attr, _ = fdls.epilogue(m, X1h, y[:n_s], y[n_s:].view(n_s, n_k), start,
 		end, n_s, n_k)
-	assert hyp.shape == (n_s, n_k, 4, W) and hyp.dtype == dtype
-	assert hyp.is_contiguous()
+	assert attr.shape == (n_s, 4, W) and attr.dtype == dtype
 
 	Xp = X1h[:n_s].repeat_interleave(n_k, dim=0)
 	full, = tiny.TDLS.hypothetical_attributions((m,), (Xp,), (X1h[n_s:],))
-	assert torch.equal(hyp.flatten(0, 1), full[..., start:end])
+	window = full[..., start:end].contiguous().view(n_s, n_k, 4, W)
+	assert torch.equal(attr, window.mean(dim=1))
+
+	attr_ = list(full)
+	stock = torch.stack([torch.stack(attr_[s * n_k:(s + 1) * n_k]).mean(
+		dim=0)[:, start:end] for s in range(n_s)])
+	assert _rel_l2(attr, stock) <= MEAN_TOL[dtype]
 
 
 def test_epilogue_deltas_are_tangermemes_expression():
@@ -383,48 +384,11 @@ def test_epilogue_deltas_are_tangermemes_expression():
 		assert torch.equal(delta.flatten(), expected)
 
 
-@pytest.mark.parametrize("dtype", DTYPES)
-@pytest.mark.parametrize("n_k, L, W", [(20, 2114, 400), (4, 256, 64),
-	(5, 200, 50), (20, 2114, 100), (5, 256, 256), (3, 2114, 2100)])
-def test_mean_over_references_is_tangermemes_stack_mean_sliced(n_k, L, W,
-	dtype):
-	"""tangermeme averages a sequence's full-length hypothetical
-	attributions, ``torch.stack(...).mean(dim=0)``, on the CPU; the engine
-	averages the windows. Equal at 1, 4 and 8 threads, for the default
-	shape, windows that are not a multiple of 16 wide, the full length, and
-	a window ending 7 positions before the end."""
-
-	n_s = 2
-	X1h, m, y = _pairs(L, n_s, n_k, dtype, seed=n_k * L + W)
-	start, end = _window(L, W)
-	hyp, _ = fdls.epilogue(m, X1h, y[:n_s], y[n_s:].view(n_s, n_k), start,
-		end, n_s, n_k)
-	Xp = X1h[:n_s].repeat_interleave(n_k, dim=0)
-	full, = tiny.TDLS.hypothetical_attributions((m,), (Xp,), (X1h[n_s:],))
-	attr_ = list(full)
-
-	ours = fdls.mean_over_references(hyp, start, L)
-	assert ours.shape == (n_s, 4, W) and ours.dtype == dtype
-	for threads in (1, 4, 8):
-		with _threads(threads):
-			ref = torch.stack([torch.stack(attr_[s * n_k:(s + 1) * n_k]).mean(
-				dim=0)[:, start:end] for s in range(n_s)])
-
-		assert torch.equal(ours, ref), "{} threads".format(threads)
-
-
-def test_epilogue_and_mean_arguments():
+def test_epilogue_arguments():
 	X1h, m, y = _pairs(64, 2, 3, F64, seed=0)
 	for start, end in ((10, 10), (-1, 20), (0, 65), (40, 30)):
 		with pytest.raises(ValueError, match="window"):
 			fdls.epilogue(m, X1h, y[:2], y[2:].view(2, 3), start, end, 2, 3)
-
-	hyp, _ = fdls.epilogue(m, X1h, y[:2], y[2:].view(2, 3), 20, 40, 2, 3)
-	with pytest.raises(ValueError, match="window"):
-		fdls.mean_over_references(hyp, 50, 64)
-
-	with pytest.raises(ValueError, match="CPU"):
-		fdls.mean_over_references(hyp.to("meta"), 20, 64)
 
 	with pytest.raises(ValueError, match="rows"):
 		fdls.split_rows(X1h[:-1], 2, 3)

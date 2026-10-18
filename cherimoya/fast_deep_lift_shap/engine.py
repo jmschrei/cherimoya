@@ -71,6 +71,7 @@ from tangermeme._deep_lift_utils import _layer_normalization_grad
 from tangermeme._deep_lift_utils import _layer_normalization_stats
 from tangermeme._deep_lift_utils import _layer_normalization_terms
 from tangermeme._deep_lift_utils import _rescale
+from tangermeme.deep_lift_shap import hypothetical_attributions
 from tangermeme.ersatz import dinucleotide_shuffle
 from tangermeme.utils import validate_input
 
@@ -904,19 +905,19 @@ def convergence_deltas(m, X1h, y_x, y_r, S, K):
 
 def epilogue(m, X1h, y_x, y_r, start, end, S, K):
 	"""The convergence deltas over the full length, and the hypothetical
-	attributions over the window [start, end).
+	attributions over the window [start, end), averaged over each
+	sequence's K references.
 
 	m (S*K, 4, L) holds the multipliers, X1h (S + S*K, 4, L) the joint
-	one-hot rows, and y_x (S,) and y_r (S, K) the attributed outputs.
+	one-hot rows, and y_x (S,) and y_r (S, K) the attributed outputs. The
+	attributions of each pair are tangermeme's `hypothetical_attributions`
+	of its multipliers in the window.
 
 
 	Returns
 	-------
-	hyp: torch.Tensor, shape=(S, K, 4, end - start)
-		The hypothetical attributions, contiguous. For one-hot references (an
-		all-zero N column included) they are bitwise tangermeme's
-		`hypothetical_attributions` sliced to the window: both round once, to
-		fl(m_i - m_b) for the reference base b.
+	attr: torch.Tensor, shape=(S, 4, end - start)
+		Each sequence's mean over its references.
 
 	delta: torch.Tensor, shape=(S, K)
 		`convergence_deltas` of the multipliers.
@@ -928,60 +929,10 @@ def epilogue(m, X1h, y_x, y_r, start, end, S, K):
 			"[0, {})".format(start, end, L))
 
 	delta = convergence_deltas(m, X1h, y_x, y_r, S, K)
-	_, r = split_rows(X1h, S, K)
-	m = m.view(S, K, *m.shape[1:])
-	mw, rw = m[..., start:end], r[..., start:end]
-	hyp = (mw - (rw * mw).sum(dim=-2, keepdim=True)).contiguous()
-	return hyp, delta
-
-
-def mean_over_references(hyp, start, length):
-	"""Each sequence's mean over its K references, on the CPU, bitwise as
-	tangermeme computes it.
-
-	tangermeme stacks a sequence's K full-length hypothetical attributions
-	into a contiguous (K, 4, length) block and takes ``.mean(dim=0)`` on the
-	CPU. The CPU kernel's summation order for a column depends on where the
-	column sits in that block, so each window is written at its own
-	positions into a zeroed (K, 4, length) block, averaged there and sliced.
-	Columns are summed independently, so the zeros outside the window change
-	nothing inside it.
-
-
-	Parameters
-	----------
-	hyp: torch.Tensor, shape=(S, K, 4, W)
-		The windows [start, start + W) of the hypothetical attributions.
-
-	start: int
-		Where the window starts.
-
-	length: int
-		The full input length.
-
-
-	Returns
-	-------
-	attr: torch.Tensor, shape=(S, 4, W)
-		The mean over each sequence's references.
-	"""
-
-	if hyp.device.type != "cpu":
-		raise ValueError("the mean over references runs on the CPU, as "
-			"tangermeme's does; got {}".format(hyp.device))
-
-	S, K, A, W = hyp.shape
-	if not 0 <= start <= start + W <= length:
-		raise ValueError("the window [{}, {}) must lie inside [0, {})".format(
-			start, start + W, length))
-
-	out = hyp.new_empty(S, A, W)
-	block = hyp.new_zeros(K, A, length)
-	for s in range(S):
-		block[:, :, start:start + W] = hyp[s]
-		out[s] = block.mean(dim=0)[:, start:start + W]
-
-	return out
+	x, r = split_rows(X1h[..., start:end], S, K)
+	hyp, = hypothetical_attributions((m[..., start:end],),
+		(x.expand_as(r).flatten(0, 1),), (r.flatten(0, 1),))
+	return hyp.view(S, K, *hyp.shape[1:]).mean(dim=1), delta
 
 
 def precision_flags():
@@ -1230,7 +1181,7 @@ class _StepOutputs(NamedTuple):
 	y_x: torch.Tensor  # (S,) the attributed output of each sequence
 	y_r: torch.Tensor  # (S, K) the attributed output of each reference
 	delta: torch.Tensor  # (S, K) convergence deltas
-	values: torch.Tensor  # run(): (S, K, 4, W) hyp; raw(): (S, K, 4, L) m
+	values: torch.Tensor  # run(): (S, 4, W) attr; raw(): (S, K, 4, L) m
 
 
 class _Rings:
@@ -1255,7 +1206,7 @@ class _Rings:
 				torch.empty(S, dtype=dtype, pin_memory=True),
 				torch.empty(S, K, dtype=dtype, pin_memory=True),
 				torch.empty(S, K, dtype=dtype, pin_memory=True),
-				torch.empty(S, K, *values_shape, dtype=dtype, pin_memory=True),
+				torch.empty(S, *values_shape, dtype=dtype, pin_memory=True),
 			)
 			for _ in range(2)
 		]
@@ -1292,8 +1243,7 @@ class Engine:
 	  sequence and references, and the padded pairs are dropped, so every
 	  step has the same shapes.
 	* `run` takes the hypothetical attributions over the window [start, end)
-	  and averages them over each sequence's K references on the CPU,
-	  bitwise as tangermeme does.
+	  and averages them over each sequence's K references on the device.
 
 	On CUDA:
 
@@ -1314,7 +1264,7 @@ class Engine:
 	  the previous step. The step's inputs are copied to the device on a copy
 	  stream, the step runs, and its results are copied back, non-blocking,
 	  into pinned buffers. The host then waits for the previous step's event,
-	  its one synchronization per step, and averages that step on the CPU
+	  its one synchronization per step, and copies that step's results out
 	  while the device runs this one.
 	* An out-of-memory error in a step empties the allocator's cache, halves
 	  S and retries the step's sequences at the new size. Each halving is
@@ -1586,7 +1536,7 @@ class Engine:
 
 		def consume(a, b, out):
 			n = b - a
-			attr[a:b] = mean_over_references(out.values[:n], start, L)
+			attr[a:b] = out.values[:n]
 			y_x[a:b], y_r[a:b] = out.y_x[:n], out.y_r[:n]
 			deltas[a:b] = out.delta[:n]
 			progress.update(n)
@@ -1730,8 +1680,8 @@ class Engine:
 			delta = convergence_deltas(m, X1h, y_x, y_r, S, K)
 			return _StepOutputs(y_x, y_r, delta, m.view(S, K, *m.shape[1:]))
 
-		hyp, delta = self.epi_c(m, X1h, y_x, y_r, window[0], window[1], S, K)
-		return _StepOutputs(y_x, y_r, delta, hyp)
+		attr, delta = self.epi_c(m, X1h, y_x, y_r, window[0], window[1], S, K)
+		return _StepOutputs(y_x, y_r, delta, attr)
 
 	def _steps_cpu(self, X, references, K, S, G0, window, consume, record):
 		"""The steps on the CPU, one after the other."""
@@ -1798,7 +1748,7 @@ class Engine:
 
 		device = self.weights.device
 		if window is None:
-			values_shape = (4, L)
+			values_shape = (K, 4, L)
 		else:
 			values_shape = (4, window[1] - window[0])
 

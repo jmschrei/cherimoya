@@ -531,6 +531,7 @@ N_SEQUENCES = tiny.N_RANDOM + tiny.N_AT_RICH
 
 RAW_FP64_MAX, RAW_FP32_MEDIAN, RAW_FP32_MAX = 1e-9, 1e-6, 1e-5
 HYP_TOL = {torch.float32: 1e-5, F64: 1e-9}
+WINDOW_TOL = {torch.float32: 1e-6, F64: 1e-14}
 DELTA_FP64 = 1e-9
 CONSERVATION_FP64 = 1e-10
 GRADIENT_TOL = 1e-6
@@ -661,7 +662,9 @@ def test_raw_multipliers_and_deltas_match_tangermeme(config, dtype, kind):
 def test_hypothetical_attributions_match_tangermeme(config, dtype, kind):
 	"""`Engine.run` against deep_lift_shap(hypothetical=True), per sequence,
 	over the full length and the window. The window is the full-length run
-	sliced, bit for bit, and both carry `Engine.raw`'s deltas and outputs."""
+	sliced, to the rounding of the mean over references, whose order of
+	summation depends on the width, and both carry `Engine.raw`'s deltas and
+	outputs."""
 
 	L = tiny.CONFIGS[config].length
 	start, end = _window(config)
@@ -671,7 +674,8 @@ def test_hypothetical_attributions_match_tangermeme(config, dtype, kind):
 	assert full.attr.shape == theirs.shape == (N_SEQUENCES, 4, L)
 	assert window.attr.shape == (N_SEQUENCES, 4, end - start)
 	assert full.attr.dtype == window.attr.dtype == dtype
-	assert torch.equal(window.attr, full.attr[..., start:end])
+	assert float(_rows_rel_l2(window.attr, full.attr[..., start:end]).max()) \
+		<= WINDOW_TOL[dtype]
 
 	raw = _ours_raw(config, dtype, kind)
 	for result in (full, window):
