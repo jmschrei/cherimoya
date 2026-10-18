@@ -16,11 +16,11 @@ from a forward and a backward written out by hand:
 * The backward runs over the sequence half of each pair only. tangermeme's
   rule for a sequence row reads the reference row's activations but never
   its gradient, so the reference half is never needed.
-* The rules are tangermeme's: the rescale rule of `_nonlinear` for every
-  GELU, and the closed-form normalization rule of
-  `_layer_normalization_helper` that `cherimoya.deep_lift_shap.conv_norm_op`
-  applies to `FusedDilatedConvNorm`, with the same expressions in the same
-  order. The references are tangermeme's `dinucleotide_shuffle`, called with
+* The rules are tangermeme's: the rescale rule (`_rescale`) for every
+  GELU, and the closed-form normalization rule that
+  `cherimoya.deep_lift_shap.conv_norm_op` applies to `FusedDilatedConvNorm`
+  (`_layer_normalization_stats`, `_terms` and `_grad`), called as tensor
+  functions. The references are tangermeme's `dinucleotide_shuffle`, called with
   the seeds `deep_lift_shap` uses (`draw_references`).
 
 Only the count head (`LogCountWrapper`) is implemented. The profile head
@@ -67,6 +67,10 @@ import numpy
 import torch
 import torch.nn.functional as F
 
+from tangermeme._deep_lift_utils import _layer_normalization_grad
+from tangermeme._deep_lift_utils import _layer_normalization_stats
+from tangermeme._deep_lift_utils import _layer_normalization_terms
+from tangermeme._deep_lift_utils import _rescale
 from tangermeme.ersatz import dinucleotide_shuffle
 from tangermeme.utils import validate_input
 
@@ -125,10 +129,6 @@ or where compiled code is cached."""
 
 ICONV_KERNEL, ICONV_PADDING = 21, 10
 FCONV_KERNEL, FCONV_PADDING = 75, 37
-
-RESCALE_EPS = 1e-6
-"""The rescale rule takes the plain gradient where |z_x - z_r| < RESCALE_EPS,
-strictly, as tangermeme's `_nonlinear` does."""
 
 DEFAULT_HEAD_ROWS = 128
 """Rows of the head that `counts_cotangent` differentiates: 2 x 64, the
@@ -546,34 +546,17 @@ def dw3(h, cw, d):
 		+ hp[..., 2 * d:2 * d + L, :] * cw[2])
 
 
-def rule_stats(y, eps):
-	"""The statistics of the normalization rule over each row's (L, C)
-	plane: (mu, y - mu, v), with the reduced axes kept.
-
-	The expressions are those of tangermeme's `_layer_normalization_helper`,
-	applied as `cherimoya.deep_lift_shap._ConvNormView` sets it up:
-	normalized over the trailing two axes, eps 1e-3. They are computed in
-	y's dtype.
-	"""
-
-	mu = y.mean(dim=(-2, -1), keepdim=True)
-	a = y - mu
-	var = (a**2).mean(dim=(-2, -1), keepdim=True)
-	v = (var + eps) ** (-0.5)
-	return mu, a, v
-
-
 def norm_two_pass(y, eps):
-	"""The forward's normalization with the rule's own two-pass statistics:
-	(yhat, mu, v), mu and v with the reduced axes kept.
+	"""The forward's normalization over each row's (L, C) plane with the
+	rule's own statistics, tangermeme's `_layer_normalization_stats`: (yhat,
+	mu, v), with yhat = (y - mu) * v and the reduced axes kept.
 
-	yhat = (y - mu) * v over each row's (L, C) plane. The model's Triton
-	forward computes the variance as E[y^2] - mean^2 instead; on zero-mean
-	input the two agree to about 1e-6.
+	The model's Triton forward computes the variance as E[y^2] - mean^2
+	instead; on zero-mean input the two agree to about 1e-6.
 	"""
 
-	mu, a, v = rule_stats(y, eps)
-	return a * v, mu, v
+	mu, v = _layer_normalization_stats(y, 2, eps)
+	return (y - mu) * v, mu, v
 
 
 def _cpu_norm(y, eps):
@@ -614,9 +597,9 @@ def forward_save(z0, blocks, rs, eps, stats):
 	* "one_pass": y from `dw3`, normalized with the Triton forward's formula.
 	  Diagnostic only.
 
-	In every mode the saved mu and v are the rule's two-pass statistics, in
-	the model's dtype. On CUDA this function runs compiled; nothing in it
-	may break the graph.
+	In every mode the saved mu and v are the rule's statistics, in the
+	model's dtype. On CUDA this function runs compiled; nothing in it may
+	break the graph.
 
 
 	Returns
@@ -644,7 +627,7 @@ def forward_save(z0, blocks, rs, eps, stats):
 		if stats == "two_pass":
 			yhat, mu, v = norm_two_pass(y, eps)
 		else:
-			mu, _, v = rule_stats(y, eps)
+			mu, v = _layer_normalization_stats(y, 2, eps)
 			if stats == "cpu_mirror":
 				yhat = _cpu_norm(y, eps)
 			else:
@@ -791,15 +774,13 @@ def split_rows(t, S, K):
 
 def gelu_rescale(G, z, S, K):
 	"""The rescale rule through GELU(tanh) on the sequence half: tangermeme's
-	`_nonlinear`.
+	`_rescale`, as its `_nonlinear` applies it.
 
 	G (S, K, ...) is each pair's gradient at the GELU's output, and z
 	(S + S*K, ...) the GELU's input over the joint rows. The result,
-	(S, K, ...), is the gradient at the GELU's input:
-
-	* G times the secant (gelu(z_x) - gelu(z_r)) / (z_x - z_r);
-	* where |z_x - z_r| < 1e-6, strictly, the plain gradient instead: what
-	  nn.GELU's autograd hands tangermeme, gelu_backward(G, z_x).
+	(S, K, ...), is the gradient at the GELU's input: G times the secant,
+	or, where the input barely moves, the plain gradient that nn.GELU's
+	autograd hands tangermeme, gelu_backward(G, z_x).
 
 	The GELU's outputs are recomputed from z over all rows at once, as the
 	forward computed them, so the secants use the forward's own values.
@@ -807,13 +788,9 @@ def gelu_rescale(G, z, S, K):
 
 	zx, zr = split_rows(z, S, K)
 	gx, gr = split_rows(F.gelu(z, approximate="tanh"), S, K)
-	din = zx - zr
-	small = din.abs() < RESCALE_EPS
-	# The masked entries are never used; this keeps them finite.
-	secant = (gx - gr) / din.masked_fill(small, 1.0)
 	gradient = torch.ops.aten.gelu_backward(G, zx.expand_as(G),
 		approximate="tanh")
-	return torch.where(small, gradient, G * secant)
+	return _rescale(zx - zr, gx - gr, gradient, G)
 
 
 def ln_rule(Gn, y, mu, v, S, K):
@@ -821,27 +798,22 @@ def ln_rule(Gn, y, mu, v, S, K):
 
 	`cherimoya.deep_lift_shap.conv_norm_op` applies tangermeme's
 	`_layer_normalization_helper` to the depthwise convolution's output: the
-	whole (L, C) plane of each row, D = L * C, eps 1e-3, no affine weight.
-	The helper's gamma of 1.0 multiplies exactly and is left out.
+	whole (L, C) plane of each row, with no affine weight. This applies the
+	helper's tensor functions, `_layer_normalization_terms` and
+	`_layer_normalization_grad`, to each sequence row broadcast against its
+	K reference rows.
 
 	Gn (S, K, L, C) is each pair's gradient at the normalization's output, y
 	(S + S*K, L, C) its input over the joint rows, and mu and v (S + S*K,)
-	the statistics of `rule_stats`. Returns the gradient at y, (S, K, L, C),
-	with the helper's expressions in the helper's order.
+	its statistics, saved by the forward. Returns the gradient at y,
+	(S, K, L, C).
 	"""
 
-	L, C = y.shape[-2:]
-	D = L * C
 	yx, yr = split_rows(y, S, K)
 	mx, mr = (t[..., None, None] for t in split_rows(mu, S, K))
 	vx, vr = (t[..., None, None] for t in split_rows(v, S, K))
-	v_avg = (vx + vr) / 2
-	a_sum = (yx - mx) + (yr - mr)
-	ratio = (-(vx**2) * (vr**2)) / (2 * v_avg)
-	variance_term = ratio * a_sum / (2 * D)
-	term1 = v_avg * (Gn - Gn.mean(dim=(-2, -1), keepdim=True))
-	dot = (Gn * a_sum).sum(dim=(-2, -1), keepdim=True)
-	return term1 + variance_term * dot
+	terms = _layer_normalization_terms(yx, mx, vx, yr, mr, vr, 2)
+	return _layer_normalization_grad(Gn, *terms, 2)
 
 
 def dw3_t(G, cw, d):

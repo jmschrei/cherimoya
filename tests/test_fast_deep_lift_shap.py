@@ -537,6 +537,7 @@ CONSERVATION_FP64 = 1e-10
 GRADIENT_TOL = 1e-6
 STEP_TOL = 1e-12
 RULES_MIN = 0.1
+RESCALE_EPS = 1e-6  # where tangermeme's rescale rule takes the plain gradient
 
 # Every kind of reference on the small configs A and B; shuffled ones, the
 # default engine's, on C, whose float64 oracle takes seconds per call.
@@ -725,7 +726,7 @@ def test_near_identical_references_take_the_gradient_fallback(config):
 	sites = [fwd.z0] + [saved.u for saved in fwd.saved]
 	for z in sites:
 		zx, zr = fdls.split_rows(z, N_SEQUENCES, K)
-		assert int(((zx - zr).abs() < fdls.RESCALE_EPS).sum()) >= 1
+		assert int(((zx - zr).abs() < RESCALE_EPS).sum()) >= 1
 
 	theirs = _theirs(config, F64, "mutated", True).attributions
 	ours = _ours_raw(config, F64, "mutated").m

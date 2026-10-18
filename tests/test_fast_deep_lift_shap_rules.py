@@ -61,6 +61,7 @@ CONFIG_NAMES = list(tiny.CONFIGS)
 S, K = 2, 3
 
 LN_TOL = 1e-13
+RESCALE_EPS = 1e-6  # where tangermeme's rescale rule takes the plain gradient
 DW3_TOL = 1e-14
 COMPOSITE_TOL = 1e-13
 
@@ -156,7 +157,7 @@ def test_gelu_rescale_matches_tangermeme_nonlinear(dz):
 	sign = torch.randint(0, 2, (n_s, n_k, *inner), generator=gen).to(F64)
 	zr = zx.unsqueeze(1) - (sign * 2 - 1) * dz
 	din = zx.unsqueeze(1) - zr
-	small = dz < fdls.RESCALE_EPS
+	small = dz < RESCALE_EPS
 	if dz == 1e-6:
 		assert torch.equal(din.abs(), torch.full_like(din, 1e-6))
 
@@ -227,7 +228,7 @@ def test_ln_rule_matches_layer_normalization_helper(config):
 
 	errs = []
 	for y in ys:
-		mu, _, v = fdls.rule_stats(y, w.eps)
+		_, mu, v = fdls.norm_two_pass(y, w.eps)
 		Gn = torch.randn((S, K, L, C), generator=gen, dtype=F64)
 		G_ref_half = torch.randn((S * K, L, C), generator=gen, dtype=F64)
 		ours = fdls.ln_rule(Gn, y, mu.view(R), v.view(R), S, K)
