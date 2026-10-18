@@ -193,9 +193,6 @@ the ``cherimoya`` CLI:
    * - ``tests/test_fast_deep_lift_shap_rules.py``
      - Each of the engine's backward rules against the tangermeme or
        cherimoya function it replaces.
-   * - ``tests/test_fast_deep_lift_shap_references.py``
-     - The engine's references, bit for bit tangermeme's dinucleotide
-       shuffles, drawn in a pool of worker processes.
    * - ``tests/test_fast_deep_lift_shap_cuda.py``
      - The engine on a GPU: compiled passes against eager ones and the
        GPU against the CPU, both against float64; one synchronization per

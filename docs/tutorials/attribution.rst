@@ -184,10 +184,11 @@ mean over references. What changes is how they are computed:
   only. DeepLIFT's rule for a sequence reads the reference's activations
   but never the reference's gradient, so the reference half is never
   needed.
-* The forward, the backward rules and the final projection are written out
-  by hand and, on a GPU, compiled with ``torch.compile``; the references
-  are drawn in worker processes ahead of the GPU, and the host waits for
-  the GPU once per step.
+* The forward and backward passes are written out by hand, applying
+  tangermeme's rule functions and hypothetical projection, and, on a GPU,
+  compiled with ``torch.compile``. Each step's references are drawn with
+  one call to tangermeme's ``dinucleotide_shuffle`` while the GPU runs the
+  previous step, and the host waits for the GPU once per step.
 
 .. code-block:: json
 
@@ -226,8 +227,9 @@ engine's, against 7.0e-5 to 8.4e-5 between two runs of the default engine.
 The fast engine is therefore checked on every run against fixed tolerances
 set above that noise, rather than for equality (below).
 
-The engine reproduces tangermeme's rules, so it is tied to the tangermeme
-it was validated against: tangermeme 1.5.0
+The engine calls tangermeme's rules, shuffle and projection and reproduces
+how ``deep_lift_shap`` applies them, so it is tied to the tangermeme it was
+validated against: tangermeme 1.5.1
 (``cherimoya.fast_deep_lift_shap.VALIDATED_TANGERMEME_VERSIONS``). With
 another release it runs and warns; its audit then compares it with that
 release's ``deep_lift_shap``.
@@ -240,12 +242,11 @@ Every run checks itself twice:
    nothing is written.
 2. **An audit**, after the outputs are written: ``audit`` evenly spaced
    sequences (8 by default; 0 turns it off) are attributed again with
-   tangermeme's ``deep_lift_shap``, given the references the engine used,
-   which are first compared bit for bit with tangermeme's own draw. A
-   sequence whose attributions have a Pearson correlation below 0.9999, or
-   a relative L2 distance above 1e-2, with tangermeme's, or references
-   that are not tangermeme's, fail the run with ``AuditFailed``; a median
-   distance above 3e-4 warns.
+   tangermeme's ``deep_lift_shap``, with the engine's ``random_state``, so
+   that it draws the same references. A sequence whose attributions have a
+   Pearson correlation below 0.9999, or a relative L2 distance above 1e-2,
+   with tangermeme's fails the run with ``AuditFailed``; a median distance
+   above 3e-4 warns.
 
 Besides the three files, the fast engine writes two next to
 ``attr_filename``, without its ``.npz``: ``.deltas.npy``, the convergence
@@ -264,8 +265,6 @@ Its options, all ignored by the default engine (see :doc:`../cli`):
   default) and 0.6 of the GPU memory this process can use, at most 32
   sequences, and 8 sequences on the CPU. A step that runs out of memory is
   halved and retried. ``batch_size`` does not size the fast engine's steps.
-* ``ref_workers`` — processes drawing the references; ``null`` (default)
-  is min(8, CPUs - 2), at least 1, and 0 draws them in the main process.
 * ``audit`` — sequences the audit attributes again.
 
 From Python, the engine takes the model and returns the attributions over
@@ -283,10 +282,6 @@ shape ``(n, 4, end - start)``:
    mid = X.shape[-1] // 2
    result = engine.run(X, mid - 200, mid + 200)
    X_attr = result.attr
-
-The reference workers are spawned processes, so a script that calls
-``Engine.run`` needs the ``if __name__ == "__main__":`` guard that any
-spawned multiprocessing needs; ``ref_workers=0`` avoids them.
 
 
 Saturation mutagenesis instead of DeepLIFT/SHAP

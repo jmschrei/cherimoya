@@ -12,22 +12,23 @@ Attribution
   computes what tangermeme's ``deep_lift_shap`` computes with Cherimoya's
   rules, up to floating-point rounding: the same rules, the same
   dinucleotide-shuffled references with the same seeds, and the same
-  hypothetical projection. It forwards each sequence once rather than
+  hypothetical projection, each called from tangermeme
+  (``tangermeme >= 1.5.1``). It forwards each sequence once rather than
   once per reference, runs the backward over the sequence half of each
-  pair only, and compiles its passes on a GPU. In an interleaved
-  benchmark on one H100 shared with four, then five, other processes
-  (three of them training runs), it attributed 948 sequence-reference
-  pairs per second at steady state, with ``mem_budget_gb`` 7.5 and
-  ``ref_workers`` 3, against the default engine's 106 at a
-  ``batch_size`` of 20.
+  pair only, and compiles its passes on a GPU. On an otherwise idle H200,
+  with 1,000 peaks of 2,114 bp and 20 shuffles each, it attributed 7,740
+  sequence-reference pairs per second at steady state
+  with a 128-filter, 9-layer model, against 374 to 433 for the default
+  engine at a ``batch_size`` of 64 after a warm-up, and 1,406 against 167
+  with a 512-filter model.
   Every run compares its forward with the model's before it starts and,
   after writing its outputs, attributes 8 evenly spaced sequences again
   with ``deep_lift_shap`` to compare (``audit``). It also writes the
   convergence deltas and a record of the run next to ``attr_filename``.
   The default engine is unchanged, and the profile head and saturation
   mutagenesis always use it. New keys: ``engine``, ``precision``,
-  ``seqs_per_step``, ``mem_budget_gb``, ``ref_workers`` and ``audit``;
-  ``engine`` is also in the pipeline's ``attribute_parameters``.
+  ``seqs_per_step``, ``mem_budget_gb`` and ``audit``; ``engine`` is
+  also in the pipeline's ``attribute_parameters``. Thanks @emattei!
 
 CLI and pipeline
 ~~~~~~~~~~~~~~~~

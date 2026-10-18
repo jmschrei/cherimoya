@@ -24,8 +24,7 @@ Common conventions
   will produce. The exceptions are the keys that are optional by
   design, which may simply be left out: ``controls``, ``model``,
   ``motifs``, ``exclusion_lists``, ``early_stopping``,
-  ``loss_weights``, ``progress_bar``, ``warning_threshold`` and
-  ``ref_workers``.
+  ``loss_weights``, ``progress_bar`` and ``warning_threshold``.
 * The ``fit``, ``evaluate``, ``attribute``, ``seqlets`` and
   ``marginalize`` JSONs accept ``"skip": true`` to no-op the step. In
   the ``pipeline`` JSON, a top-level ``"skip": true`` no-ops the whole
@@ -533,8 +532,8 @@ attribute_parameters
        ``"output": "profile"``, ``"fast"`` warns and the default engine
        runs.
        Saturation mutagenesis ignores it. ``"fast"`` needs ``dtype``
-       ``"float32"`` or ``null``, and was validated with tangermeme
-       1.5.0; another tangermeme release warns.
+       ``"float32"`` or ``null``, and tangermeme 1.5.1, which it was
+       validated with; another tangermeme release warns.
    * - ``precision``
      - ``"tf32"``
      - ``"fast"`` engine only. ``"tf32"``: matrix products and
@@ -551,16 +550,12 @@ attribute_parameters
      - 12.0
      - ``"fast"`` engine only. The GPU memory, in GB of 1e9 bytes, that
        ``"auto"`` plans a step for.
-   * - ``ref_workers``
-     - ``null``
-     - ``"fast"`` engine only. Processes that draw the references ahead
-       of the GPU. ``null`` is min(8, CPUs - 2), at least 1; 0 draws them in
-       the main process.
    * - ``audit``
      - 8
      - ``"fast"`` engine only. Evenly spaced sequences that tangermeme's
        ``deep_lift_shap`` attributes again after the run, with the
-       engine's references, to compare; 0 turns the audit off. A
+       engine's ``random_state`` and so the same references, to compare;
+       0 turns the audit off. A
        sequence beyond the bounds fails the run after the outputs are
        written.
 
@@ -941,21 +936,13 @@ With ``"engine": "fast"`` the command also writes, next to
 ``attr_filename`` without its ``.npz``, ``.deltas.npy`` (the convergence
 delta of every sequence-reference pair) and ``.meta.json`` (a record of
 the run, its self-check and its audit), and a failed audit raises after
-every file is written. Before it imports Cherimoya and tangermeme, it sets
-two environment variables that are unset:
-
-* ``NUMBA_CACHE_DIR`` to ``numba_cache_<user>`` in the temporary
-  directory. tangermeme compiles its numba shuffle kernel, with caching
-  on, when it is imported, and the engine's reference workers load it from
-  that cache rather than compiling it themselves.
-* ``TRITON_CACHE_AUTOTUNING`` to ``1``, so that Triton keeps the
-  autotuning results of Cherimoya's kernels, which the self-check and the
-  audit run, and a later run on the same machine does not autotune them
-  again.
-
-A value already set is kept. Run as a step of ``cherimoya pipeline``,
-which has imported both packages by then, the variables reach only the
-reference workers.
+every file is written. Before it imports Cherimoya, it sets
+``TRITON_CACHE_AUTOTUNING`` to ``1`` if it is unset, so that Triton keeps
+the autotuning results of Cherimoya's kernels, which the self-check and
+the audit run, and a later run on the same machine does not autotune them
+again. A value already set is kept. Run as a step of ``cherimoya
+pipeline``, which has imported Cherimoya by then, the variable comes too
+late to take effect.
 
 
 cherimoya seqlets
