@@ -485,7 +485,7 @@ def test_stem_rule_and_input_multipliers(config):
 		assert _rel_l2(ours, ref[:S * K]) <= COMPOSITE_TOL
 
 		with torch.no_grad():
-			m = fdls.input_multipliers(ours, rows[S:], w.W0)
+			m = fdls.input_multipliers(ours, w.W0)
 
 		leaf = rows[S:].clone().requires_grad_()
 		with torch.enable_grad():

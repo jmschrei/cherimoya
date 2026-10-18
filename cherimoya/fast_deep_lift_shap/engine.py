@@ -77,6 +77,7 @@ from tangermeme.utils import validate_input
 
 from ..cheri import CONV_NORM_EPS
 from ..cheri import _cheri_conv
+from ..cheri import _cheri_conv_norm_cpu
 from ..cherimoya import Cherimoya
 from ..wrappers import ControlWrapper
 from ..wrappers import LogCountWrapper
@@ -554,19 +555,6 @@ def norm_two_pass(y, eps):
 	return (y - mu) * v, mu, v
 
 
-def _cpu_norm(y, eps):
-	"""The model's CPU normalization (`cherimoya.cheri._cheri_conv_norm_cpu`)
-	verbatim, its float32 cast included even for float64."""
-
-	N, L, C = y.shape
-	flat = y.reshape(N, -1).float()
-	mean = flat.mean(dim=1, keepdim=True)
-	var = flat.var(dim=1, keepdim=True, unbiased=False)
-	rstd = (var + eps).rsqrt()
-	flat = (flat - mean) * rstd
-	return flat.reshape(N, L, C).to(y.dtype)
-
-
 def _one_pass_norm(y, eps):
 	"""The Triton forward's formula: var = E[y^2] - mean^2, rstd =
 	1 / sqrt(var + eps)."""
@@ -624,7 +612,8 @@ def forward_save(z0, blocks, rs, eps, stats):
 		else:
 			mu, v = _layer_normalization_stats(y, 2, eps)
 			if stats == "cpu_mirror":
-				yhat = _cpu_norm(y, eps)
+				# The model's CPU path, which computes the convolution again.
+				yhat = _cheri_conv_norm_cpu(h, cw, d, eps)
 			else:
 				yhat = _one_pass_norm(y, eps)
 
@@ -810,17 +799,10 @@ def ln_rule(Gn, y, mu, v, S, K):
 
 def dw3_t(G, cw, d):
 	"""The transpose of `dw3`, i.e. the depthwise convolution's input
-	gradient, as a shift-add.
+	gradient: `dw3` with the taps reversed, ``g[l] = cw[2] * G[l - d] +
+	cw[1] * G[l] + cw[0] * G[l + d]``."""
 
-	G has shape (..., L, C). ``g[l] = cw[1] * G[l] + cw[0] * G[l + d] +
-	cw[2] * G[l - d]``, with zeros outside [0, L), in the term order of the
-	Triton backward.
-	"""
-
-	L = G.shape[-2]
-	Gp = F.pad(G, (0, 0, d, d))
-	return (Gp[..., d:d + L, :] * cw[1] + Gp[..., 2 * d:2 * d + L, :] * cw[0]
-		+ Gp[..., :L, :] * cw[2])
+	return dw3(G, cw.flip(0), d)
 
 
 def bwd_block(G, saved, block, rs, S, K):
@@ -853,19 +835,17 @@ def stem_rule(G, z0, S, K):
 	return Gz.reshape(S * K, *Gz.shape[-2:]).contiguous()
 
 
-def input_multipliers(Gz, X_refs, W0):
+def input_multipliers(Gz, W0):
 	"""iconv's input gradient: the multipliers m (S*K, 4, L) at the one-hot
-	input.
+	input, from the gradient Gz (S*K, C, L) at iconv's output.
 
-	This is the call autograd makes for ``F.conv1d(X, W0, b0, padding=10)``
-	when only the input needs a gradient: `aten.convolution_backward` with
-	the output mask (True, False, False). X_refs, the reference rows
-	(S*K, 4, L), is a real contiguous tensor of the input's shape; the input
-	gradient does not read its values.
+	`torch.nn.grad.conv1d_input` makes the call autograd makes for
+	``F.conv1d(X, W0, b0, padding=10)`` when only the input needs a
+	gradient.
 	"""
 
-	return torch.ops.aten.convolution_backward(Gz, X_refs, W0, None, [1],
-		[ICONV_PADDING], [1], False, [0], 1, [True, False, False])[0]
+	shape = (Gz.shape[0], W0.shape[1], Gz.shape[-1])
+	return torch.nn.grad.conv1d_input(shape, W0, Gz, padding=ICONV_PADDING)
 
 
 def backward_pass(G0, saved, z0, blocks, rs, S, K):
@@ -1629,7 +1609,7 @@ class Engine:
 		del hL
 		Gz = self.bwd_c(G0, saved, z0, w.blocks, w.rs, S, K)
 		del saved, z0
-		m = input_multipliers(Gz, X1h[S:], w.W0)
+		m = input_multipliers(Gz, w.W0)
 		del Gz
 		y_x, y_r = y[:S], y[S:].view(S, K)
 		if window is None:
