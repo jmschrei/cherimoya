@@ -292,11 +292,10 @@ def test_counts_cotangent_is_autograd_through_the_real_head(config, group,
 		handle.remove()
 
 	assert expected.shape == (len(X1h), L, w.C)
-	for rows in (len(X1h), fdls.DEFAULT_HEAD_ROWS):
-		ours = fdls.counts_cotangent(w, group=group, length=L, rows=rows)
-		assert ours.shape == (L, w.C) and ours.dtype == dtype
-		assert ours.is_contiguous()
-		assert torch.equal(expected, ours.expand_as(expected))
+	ours = fdls.counts_cotangent(w, group=group, length=L)
+	assert ours.shape == (L, w.C) and ours.dtype == dtype
+	assert ours.is_contiguous()
+	assert torch.equal(expected, ours.expand_as(expected))
 
 	# The count Linear's row over the trimmed mean, zero outside [T, L - T).
 	row = w.Wl[0 if group is None else group, :w.C]
@@ -307,15 +306,11 @@ def test_counts_cotangent_is_autograd_through_the_real_head(config, group,
 
 def test_counts_cotangent_arguments():
 	w = fdls.CheriWeights.from_model(tiny.tiny_model("B"))
-	with torch.no_grad():
-		# The engine runs under no_grad; the cotangent enables grad itself.
+	with torch.inference_mode():
 		assert fdls.counts_cotangent(w, group=1, length=200).shape == (200, 8)
 
-	with torch.inference_mode(), pytest.raises(RuntimeError, match="inference"):
-		fdls.counts_cotangent(w, group=1, length=200)
-
-	with pytest.raises(ValueError, match="rows"):
-		fdls.counts_cotangent(w, group=1, length=200, rows=0)
+	with pytest.raises(ValueError, match="length"):
+		fdls.counts_cotangent(w, group=1)
 
 	with pytest.raises(ValueError, match="group"):
 		fdls.counts_cotangent(w, group=2, length=200)

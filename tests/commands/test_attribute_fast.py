@@ -219,7 +219,6 @@ def test_the_fast_engine_matches_the_default_engine(inputs, default_runs,
 	meta = json.loads(meta_file.read_text())
 	assert meta["engine"] == "fast" and meta["precision"] == "tf32"
 	assert meta["n_shuffles"] == N_SHUFFLES
-	assert meta["head_rows"] == 2 * batch_size
 	assert meta["random_state"] == 0 and meta["random_state_drawn"] is False
 	assert meta["forward_stats"] == "cpu_mirror" and meta["compile"] == "none"
 	assert meta["inputs"] == {"loci": len(LOCI), "kept": int(KEPT.sum()),

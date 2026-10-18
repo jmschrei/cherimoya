@@ -34,7 +34,6 @@ from . import fast_deep_lift_shap_helpers as tiny
 pytestmark = pytest.mark.cuda
 
 K = 5
-HEAD_ROWS = 14
 MEM_BUDGET_GB = 4.0
 ACCURACY_FACTORS = {"median": 1.2, "max": 2.0}
 SANITY_MAX = 1e-3
@@ -86,8 +85,7 @@ def _tiny_engine(config, **kwargs):
 	model = tiny.tiny_model(config)
 	kwargs.setdefault("device", "cuda")
 	kwargs.setdefault("mem_budget_gb", MEM_BUDGET_GB)
-	return fdls.Engine(model, group=tiny.CONFIGS[config].group,
-		head_rows=HEAD_ROWS, **kwargs)
+	return fdls.Engine(model, group=tiny.CONFIGS[config].group, **kwargs)
 
 
 def _rows_rel_l2(a, b):
@@ -106,7 +104,7 @@ def _truth(config, kind):
 		X, R = _case(config, kind)
 		model = tiny.tiny_model(config, dtype=torch.float64)
 		engine = fdls.Engine(model, group=tiny.CONFIGS[config].group,
-			head_rows=HEAD_ROWS, forward_stats="two_pass")
+			forward_stats="two_pass")
 		_TRUTH[config, kind] = engine.raw(X, R)
 
 	return _TRUTH[config, kind]

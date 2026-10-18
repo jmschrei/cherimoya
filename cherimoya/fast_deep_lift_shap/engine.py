@@ -130,10 +130,6 @@ or where compiled code is cached."""
 ICONV_KERNEL, ICONV_PADDING = 21, 10
 FCONV_KERNEL, FCONV_PADDING = 75, 37
 
-DEFAULT_HEAD_ROWS = 128
-"""Rows of the head that `counts_cotangent` differentiates: 2 x 64, the
-default engine's full batch at its default `batch_size`."""
-
 AUTO_SEQS_PER_STEP = 8
 """Sequences per step for `seqs_per_step="auto"` on the CPU. On CUDA "auto"
 sizes steps from the memory the process can use."""
@@ -661,16 +657,9 @@ def head_forward(hL, w, output="counts", group=0):
 	if output != "counts":
 		raise ValueError("output must be either `counts` or `profile`.")
 
-	if group is not None and (isinstance(group, bool)
-			or not isinstance(group, int) or not 0 <= group < w.n_groups):
-		raise ValueError("group must be None or an int in [0, {}), got "
-			"{!r}".format(w.n_groups, group))
-
 	R, L, _ = hL.shape
 	T = w.T
-	if L <= 2 * T:
-		raise ValueError("input length {} leaves no positions after trimming "
-			"{} from each end".format(L, T))
+	_check_head(w, group, L)
 
 	H = hL.transpose(1, 2).contiguous()
 	pooled = torch.mean(H[:, :, T:L - T].to(w.Wl.dtype), dim=2)
@@ -708,37 +697,41 @@ def model_forward(X1h, w, forward_stats="auto", output="counts", group=0):
 	return Forward(y, z0, hL, saved)
 
 
-def counts_cotangent(w, group=0, length=None, rows=DEFAULT_HEAD_ROWS):
+def _check_head(w, group, length):
+	"""Raise a ValueError for a group the count head lacks, or an input
+	length that trimming leaves empty."""
+
+	if group is not None and (isinstance(group, bool)
+			or not isinstance(group, int) or not 0 <= group < w.n_groups):
+		raise ValueError("group must be None or an int in [0, {}), got "
+			"{!r}".format(w.n_groups, group))
+
+	if length <= 2 * w.T:
+		raise ValueError("input length {} leaves no positions after trimming "
+			"{} from each end".format(length, w.T))
+
+
+def counts_cotangent(w, group=0, length=None):
 	"""The gradient of the attributed count with respect to the final
 	residual stream, (L, C), which every row shares.
 
-	It is autograd's gradient of ``y.sum()`` through `head_forward`, which
-	runs the model's own head operations on the model's layout, at `rows`
-	rows. With `rows` set to 2 x the default engine's `batch_size`, the
-	count Linear's backward is the same matrix product, over the same number
-	of rows, as there. The result is zero outside [T, L - T). Compute it once
-	per model and broadcast it over the pairs. It turns grad mode on for
-	itself, so the engine can run under no_grad, but not under
-	torch.inference_mode().
+	The count head averages the stream over positions [T, L - T) and applies
+	the count Linear; the control tracks' feature is a constant. Its
+	gradient is therefore the attributed group's row of the count Linear,
+	divided by the number of positions averaged, at those positions, and
+	zero elsewhere. Compute it once per input length and broadcast it over
+	the pairs.
 	"""
 
 	if length is None:
 		raise ValueError("counts_cotangent needs the input length")
 
-	if torch.is_inference_mode_enabled():
-		raise RuntimeError("counts_cotangent needs autograd, which "
-			"torch.inference_mode() switches off")
-
-	if rows < 1:
-		raise ValueError("rows must be at least 1, got {}".format(rows))
-
-	with torch.enable_grad():
-		hL = torch.zeros(rows, length, w.C, device=w.device, dtype=w.dtype,
-			requires_grad=True)
-		y = head_forward(hL, w, output="counts", group=group)
-		grad, = torch.autograd.grad(y.sum(), hL)
-
-	return grad[0].contiguous()
+	_check_head(w, group, length)
+	T = w.T
+	G0 = torch.zeros(length, w.C, device=w.device, dtype=w.dtype)
+	G0[T:length - T] = w.Wl[0 if group is None else group, :w.C] / (
+		length - 2 * T)
+	return G0
 
 
 def draw_references(X, n_shuffles, random_state):
@@ -1361,11 +1354,6 @@ class Engine:
 		base seed once, records it, and makes the run reproducible from it.
 		Default is 0.
 
-	head_rows: int, optional
-		The rows of the head `counts_cotangent` differentiates. `cherimoya
-		attribute` passes 2 x its `batch_size`, the default engine's full
-		batch; nothing else depends on it. Default is 128.
-
 	seqs_per_step: int or str, optional
 		S, or "auto": on CUDA the largest S whose `step_bytes` fits both
 		`mem_budget_gb` and 0.6 of the device memory this process can use, at
@@ -1400,7 +1388,7 @@ class Engine:
 
 	def __init__(self, model, output="counts", group=0, device=None,
 		precision="tf32", n_shuffles=20, random_state=0,
-		head_rows=DEFAULT_HEAD_ROWS, seqs_per_step="auto", mem_budget_gb=12.0,
+		seqs_per_step="auto", mem_budget_gb=12.0,
 		compile="auto", forward_stats="auto", warning_threshold=1e-3,
 		deterministic=False):
 
@@ -1443,7 +1431,6 @@ class Engine:
 		self.compile = resolve_compile(compile, self.weights.device)
 		self.mem_budget_gb = float(mem_budget_gb)
 		self.n_shuffles = _positive_int(n_shuffles, "n_shuffles")
-		self.head_rows = _positive_int(head_rows, "head_rows")
 		if seqs_per_step != "auto":
 			seqs_per_step = _positive_int(seqs_per_step, "seqs_per_step",
 				"'auto' or ")
@@ -1471,7 +1458,6 @@ class Engine:
 		self.warning_threshold = (None if warning_threshold is None
 			else float(warning_threshold))
 
-		self._cotangents = {}
 		self._copy_stream = None
 
 		passes = (forward_save, backward_pass, epilogue)
@@ -1694,7 +1680,7 @@ class Engine:
 			record["precision_flags"] = flags
 			record["references"] = ("produced" if references is None
 				else "injected")
-			G0 = self._counts_cotangent(L)
+			G0 = counts_cotangent(self.weights, self.group, L)
 			if cuda:
 				S = self._warm_up(S, K, L, G0, window, record)
 				self._steps_cuda(X, references, K, L, S, G0, window, consume,
@@ -1979,16 +1965,6 @@ class Engine:
 
 		return X, R.to(device="cpu", dtype=torch.int8), R.shape[1]
 
-	def _counts_cotangent(self, length):
-		"""`counts_cotangent` at the input length, computed once per
-		length."""
-
-		if length not in self._cotangents:
-			self._cotangents[length] = counts_cotangent(self.weights,
-				group=self.group, length=length, rows=self.head_rows)
-
-		return self._cotangents[length]
-
 	def _describe(self, N, L, K, S):
 		return {
 			"output": self.output,
@@ -1999,7 +1975,6 @@ class Engine:
 			"compile": self.compile,
 			"deterministic": self.deterministic,
 			"forward_stats": self.forward_stats,
-			"head_rows": self.head_rows,
 			"n_sequences": N,
 			"length": L,
 			"n_shuffles": K,

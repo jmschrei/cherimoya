@@ -527,7 +527,6 @@ def test_the_oracle_returns_tangermemes_deltas_in_pair_order():
 
 
 ORACLE_BATCH = 7
-HEAD_ROWS = 2 * ORACLE_BATCH
 N_SEQUENCES = tiny.N_RANDOM + tiny.N_AT_RICH
 
 RAW_FP64_MAX, RAW_FP32_MEDIAN, RAW_FP32_MAX = 1e-9, 1e-6, 1e-5
@@ -577,12 +576,10 @@ def _window(config):
 
 
 def _engine(config, dtype, **kwargs):
-	"""An Engine on a fresh tiny model, attributing the config's group, with
-	the oracle's head rows."""
+	"""An Engine on a fresh tiny model, attributing the config's group."""
 
 	model = tiny.tiny_model(config, dtype=dtype)
-	return fdls.Engine(model, group=tiny.CONFIGS[config].group,
-		head_rows=HEAD_ROWS, **kwargs)
+	return fdls.Engine(model, group=tiny.CONFIGS[config].group, **kwargs)
 
 
 @functools.cache
@@ -836,10 +833,9 @@ def test_engine_arguments():
 		with pytest.raises(ValueError, match="seqs_per_step"):
 			fdls.Engine(model, group=1, seqs_per_step=bad)
 
-	for name in ("n_shuffles", "head_rows"):
-		for bad in (0, 1.5, True):
-			with pytest.raises(ValueError, match=name):
-				fdls.Engine(model, group=1, **{name: bad})
+	for bad in (0, 1.5, True):
+		with pytest.raises(ValueError, match="n_shuffles"):
+			fdls.Engine(model, group=1, n_shuffles=bad)
 
 	with pytest.raises(ValueError, match="forward_stats"):
 		fdls.Engine(model, group=1, forward_stats="three_pass")
@@ -859,8 +855,7 @@ def test_engine_arguments():
 		fdls.Engine(model, group=1, warning_threshold="high")
 
 	engine = fdls.Engine(model, group=1, n_shuffles=2)
-	assert (engine.forward_stats, engine.random_state, engine.head_rows) == (
-		"cpu_mirror", 0, 128)
+	assert (engine.forward_stats, engine.random_state) == ("cpu_mirror", 0)
 	assert (engine.precision, engine.compile, engine.deterministic,
 		engine.mem_budget_gb) == ("tf32", "none", False, 12.0)
 
