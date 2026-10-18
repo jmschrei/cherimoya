@@ -968,13 +968,10 @@ _FLAGS = (
 )
 
 
-def test_precision_mode_sets_logs_and_restores_the_flags(tmp_path,
-	monkeypatch, caplog):
-	"""Each mode's flags, every flag in the log, the previous flags restored
-	on exit, and one Inductor cache directory per mode."""
+def test_precision_mode_sets_logs_and_restores_the_flags(caplog):
+	"""Each mode's flags, every flag in the log, and the previous flags
+	restored on exit, also when the body raises."""
 
-	root = tmp_path / "inductor"
-	monkeypatch.setenv("TORCHINDUCTOR_CACHE_DIR", str(root))
 	before = fdls.precision_flags()
 	expected = {
 		("tf32", False): ("high", True, True, True, False),
@@ -988,35 +985,25 @@ def test_precision_mode_sets_logs_and_restores_the_flags(tmp_path,
 			caplog.clear()
 			with fdls.precision_mode(mode, deterministic=deterministic) as flags:
 				inside = fdls.precision_flags()
-				cache_dir = os.environ["TORCHINDUCTOR_CACHE_DIR"]
 
 			logged = caplog.text
 
 		assert tuple(flags[name] for name in _FLAGS) == values
 		assert inside == flags
-		expected_dir = str(root / ("fast_deep_lift_shap_" + mode))
-		assert cache_dir == expected_dir == fdls.inductor_cache_dir(mode, root)
-		assert flags["$TORCHINDUCTOR_CACHE_DIR"] == cache_dir
 		for name in _FLAGS:
 			assert name in logged
 
 		assert "precision mode " + mode in logged and "restored" in logged
 		assert fdls.precision_flags() == before
 
-	assert os.environ["TORCHINDUCTOR_CACHE_DIR"] == str(root)
-
-	with pytest.raises(RuntimeError, match="body"), fdls.precision_mode("fp32",
-			inductor_cache=False) as flags:
-		assert flags["$TORCHINDUCTOR_CACHE_DIR"] == str(root)
+	with pytest.raises(RuntimeError, match="body"), fdls.precision_mode(
+			"fp32"):
 		raise RuntimeError("body")
 
 	assert fdls.precision_flags() == before
 	with pytest.raises(ValueError, match="precision"), fdls.precision_mode(
 			"bf16"):
 		pass
-
-	nested = fdls.inductor_cache_dir("fp32", root / "fast_deep_lift_shap_tf32")
-	assert nested == str(root / "fast_deep_lift_shap_fp32")
 
 
 def test_step_bytes_and_automatic_step_size():

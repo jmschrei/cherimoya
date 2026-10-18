@@ -111,10 +111,10 @@ def forward_self_check(engine, model, X, peaks=SELF_CHECK_PEAKS,
 		modes.append(engine.precision)
 
 	for mode in modes:
-		with precision_mode(mode, inductor_cache=False), torch.enable_grad():
+		with precision_mode(mode), torch.enable_grad():
 			module_y = wrapper(X4)[:, 0].detach().cpu().double()
 
-		with precision_mode(mode, inductor_cache=False), torch.no_grad():
+		with precision_mode(mode), torch.no_grad():
 			ours = model_forward(X4, engine.weights,
 				forward_stats=engine.forward_stats, output=engine.output,
 				group=engine.group)
@@ -313,8 +313,8 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 		threshold = float(warning_threshold)
 
 	t = time.perf_counter()
-	with precision_mode(engine.precision, deterministic=engine.deterministic,
-			inductor_cache=False), warnings.catch_warnings(
+	with precision_mode(engine.precision,
+			deterministic=engine.deterministic), warnings.catch_warnings(
 			record=True) as caught:
 		warnings.simplefilter("always")
 		stock = deep_lift_shap(wrapper, X[index], n_shuffles=K,

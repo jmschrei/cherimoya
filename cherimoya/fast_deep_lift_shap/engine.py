@@ -116,8 +116,6 @@ DETERMINISTIC_CUBLAS = (":4096:8", ":16:8")
 """CUBLAS_WORKSPACE_CONFIG values under which cuBLAS is deterministic; the
 engine sets the first."""
 
-INDUCTOR_CACHE_PREFIX = "fast_deep_lift_shap_"
-
 PRECISION_ENV = (
 	"CUBLAS_WORKSPACE_CONFIG",
 	"NVIDIA_TF32_OVERRIDE",
@@ -993,31 +991,8 @@ def precision_flags():
 	return flags
 
 
-def inductor_cache_dir(mode, root=None):
-	"""The Inductor cache directory of the precision mode `mode`:
-	``<root>/fast_deep_lift_shap_<mode>``.
-
-	`root` defaults to TORCHINDUCTOR_CACHE_DIR, or to Inductor's own default
-	when that is unset. A root that is itself a mode's directory, as inside
-	`precision_mode`, is replaced by its parent.
-	"""
-
-	if root is None:
-		root = os.environ.get("TORCHINDUCTOR_CACHE_DIR")
-
-	if not root:
-		from torch._inductor.runtime.cache_dir_utils import default_cache_dir
-		root = default_cache_dir()
-
-	root = os.path.abspath(os.fspath(root))
-	if os.path.basename(root).startswith(INDUCTOR_CACHE_PREFIX):
-		root = os.path.dirname(root)
-
-	return os.path.join(root, INDUCTOR_CACHE_PREFIX + mode)
-
-
 @contextlib.contextmanager
-def precision_mode(mode="tf32", deterministic=False, inductor_cache=True):
+def precision_mode(mode="tf32", deterministic=False):
 	"""Set the precision flags of `mode` for the body, log them, and restore
 	the previous flags on exit.
 
@@ -1031,9 +1006,9 @@ def precision_mode(mode="tf32", deterministic=False, inductor_cache=True):
 	In both modes cudnn.benchmark is on, as ``import cherimoya`` sets it.
 	`deterministic` turns cudnn.deterministic on and cudnn.benchmark off;
 	cuBLAS also needs CUBLAS_WORKSPACE_CONFIG set before CUDA initializes,
-	which `Engine` does. With `inductor_cache`, TORCHINDUCTOR_CACHE_DIR names
-	the mode's own directory (`inductor_cache_dir`) for the body, so code
-	compiled under one mode is cached apart from the other's.
+	which `Engine` does. Inductor's cache keys hold the matrix-product
+	precision, so code compiled under one mode is not reused under the
+	other.
 
 	The flags are process-global. They are set when the body starts, so
 	after every import, and everything in the body runs under them.
@@ -1058,33 +1033,15 @@ def precision_mode(mode="tf32", deterministic=False, inductor_cache=True):
 		cudnn.allow_tf32 = mode == "tf32"
 		cudnn.benchmark = not deterministic
 		cudnn.deterministic = bool(deterministic)
-		path = inductor_cache_dir(mode) if inductor_cache else None
-		with _inductor_cache(path):
-			flags = precision_flags()
-			logger.info("precision mode %s%s: %s", mode, ", deterministic"
-				if deterministic else "", _pretty(flags))
-			yield flags
+		flags = precision_flags()
+		logger.info("precision mode %s%s: %s", mode, ", deterministic"
+			if deterministic else "", _pretty(flags))
+		yield flags
 	finally:
 		torch.set_float32_matmul_precision(previous[0])
 		cudnn.allow_tf32, cudnn.benchmark, cudnn.deterministic = previous[1:]
 		logger.info("precision mode %s left, flags restored: %s", mode,
 			_pretty(precision_flags()))
-
-
-@contextlib.contextmanager
-def _inductor_cache(path):
-	"""Point Inductor's caches at `path` for the body, clearing its memoized
-	directories on entry and exit."""
-
-	if path is None:
-		yield
-		return
-
-	from torch._inductor.runtime.cache_dir_utils import temporary_cache_dir
-
-	os.makedirs(path, exist_ok=True)
-	with temporary_cache_dir(path):
-		yield
 
 
 def _pretty(flags):
@@ -1623,8 +1580,7 @@ class Engine:
 				stack.enter_context(torch.cuda.device(self.weights.device))
 
 			flags = stack.enter_context(precision_mode(self.precision,
-				deterministic=self.deterministic,
-				inductor_cache=self.compile != "none"))
+				deterministic=self.deterministic))
 			S = self.step_size(N, L, K)
 			record = self._describe(N, L, K, S)
 			record["precision_flags"] = flags
