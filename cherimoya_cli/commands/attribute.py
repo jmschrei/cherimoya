@@ -26,8 +26,7 @@ def run(args):
 			"`saturation_mutagenesis`, got {!r}".format(algorithm))
 
 	# The fast engine's options are checked before anything is loaded, and
-	# its cache defaults are set before cherimoya and tangermeme are
-	# imported, which is when tangermeme compiles its numba kernel and
+	# its cache default is set before cherimoya is imported, which is when
 	# cherimoya decorates its Triton kernels.
 	fast = _fast_engine_selected(parameters)
 	environment = _set_cache_defaults() if fast else None
@@ -183,11 +182,6 @@ def _fast_engine_selected(parameters):
 			or not budget > 0):
 		raise bad("mem_budget_gb", "a positive number")
 
-	workers = parameters["ref_workers"]
-	if workers is not None and (isinstance(workers, bool)
-			or not isinstance(workers, int) or workers < 0):
-		raise bad("ref_workers", "null or a non-negative integer")
-
 	n_audit = parameters["audit"]
 	if isinstance(n_audit, bool) or not isinstance(n_audit, int) or n_audit < 0:
 		raise bad("audit", "a number of sequences, 0 or more")
@@ -201,52 +195,21 @@ def _fast_engine_selected(parameters):
 
 
 def _set_cache_defaults():
-	"""Set the fast engine's two cache variables if they are unset, before
-	cherimoya and tangermeme are imported; return what was found.
+	"""Set TRITON_CACHE_AUTOTUNING=1 if it is unset, before cherimoya is
+	imported; return what was found.
 
-	NUMBA_CACHE_DIR: tangermeme compiles its numba shuffle kernel with
-	caching on when it is imported, and the fast engine's reference workers
-	load the compiled kernel from that cache. The default puts the cache in
-	a per-user directory under the temporary directory rather than next to
-	tangermeme's installed sources.
-
-	TRITON_CACHE_AUTOTUNING=1: Triton then keeps the autotuning results of
-	Cherimoya's kernels, which the self-check and the audit run, in its
-	cache, so a later run on the same machine does not autotune them again.
+	Triton then keeps the autotuning results of Cherimoya's kernels, which
+	the self-check and the audit run, in its cache, so a later run on the
+	same machine does not autotune them again.
 	"""
 
-	import getpass
-	import tempfile
-
-	record = {
-		"cherimoya_imported_before": "cherimoya" in sys.modules,
-		"tangermeme_imported_before": "tangermeme" in sys.modules,
-	}
-
+	record = {"cherimoya_imported_before": "cherimoya" in sys.modules}
 	set_by_cherimoya = []
-	if not os.environ.get("NUMBA_CACHE_DIR"):
-		try:
-			user = getpass.getuser()
-		except Exception:
-			user = "user"
-
-		path = os.path.join(tempfile.gettempdir(), "numba_cache_" + user)
-		try:
-			os.makedirs(path, exist_ok=True)
-		except OSError as exc:
-			warnings.warn("could not create {} for NUMBA_CACHE_DIR ({}); "
-				"numba caches in its default location".format(path, exc),
-				UserWarning, stacklevel=3)
-		else:
-			os.environ["NUMBA_CACHE_DIR"] = path
-			set_by_cherimoya.append("NUMBA_CACHE_DIR")
-
 	if "TRITON_CACHE_AUTOTUNING" not in os.environ:
 		os.environ["TRITON_CACHE_AUTOTUNING"] = "1"
 		set_by_cherimoya.append("TRITON_CACHE_AUTOTUNING")
 
-	for name in ("NUMBA_CACHE_DIR", "TRITON_CACHE_AUTOTUNING",
-			"TRITON_CACHE_DIR"):
+	for name in ("TRITON_CACHE_AUTOTUNING", "TRITON_CACHE_DIR"):
 		record[name] = os.environ.get(name)
 
 	record["set_by_cherimoya"] = set_by_cherimoya
@@ -276,7 +239,6 @@ def _fast_deep_lift_shap(parameters, model, X, start, end):
 		seqs_per_step=parameters["seqs_per_step"],
 		mem_budget_gb=parameters["mem_budget_gb"],
 		warning_threshold=parameters["warning_threshold"],
-		ref_workers=parameters["ref_workers"],
 	)
 
 	t = time.perf_counter()
@@ -295,11 +257,9 @@ def _fast_deep_lift_shap(parameters, model, X, start, end):
 			.format(check["max_abs"], check["peaks"]))
 
 	peaks = audit_peaks(len(X), parameters["audit"])
-	keep = peaks if len(peaks) else None
 
 	t = time.perf_counter()
-	result = engine.run(X, start, end, keep_references=keep,
-		verbose=parameters["verbose"])
+	result = engine.run(X, start, end, verbose=parameters["verbose"])
 	timings["run"] = time.perf_counter() - t
 
 	check["run_outputs"] = compare_run_outputs(check, result.y_x,
@@ -351,11 +311,10 @@ def _finish_fast_deep_lift_shap(parameters, model, X, idxs, start, end,
 		deltas["fraction"] = deltas["above"] / deltas["pairs"]
 
 	deltas["finite"] = bool(torch.isfinite(result.deltas).all())
-	reference_stats = meta.get("reference_stats") or {}
 	timings.update(
 		compile=meta["compile_s"],
 		warmup=meta["warmup_s"],
-		reference_wait=reference_stats.get("wait_s"),
+		references=meta["reference_s"],
 		steady_pairs_per_s=meta["steady_pairs_per_s"],
 		pairs_per_s=meta["pairs_per_s"],
 	)
@@ -383,8 +342,7 @@ def _finish_fast_deep_lift_shap(parameters, model, X, idxs, start, end,
 			"window": [int(start), int(end)],
 		},
 		"run": {key: meta.get(key) for key in ("steps", "padded_peaks",
-			"host_syncs", "oom", "references", "reference_stats",
-			"seconds")},
+			"host_syncs", "oom", "references", "seconds")},
 		"timings_s": timings,
 		"memory": {
 			"gpu_max_allocated_bytes":

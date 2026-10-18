@@ -53,7 +53,6 @@ from cherimoya.cheri import CONV_NORM_EPS
 from cherimoya.cheri import _cheri_conv
 from cherimoya.deep_lift_shap import attribution_ops
 from cherimoya.fast_deep_lift_shap import engine as fdls
-from cherimoya.fast_deep_lift_shap import references
 
 from . import fast_deep_lift_shap_helpers as tiny
 
@@ -473,6 +472,21 @@ def test_shuffled_references_are_deep_lift_shaps_own():
 	assert torch.equal(drawn, tiny.shuffled_references(X, 2, random_state=0))
 
 
+@pytest.mark.parametrize("random_state", [0, 1234, 2**31 + 5])
+def test_draw_references_are_deep_lift_shaps_own(random_state):
+	"""draw_references, one call to dinucleotide_shuffle, draws the helper's
+	per-pair shuffles bit for bit, in the dtype of X; the last sequence is
+	the AT-rich one."""
+
+	X = tiny.sequences("A")[[0, 1, 12]]
+	expected = tiny.shuffled_references(X, 4, random_state=random_state)
+	for dtype in (torch.int8, torch.float32):
+		drawn = fdls.draw_references(X.to(dtype), 4, random_state)
+		assert drawn.dtype == dtype
+		assert drawn.shape == (3, 4, 4, X.shape[-1])
+		assert torch.equal(drawn.float(), expected)
+
+
 def test_the_oracle_returns_tangermemes_deltas_in_pair_order():
 	"""The print sink returns (N, K) deltas in pair order: recomputed per
 	batch of 7 pairs, packed as deep_lift_shap packs them, they are
@@ -770,18 +784,16 @@ def test_the_rules_change_the_multipliers(config):
 ##
 
 
-@pytest.mark.parametrize("workers", [0, 2])
-def test_drawn_references_are_the_injected_shuffles(workers):
-	"""With no references passed, the engine draws them, in this process or
-	in a spawn pool, bit for bit as the helper's shuffles, which are
-	deep_lift_shap's own draw. Config B, in steps of 4: 13 sequences make 4
-	steps, the last padded."""
+def test_drawn_references_are_the_injected_shuffles():
+	"""With no references passed, the engine draws them bit for bit as the
+	helper's shuffles, which are deep_lift_shap's own draw. Config B, in
+	steps of 4: 13 sequences make 4 steps, the last padded."""
 
 	rs, k = 1234, 3
 	X = tiny.sequences("B")
 	R = tiny.shuffled_references(X, k, random_state=rs)
 	engine = _engine("B", torch.float32, n_shuffles=k, random_state=rs,
-		ref_workers=workers, seqs_per_step=4)
+		seqs_per_step=4)
 	drawn, injected = engine.raw(X), engine.raw(X, R)
 	for name in ("m", "y_x", "y_r", "deltas"):
 		assert torch.equal(getattr(drawn, name), getattr(injected, name)), name
@@ -795,89 +807,6 @@ def test_drawn_references_are_the_injected_shuffles(workers):
 	assert injected_run.meta["references"] == "injected"
 	assert drawn_run.meta["random_state"] == rs
 	assert drawn_run.meta["n_shuffles"] == k
-
-
-@pytest.mark.parametrize("workers", [0, 2])
-def test_a_run_keeps_the_references_it_used(workers):
-	"""keep_references returns the references of the kept sequences as the
-	run used them, drawn or injected; the kept sequences straddle the steps,
-	and the last sits in the padded step."""
-
-	rs, k = 7, 3
-	X = tiny.sequences("B")
-	R = tiny.shuffled_references(X, k, random_state=rs)
-	keep = [0, 3, 4, 9, 12]
-	start, end = _window("B")
-	engine = _engine("B", torch.float32, n_shuffles=k, random_state=rs,
-		ref_workers=workers, seqs_per_step=4)
-	drawn = engine.run(X, start, end, keep_references=keep)
-	injected = engine.run(X, start, end, references=R,
-		keep_references=numpy.array(keep))
-	expected = references.onehot_to_tokens(R[keep])
-	for result in (drawn, injected):
-		assert result.references.dtype == numpy.uint8
-		assert result.references.shape == (len(keep), k, X.shape[-1])
-		numpy.testing.assert_array_equal(result.references, expected)
-		assert result.meta["kept_references"] == len(keep)
-
-	assert torch.equal(drawn.attr, injected.attr)
-	assert engine.run(X, start, end, references=R).references is None
-	kept = engine.run(X, start, end, references=R, keep_references=[])
-	assert kept.references.shape == (0, k, X.shape[-1])
-
-	for bad in ([3, 1], [0, 0], [-1], [13], [[1, 2]], [0.5],
-			numpy.array([True, False])):
-		with pytest.raises(ValueError, match="keep_references"):
-			engine.run(X, start, end, references=R, keep_references=bad)
-
-
-def test_the_reference_pool_starts_before_the_count_gradient(monkeypatch):
-	"""The pool's first chunks are submitted before the count gradient is
-	computed (and, on a GPU, before the warm-up compiles)."""
-
-	calls = []
-	real_chunks = references.RefProducer.chunks
-	real_cotangent = fdls.Engine._counts_cotangent
-
-	def chunks(self, *args, **kwargs):
-		calls.append("chunks")
-		return real_chunks(self, *args, **kwargs)
-
-	def cotangent(self, length):
-		calls.append("cotangent")
-		return real_cotangent(self, length)
-
-	monkeypatch.setattr(references.RefProducer, "chunks", chunks)
-	monkeypatch.setattr(fdls.Engine, "_counts_cotangent", cotangent)
-	X = tiny.sequences("A")[:5]
-	engine = _engine("A", torch.float32, n_shuffles=2, ref_workers=0,
-		seqs_per_step=2)
-	result = engine.run(X, *_window("A"))
-	assert calls == ["chunks", "cotangent"]
-	assert result.meta["references"] == "produced"
-	assert result.meta["steps"] == 3
-
-
-def test_recut_cuts_consecutive_chunks_into_steps_of_the_new_size():
-	"""What the engine does to the pool's chunks when its warm-up halves the
-	step size, from 5 to 2 here."""
-
-	rng = numpy.random.default_rng(0)
-	refs = rng.integers(0, 4, size=(13, 3, 7), dtype=numpy.uint8)
-	chunks = [(a, min(a + 5, 13), refs[a:a + 5]) for a in range(0, 13, 5)]
-	got = list(fdls._recut(iter(chunks), 2))
-	assert [(a, b) for a, b, _ in got] == [(a, min(a + 2, 13))
-		for a in range(0, 13, 2)]
-	for a, b, r in got:
-		numpy.testing.assert_array_equal(r, refs[a:b])
-
-	assert [(a, b) for a, b, _ in fdls._recut(iter(chunks), 5)] == [(0, 5),
-		(5, 10), (10, 13)]
-	assert [(a, b) for a, b, _ in fdls._recut(iter(chunks), 1)] == [(a, a + 1)
-		for a in range(13)]
-	assert list(fdls._recut(iter([]), 2)) == []
-	with pytest.raises(RuntimeError, match="consecutive"):
-		list(fdls._recut(iter([chunks[0], chunks[2]]), 2))
 
 
 def test_engine_arguments():
@@ -928,11 +857,7 @@ def test_engine_arguments():
 	with pytest.raises(ValueError, match="warning_threshold"):
 		fdls.Engine(model, group=1, warning_threshold="high")
 
-	for bad in (-1, 1.5, True):
-		with pytest.raises(ValueError, match="ref_workers"):
-			fdls.Engine(model, group=1, ref_workers=bad)
-
-	engine = fdls.Engine(model, group=1, n_shuffles=2, ref_workers=0)
+	engine = fdls.Engine(model, group=1, n_shuffles=2)
 	assert (engine.forward_stats, engine.random_state, engine.head_rows) == (
 		"cpu_mirror", 0, 128)
 	assert (engine.precision, engine.compile, engine.deterministic,
@@ -971,8 +896,7 @@ def test_engine_arguments():
 	assert raw.m.shape == (3, 2, 4, L) and bool(torch.isfinite(raw.m).all())
 
 	# random_state None draws a base seed once, records it, and uses it.
-	drawn = fdls.Engine(model, group=1, n_shuffles=2, random_state=None,
-		ref_workers=0)
+	drawn = fdls.Engine(model, group=1, n_shuffles=2, random_state=None)
 	rs = drawn.random_state
 	assert isinstance(rs, int) and 0 <= rs < fdls.SEED_RANGE
 	result = drawn.run(X, 0, L)
@@ -1104,7 +1028,7 @@ def test_step_bytes_and_automatic_step_size():
 	L, C, H = 2114, 128, 256
 	saved = 4 * L * (C + 9 * (C + H))
 	fwd, bwd = 4 * L * (4 * C + H), 4 * L * (3 * C + 2 * H)
-	assert per_peak == 21 * (saved + fwd + 16 * L + L) + 20 * (bwd + 16 * L)
+	assert per_peak == 21 * (saved + fwd + 16 * L + 4 * L) + 20 * (bwd + 16 * L)
 	assert round(per_peak / 1e9, 2) == 0.93
 	for S in (1, 4, 8, 32):
 		assert fdls.step_bytes(S, **real) == S * per_peak

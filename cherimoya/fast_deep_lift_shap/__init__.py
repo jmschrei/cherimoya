@@ -25,9 +25,7 @@ tests hold the engine to tangermeme's `deep_lift_shap` to 1e-9 in float64.
 	X_attr = result.attr                  # (n, 4, 400) float32
 
 * `engine` holds the engine: the forward and backward passes, the rules, the
-  precision modes and `Engine`.
-* `references` draws the references, tangermeme's dinucleotide shuffles, in
-  worker processes.
+  references, the precision modes and `Engine`.
 * `checks` holds the forward self-check and the audit against tangermeme's
   `deep_lift_shap`.
 """

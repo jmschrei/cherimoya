@@ -21,7 +21,7 @@ from a forward and a backward written out by hand:
   `_layer_normalization_helper` that `cherimoya.deep_lift_shap.conv_norm_op`
   applies to `FusedDilatedConvNorm`, with the same expressions in the same
   order. The references are tangermeme's `dinucleotide_shuffle`, called with
-  the seeds `deep_lift_shap` uses (see `references`).
+  the seeds `deep_lift_shap` uses (`draw_references`).
 
 Only the count head (`LogCountWrapper`) is implemented. The profile head
 goes through a softmax rule that couples every position, and keeps the
@@ -53,7 +53,6 @@ import collections
 import contextlib
 import gc
 import inspect
-import itertools
 import logging
 import numbers
 import operator
@@ -68,18 +67,20 @@ import numpy
 import torch
 import torch.nn.functional as F
 
+from tangermeme.ersatz import dinucleotide_shuffle
+from tangermeme.utils import validate_input
+
 from ..cheri import CONV_NORM_EPS
 from ..cheri import _cheri_conv
 from ..cherimoya import Cherimoya
 from ..wrappers import ControlWrapper
 from ..wrappers import LogCountWrapper
 from ..wrappers import ProfileWrapper
-from . import references as _references
 
 
 logger = logging.getLogger(__name__)
 
-VALIDATED_TANGERMEME_VERSIONS = ("1.5.0",)
+VALIDATED_TANGERMEME_VERSIONS = ("1.5.1",)
 """The tangermeme releases whose DeepLIFT rules, hypothetical projection and
 dinucleotide shuffle this engine was checked against. Another version runs,
 with a warning."""
@@ -757,6 +758,22 @@ def counts_cotangent(w, group=0, length=None, rows=DEFAULT_HEAD_ROWS):
 	return grad[0].contiguous()
 
 
+def draw_references(X, n_shuffles, random_state):
+	"""The references `deep_lift_shap` draws for the sequences X (n, 4, L):
+	reference k of sequence e is ``dinucleotide_shuffle(X[e:e+1], n=1,
+	random_state=random_state + k)[:, 0]``.
+
+	One call to tangermeme's `dinucleotide_shuffle`, with a seed per row,
+	draws them all. Returns (n, n_shuffles, 4, L) in X's dtype.
+	"""
+
+	n = len(X)
+	rows = X.repeat_interleave(n_shuffles, dim=0)
+	seeds = random_state + numpy.tile(numpy.arange(n_shuffles), n)
+	references = dinucleotide_shuffle(rows, n=1, random_state=seeds)[:, 0]
+	return references.view(n, n_shuffles, *X.shape[1:])
+
+
 def split_rows(t, S, K):
 	"""View rows ``[x_0..x_{S-1}, r_00..r_{S-1,K-1}]`` as sequences
 	(S, 1, ...) and references (S, K, ...).
@@ -1193,7 +1210,7 @@ def step_bytes(S, K, L, C, H, n_blocks, itemsize=4):
 	z0 (C x L) and, per block, y (L x C) and u (L x H); the forward's
 	transients, counted as if none were reused (the residual stream, yhat,
 	the GELU's output, linear2's output and the new stream: 4 (L x C) +
-	(L x H)); the one-hot (4 x L) and its uint8 tokens (L bytes). Per pair:
+	(L x H)); the one-hot (4 x L) and its int8 copy (4 x L bytes). Per pair:
 	the backward's transients, counted the same way (3 (L x C) + 2 (L x H)),
 	and the multipliers (4 x L). The forward's and the backward's transients
 	never coexist, so the sum overestimates by the smaller of the two. For
@@ -1204,7 +1221,7 @@ def step_bytes(S, K, L, C, H, n_blocks, itemsize=4):
 
 	rows, pairs = S * (K + 1), S * K
 	per_row = (itemsize * L * (C + n_blocks * (C + H))
-		+ itemsize * L * (4 * C + H) + itemsize * 4 * L + L)
+		+ itemsize * L * (4 * C + H) + itemsize * 4 * L + 4 * L)
 	per_pair = itemsize * L * (3 * C + 2 * H) + itemsize * 4 * L
 	return rows * per_row + pairs * per_pair
 
@@ -1219,77 +1236,6 @@ def auto_seqs_per_step(available_bytes, budget_gb, peak_bytes):
 
 	limit = min(budget_gb * GB, FREE_MEMORY_FRACTION * available_bytes)
 	return max(1, min(MAX_SEQS_PER_STEP, int(limit // peak_bytes)))
-
-
-def _substeps(a, b, references, S):
-	"""Sequences [a, b) and their references (b - a, K, L), in steps of at
-	most S sequences."""
-
-	for j in range(0, b - a, S):
-		yield a + j, min(a + j + S, b), references[j:j + S]
-
-
-def _recut(chunks, S):
-	"""Consecutive chunks (a, b, references of sequences [a, b)), re-cut into
-	chunks of S sequences: [a0, a0 + S), ...
-
-	The reference pool starts drawing before the warm-up, in chunks of the
-	planned step size. When the warm-up halves that size, the engine re-cuts
-	the chunks with this, so the run takes exactly the steps, and pads
-	exactly the sequences, it would have had the pool drawn chunks of the new
-	size. Only the last chunk is shorter.
-	"""
-
-	held = []
-	a = None
-	n = 0
-	for start, b, references in chunks:
-		if a is None:
-			a = start
-
-		if start != a + n or b - start != len(references):
-			raise RuntimeError("reference chunks are not consecutive: got "
-				"[{}, {}) after [{}, {})".format(start, b, a, a + n))
-
-		held.append(references)
-		n += b - start
-		while n >= S:
-			block = held[0] if len(held) == 1 else numpy.concatenate(held)
-			yield a, a + S, block[:S]
-			held = [block[S:]] if len(block) > S else []
-			a, n = a + S, n - S
-
-	if n:
-		yield a, a + n, held[0] if len(held) == 1 else numpy.concatenate(held)
-
-
-def _keeping(chunks, keep, out):
-	"""Pass chunks through, copying the references of the sequences in
-	`keep` (sorted) into out[i] as they go by."""
-
-	for a, b, references in chunks:
-		lo, hi = numpy.searchsorted(keep, [a, b])
-		for i in range(lo, hi):
-			out[i] = references[keep[i] - a]
-
-		yield a, b, references
-
-
-def _keep_indices(keep, n):
-	"""`keep_references` as a sorted int64 array of distinct indices in
-	[0, n), or ValueError."""
-
-	k = numpy.asarray(keep)
-	if k.ndim != 1 or (k.size and not numpy.issubdtype(k.dtype, numpy.integer)):
-		raise ValueError("keep_references must be a 1-D sequence of sequence "
-			"indices, got {!r}".format(keep))
-
-	k = k.astype(numpy.int64)
-	if k.size and (k[0] < 0 or k[-1] >= n or bool((numpy.diff(k) <= 0).any())):
-		raise ValueError("keep_references must be increasing sequence "
-			"indices in [0, {}), got {}".format(n, k.tolist()))
-
-	return k
 
 
 class RawResult(NamedTuple):
@@ -1310,7 +1256,6 @@ class Result(NamedTuple):
 	y_x: torch.Tensor  # (N,)
 	y_r: torch.Tensor  # (N, K)
 	meta: dict  # debug's keys, plus the window, the wall time and pairs/s
-	references: numpy.ndarray = None  # (n_kept, K, L) uint8 tokens, or None
 
 
 class _StepOutputs(NamedTuple):
@@ -1324,8 +1269,8 @@ class _StepOutputs(NamedTuple):
 
 
 class _Rings:
-	"""Two slots of transfer buffers for a run on CUDA: pinned host tokens,
-	device tokens, and pinned host outputs.
+	"""Two slots of transfer buffers for a run on CUDA: pinned host inputs,
+	device inputs, and pinned host outputs. The inputs are int8 one-hots.
 
 	They are sized for S sequences per step; after an out-of-memory halving,
 	steps use leading slices. The engine refills a slot only after the host
@@ -1335,10 +1280,10 @@ class _Rings:
 
 	def __init__(self, S, K, L, values_shape, dtype, device):
 		rows = S + S * K
-		self.K, self.L = K, L
-		self.host_tokens = [torch.empty(rows, L, dtype=torch.uint8,
+		self.K = K
+		self.host_inputs = [torch.empty(rows, 4, L, dtype=torch.int8,
 			pin_memory=True) for _ in range(2)]
-		self.device_tokens = [torch.empty(rows, L, dtype=torch.uint8,
+		self.device_inputs = [torch.empty(rows, 4, L, dtype=torch.int8,
 			device=device) for _ in range(2)]
 		self.outputs = [
 			_StepOutputs(
@@ -1350,20 +1295,20 @@ class _Rings:
 			for _ in range(2)
 		]
 
-	def fill(self, slot, x_tokens, ref_tokens, S):
+	def fill(self, slot, X, references, S):
 		"""Write a step's rows ``[x_0..x_{S-1}, r_00..r_{S-1,K-1}]`` into a
-		slot's host tokens, padded with the last sequence.
+		slot's host inputs, padded with the last sequence.
 
-		x_tokens (n, L) and ref_tokens (n, K, L), n <= S, are uint8 tokens.
+		X (n, 4, L) and references (n, K, 4, L), n <= S, are int8 one-hots.
 		"""
 
-		n = len(x_tokens)
-		rows = self.host_tokens[slot][:S + S * self.K].numpy()
-		rows[:n] = x_tokens
-		rows[n:S] = x_tokens[-1]
-		refs = rows[S:].reshape(S, self.K, self.L)
-		refs[:n] = ref_tokens
-		refs[n:] = ref_tokens[-1]
+		n = len(X)
+		rows = self.host_inputs[slot][:S + S * self.K]
+		rows[:n] = X
+		rows[n:S] = X[-1]
+		refs = rows[S:].view(S, self.K, *X.shape[1:])
+		refs[:n] = references
+		refs[n:] = references[-1]
 
 
 class Engine:
@@ -1395,13 +1340,13 @@ class Engine:
 	  keep each engine's compiled code apart from other engines'; on older
 	  torch every engine in a process shares torch.compile's default
 	  recompile limit of 8 per pass.
-	* Each `run` or `raw` call starts the reference pool, then runs a warm-up
-	  step on random tokens, which compiles, lets cudnn.benchmark time its
-	  algorithms and meets an out-of-memory error, while the pool draws the
-	  first chunks of references. Compiling leaves the traced step's tensors
-	  in reference cycles, so a gc.collect() follows every step that
-	  compiled.
-	* Steps are pipelined. A step's tokens are copied to the device on a copy
+	* Each `run` or `raw` call runs a warm-up step on random sequences, which
+	  compiles, lets cudnn.benchmark time its algorithms and meets an
+	  out-of-memory error. Compiling leaves the traced step's tensors in
+	  reference cycles, so a gc.collect() follows every step that compiled.
+	* Steps are pipelined. The host draws a step's references
+	  (`draw_references`) and fills its pinned buffers while the device runs
+	  the previous step. The step's inputs are copied to the device on a copy
 	  stream, the step runs, and its results are copied back, non-blocking,
 	  into pinned buffers. The host then waits for the previous step's event,
 	  its one synchronization per step, and averages that step on the CPU
@@ -1472,11 +1417,6 @@ class Engine:
 		`run` warns once, with a summary, if a convergence delta exceeds it.
 		None means no warning. Default is 1e-3.
 
-	ref_workers: int or None, optional
-		The reference worker processes. None means
-		`references.default_workers()`, and 0 draws them in this process.
-		Default is None.
-
 	deterministic: bool, optional
 		Bitwise reproducible runs, for reruns rather than speed. On CUDA it
 		exports CUBLAS_WORKSPACE_CONFIG=:4096:8 if unset, so create the
@@ -1490,7 +1430,7 @@ class Engine:
 		precision="tf32", n_shuffles=20, random_state=0,
 		head_rows=DEFAULT_HEAD_ROWS, seqs_per_step="auto", mem_budget_gb=12.0,
 		compile="auto", forward_stats="auto", warning_threshold=1e-3,
-		ref_workers=None, deterministic=False):
+		deterministic=False):
 
 		if output not in OUTPUTS:
 			raise ValueError("output must be either `counts` or `profile`.")
@@ -1559,13 +1499,6 @@ class Engine:
 		self.warning_threshold = (None if warning_threshold is None
 			else float(warning_threshold))
 
-		if ref_workers is not None and (isinstance(ref_workers, bool)
-				or not isinstance(ref_workers, numbers.Integral)
-				or ref_workers < 0):
-			raise ValueError("ref_workers must be None or a non-negative "
-				"integer, got {!r}".format(ref_workers))
-
-		self.ref_workers = None if ref_workers is None else int(ref_workers)
 		self._cotangents = {}
 		self._copy_stream = None
 
@@ -1628,8 +1561,8 @@ class Engine:
 			call.
 		"""
 
-		x_tokens, ref_tokens, K = self._tokens(X, references)
-		N, L = x_tokens.shape
+		X, references, K = self._inputs(X, references)
+		N, _, L = X.shape
 		dtype = self.weights.dtype
 		m = torch.empty(N, K, 4, L, dtype=dtype)
 		y_x = torch.empty(N, dtype=dtype)
@@ -1641,12 +1574,11 @@ class Engine:
 			m[a:b], y_x[a:b] = out.values[:n], out.y_x[:n]
 			y_r[a:b], deltas[a:b] = out.y_r[:n], out.delta[:n]
 
-		debug = self._execute(x_tokens, ref_tokens, K, None, consume)
+		debug = self._execute(X, references, K, None, consume)
 		debug["deltas"] = delta_summary(deltas, self.warning_threshold)
 		return RawResult(m, y_x, y_r, deltas, debug)
 
-	def run(self, X, start, end, references=None, keep_references=None,
-		verbose=False):
+	def run(self, X, start, end, references=None, verbose=False):
 		"""The hypothetical attributions over the window [start, end),
 		averaged over each sequence's references.
 
@@ -1667,11 +1599,6 @@ class Engine:
 		references: torch.Tensor or numpy.ndarray or None, optional
 			As in `raw`. Default is None.
 
-		keep_references: sequence of int or None, optional
-			Increasing indices of sequences whose references the run keeps,
-			as it used them, in `Result.references`; `audit` injects them
-			into tangermeme's `deep_lift_shap`. Default is None.
-
 		verbose: bool, optional
 			Whether to show a progress bar. Default is False.
 
@@ -1679,22 +1606,17 @@ class Engine:
 		Returns
 		-------
 		result: Result
-			The attributions (N, 4, end - start), deltas, outputs, a record of
-			the run, and the kept references.
+			The attributions (N, 4, end - start), deltas, outputs and a record
+			of the run.
 		"""
 
-		x_tokens, ref_tokens, K = self._tokens(X, references)
-		N, L = x_tokens.shape
+		X, references, K = self._inputs(X, references)
+		N, _, L = X.shape
 		if not 0 <= operator.index(start) < operator.index(end) <= L:
 			raise ValueError("the window [{}, {}) must be non-empty and "
 				"inside [0, {})".format(start, end, L))
 
 		start, end = int(start), int(end)
-		keep = None
-		if keep_references is not None:
-			indices = _keep_indices(keep_references, N)
-			keep = (indices, numpy.empty((len(indices), K, L), numpy.uint8))
-
 		dtype = self.weights.dtype
 		attr = torch.empty(N, 4, end - start, dtype=dtype)
 		y_x = torch.empty(N, dtype=dtype)
@@ -1712,8 +1634,7 @@ class Engine:
 			progress.update(n)
 
 		try:
-			meta = self._execute(x_tokens, ref_tokens, K, (start, end),
-				consume, keep)
+			meta = self._execute(X, references, K, (start, end), consume)
 		finally:
 			progress.close()
 
@@ -1732,8 +1653,7 @@ class Engine:
 			warnings.warn(delta_warning(meta["deltas"]), RuntimeWarning,
 				stacklevel=2)
 
-		references = None if keep is None else keep[1]
-		return Result(attr, deltas, y_x, y_r, meta, references)
+		return Result(attr, deltas, y_x, y_r, meta)
 
 	def step_size(self, n_peaks, length, n_refs):
 		"""S, the sequences per step a run of `n_peaks` sequences of `length`,
@@ -1776,25 +1696,18 @@ class Engine:
 		return step_bytes(S, n_refs, length, w.C, w.H, len(w.blocks),
 			w.dtype.itemsize)
 
-	def _execute(self, x_tokens, ref_tokens, K, window, consume, keep=None):
+	def _execute(self, X, references, K, window, consume):
 		"""Run every step of a `raw` (window None) or `run` call under the
 		engine's precision mode.
 
-		consume(a, b, out) receives each step's results for the sequences
-		[a, b), in order; out has S >= b - a rows and its buffers are reused,
-		so consume copies what it keeps. keep, (sorted indices, a (len, K, L)
-		uint8 array), receives those sequences' references as the run uses
-		them. Returns the call's record.
-
-		The reference pool starts before the count gradient and the warm-up,
-		so the references are drawn while the warm-up compiles and
-		cudnn.benchmark times its algorithms. References depend only on the
-		sequence and k, never on the chunking, so the results are those of a
-		pool started after the warm-up. If the warm-up halves S, the pool's
-		chunks, cut for the planned S, are re-cut (`_recut`).
+		X (N, 4, L) and references (N, K, 4, L) or None are int8 one-hots on
+		the CPU. consume(a, b, out) receives each step's results for the
+		sequences [a, b), in order; out has S >= b - a rows and its buffers
+		are reused, so consume copies what it keeps. Returns the call's
+		record.
 		"""
 
-		N, L = x_tokens.shape
+		N, _, L = X.shape
 		cuda = self.weights.device.type == "cuda"
 		began = time.perf_counter()
 		with contextlib.ExitStack() as stack:
@@ -1807,28 +1720,36 @@ class Engine:
 			S = self.step_size(N, L, K)
 			record = self._describe(N, L, K, S)
 			record["precision_flags"] = flags
-			chunks = stack.enter_context(self._reference_chunks(x_tokens,
-				ref_tokens, K, S, record, keep))
+			record["references"] = ("produced" if references is None
+				else "injected")
 			G0 = self._counts_cotangent(L)
 			if cuda:
-				planned = S
 				S = self._warm_up(S, K, L, G0, window, record)
-				if S != planned:
-					chunks = _recut(chunks, S)
-
-				self._steps_cuda(chunks, x_tokens, K, L, S, G0, window,
-					consume, record)
+				self._steps_cuda(X, references, K, L, S, G0, window, consume,
+					record)
 			else:
-				self._steps_cpu(chunks, x_tokens, K, S, G0, window, consume,
+				self._steps_cpu(X, references, K, S, G0, window, consume,
 					record)
 
 		record["seconds"] = time.perf_counter() - began
 		record["pairs_per_s"] = N * K / record["seconds"]
 		return record
 
-	def _device_step(self, tokens, S, K, G0, window):
-		"""One step on the engine's device: tokens (S + S*K, L) uint8 -> the
-		step's results, on the device.
+	def _step_references(self, X, references, a, b, K, record):
+		"""The references of the sequences [a, b), (b - a, K, 4, L) int8:
+		sliced from those passed in, or drawn (`draw_references`)."""
+
+		if references is not None:
+			return references[a:b]
+
+		began = time.perf_counter()
+		drawn = draw_references(X[a:b], K, self.random_state)
+		record["reference_s"] += time.perf_counter() - began
+		return drawn
+
+	def _device_step(self, inputs, S, K, G0, window):
+		"""One step on the engine's device: the joint rows (S + S*K, 4, L), an
+		int8 one-hot -> the step's results, on the device.
 
 		Eager: the one-hot, iconv, the count head and iconv's input gradient.
 		Compiled on CUDA: the forward (fwd_c), the backward (bwd_c) and, for
@@ -1837,7 +1758,7 @@ class Engine:
 		"""
 
 		w = self.weights
-		X1h = _references.tokens_to_onehot(tokens, w.dtype)
+		X1h = inputs.to(w.dtype)
 		z0 = stem_forward(X1h, w.W0, w.b0)
 		hL, saved = self.fwd_c(z0, w.blocks, w.rs, w.eps, self.forward_stats)
 		y = head_forward(hL, w, output=self.output, group=self.group)
@@ -1854,26 +1775,27 @@ class Engine:
 		hyp, delta = self.epi_c(m, X1h, y_x, y_r, window[0], window[1], S, K)
 		return _StepOutputs(y_x, y_r, delta, hyp)
 
-	def _steps_cpu(self, chunks, x_tokens, K, S, G0, window, consume, record):
+	def _steps_cpu(self, X, references, K, S, G0, window, consume, record):
 		"""The steps on the CPU, one after the other."""
 
-		for a, b, refs in chunks:
-			joint = self._joint_tokens(x_tokens[a:b], refs, S)
-			tokens = torch.from_numpy(joint).to(self.weights.device)
-			consume(a, b, self._device_step(tokens, S, K, G0, window))
+		for a in range(0, len(X), S):
+			b = min(a + S, len(X))
+			refs = self._step_references(X, references, a, b, K, record)
+			joint = self._joint_inputs(X[a:b], refs, S)
+			consume(a, b, self._device_step(joint.to(self.weights.device), S,
+				K, G0, window))
 			record["steps"] += 1
 			record["padded_peaks"] += S - (b - a)
 
 	def _warm_up(self, S, K, L, G0, window, record):
-		"""One step on random tokens before a CUDA run; returns the step size
-		the run then uses.
+		"""One step on random sequences before a CUDA run; returns the step
+		size the run then uses.
 
 		It compiles the passes for this S, lets cudnn.benchmark time its
 		algorithms, and halves S on an out-of-memory error, all before the
-		first step, while the reference pool draws the first chunks. The
-		tokens are drawn on the device, so the warm-up copies nothing from
-		the host, and its results are dropped. It waits for the device once,
-		on an event.
+		first step. The sequences are drawn on the device, so the warm-up
+		copies nothing from the host, and its results are dropped. It waits
+		for the device once, on an event.
 		"""
 
 		device = self.weights.device
@@ -1883,10 +1805,14 @@ class Engine:
 		while True:
 			attempt = time.perf_counter()
 			tokens = torch.randint(0, 4, (S + S * K, L), generator=generator,
-				dtype=torch.uint8, device=device)
+				device=device)
+			# Contiguous, as the real steps' inputs are, so that the passes
+			# compiled here are not compiled again for other strides.
+			inputs = F.one_hot(tokens, 4).transpose(1, 2).to(
+				torch.int8).contiguous()
 			failed = None
 			try:
-				self._device_step(tokens, S, K, G0, window)
+				self._device_step(inputs, S, K, G0, window)
 				done = torch.cuda.Event(blocking=True)
 				done.record()
 				done.synchronize()
@@ -1899,7 +1825,7 @@ class Engine:
 			if failed is None:
 				break
 
-			del tokens
+			del tokens, inputs
 			S = self._after_oom(S, failed, record, "warm-up")
 
 		gc.collect()  # frees the step that compiling kept alive (see _launch)
@@ -1907,7 +1833,7 @@ class Engine:
 		record["warmup_s"] = time.perf_counter() - began
 		return S
 
-	def _steps_cuda(self, chunks, x_tokens, K, L, S, G0, window, consume,
+	def _steps_cuda(self, X, references, K, L, S, G0, window, consume,
 		record):
 		"""The steps on CUDA, pipelined: step i is queued before the host
 		waits for step i - 1 (see the class docstring)."""
@@ -1924,19 +1850,14 @@ class Engine:
 
 		torch.cuda.reset_peak_memory_stats(device)
 		base, first_S = torch.cuda.memory_allocated(device), S
-		work = collections.deque()
-		chunk_iter = iter(chunks)
+		N = len(X)
+		starts = collections.deque(range(0, N, S))
 		pending, finished, slot, recompiled = None, [], 0, False
-		while True:
-			if not work:
-				chunk = next(chunk_iter, None)
-				if chunk is None:
-					break
-
-				work.extend(_substeps(*chunk, S))
-
-			a, b, refs = work.popleft()
-			rings.fill(slot, x_tokens[a:b], refs, S)
+		while starts:
+			a = starts.popleft()
+			b = min(a + S, N)
+			refs = self._step_references(X, references, a, b, K, record)
+			rings.fill(slot, X[a:b], refs, S)
 			failed = None
 			try:
 				launched = self._launch(rings, slot, S, K, G0, window)
@@ -1952,8 +1873,7 @@ class Engine:
 					pending = None
 
 				S = self._after_oom(S, failed, record, record["steps"] + 1)
-				work = collections.deque(itertools.chain(_substeps(a, b,
-					refs, S), *(_substeps(*w, S) for w in work)))
+				starts = collections.deque(range(a, N, S))
 				recompiled = True
 				continue
 
@@ -1987,7 +1907,7 @@ class Engine:
 			record["steady_pairs_per_s"] = pairs / seconds
 
 	def _launch(self, rings, slot, S, K, G0, window):
-		"""Queue one step on the device without waiting: tokens in on the
+		"""Queue one step on the device without waiting: inputs in on the
 		copy stream, the step, results out. Returns the pinned host buffers
 		the results land in and the event that marks their arrival.
 
@@ -2000,14 +1920,14 @@ class Engine:
 
 		rows = S + S * K
 		compute = torch.cuda.current_stream()
-		tokens = rings.device_tokens[slot][:rows]
+		inputs = rings.device_inputs[slot][:rows]
 		with torch.cuda.stream(self._copy_stream):
-			tokens.copy_(rings.host_tokens[slot][:rows], non_blocking=True)
+			inputs.copy_(rings.host_inputs[slot][:rows], non_blocking=True)
 			copied = torch.cuda.Event()
 			copied.record()
 
 		compute.wait_event(copied)
-		out = self._device_step(tokens, S, K, G0, window)
+		out = self._device_step(inputs, S, K, G0, window)
 		host = _StepOutputs(*(buffer[:S] for buffer in rings.outputs[slot]))
 		for dst, src in zip(host, out):
 			dst.copy_(src, non_blocking=True)
@@ -2044,89 +1964,48 @@ class Engine:
 		return new
 
 	@staticmethod
-	def _joint_tokens(x_tokens, ref_tokens, S):
-		"""The step's rows ``[x_0..x_{S-1}, r_00..r_{S-1,K-1}]`` as uint8
-		tokens (S + S*K, L), padded with the last sequence.
+	def _joint_inputs(X, references, S):
+		"""The step's rows ``[x_0..x_{S-1}, r_00..r_{S-1,K-1}]`` as one int8
+		one-hot (S + S*K, 4, L), padded with the last sequence.
 
-		x_tokens (n, L) and ref_tokens (n, K, L) are tokens. With n < S, the
-		last sequence and its references are repeated to fill the step.
+		X (n, 4, L) and references (n, K, 4, L) are int8 one-hots. With n < S,
+		the last sequence and its references are repeated to fill the step.
 		"""
 
-		n = len(x_tokens)
+		n = len(X)
 		if n < S:
-			keep = numpy.concatenate([numpy.arange(n), numpy.full(S - n,
-				n - 1)])
-			x_tokens, ref_tokens = x_tokens[keep], ref_tokens[keep]
+			keep = torch.cat([torch.arange(n), torch.full((S - n,), n - 1)])
+			X, references = X[keep], references[keep]
 
-		return numpy.concatenate([x_tokens, ref_tokens.reshape(-1,
-			x_tokens.shape[-1])])
+		return torch.cat([X, references.flatten(0, 1)])
 
-	@contextlib.contextmanager
-	def _reference_chunks(self, x_tokens, ref_tokens, K, S, record, keep=None):
-		"""An iterator of (a, b, references of the sequences [a, b) as
-		(b - a, K, L) tokens), over chunks of S sequences in order.
+	def _inputs(self, X, references):
+		"""X and the references, checked as `deep_lift_shap` checks them, as
+		int8 one-hots on the CPU. Returns X (N, 4, L), the references
+		(N, K, 4, L) or None, and K.
 
-		Injected references are sliced. Otherwise a `RefProducer` draws them,
-		ahead of their use, and closes its pool on exit; its first chunks are
-		submitted on entry, so the pool works while the caller does other
-		things. With keep (sorted indices, an output array), those sequences'
-		references are copied into the array as they pass.
+		X may not hold an unknown character (an all-zero column); the
+		references may. Injected references set K, as in `deep_lift_shap`.
 		"""
 
-		N = len(x_tokens)
-		if keep is not None:
-			record["kept_references"] = len(keep[0])
-
-		if ref_tokens is not None:
-			record["references"] = "injected"
-			if keep is not None:
-				keep[1][:] = ref_tokens[keep[0]]
-
-			yield ((a, min(a + S, N), ref_tokens[a:a + S])
-				for a in range(0, N, S))
-			return
-
-		record["references"] = "produced"
-		with _references.RefProducer(self.ref_workers) as producer:
-			chunks = producer.chunks(x_tokens, K, self.random_state, S)
-			yield chunks if keep is None else _keeping(chunks, *keep)
-			record["reference_stats"] = dict(producer.stats)
-
-	def _tokens(self, X, references):
-		"""Check X and the references as `deep_lift_shap` does, and encode
-		them as uint8 tokens. Returns X's tokens (N, L), the references'
-		tokens (N, K, L) or None, and K.
-
-		X must be a one-hot with exactly one base per position; the
-		references may have all-zero (N) columns. The tokens are lossless, so
-		the one-hot rows of a step equal the inputs.
-		"""
-
-		x = torch.as_tensor(X)
-		if x.dim() != 3 or x.shape[1] != 4:
-			raise ValueError("X must have shape (N, 4, L), got {}".format(
-				tuple(x.shape)))
-
-		if x.shape[0] == 0:
+		X = torch.as_tensor(X)
+		validate_input(X, "X", shape=(-1, 4, -1), ohe=True)
+		if X.shape[0] == 0:
 			raise ValueError("deep_lift_shap requires at least one example; "
 				"got X with shape[0] == 0.")
 
-		x_tokens = _references.onehot_to_tokens(x)
-		if bool((x_tokens == _references.N_TOKEN).any()):
-			raise ValueError("X must be one-hot encoded and cannot have "
-				"unknown characters (all-zero columns)")
-
+		X = X.to(device="cpu", dtype=torch.int8)
 		if references is None:
-			return x_tokens, None, self.n_shuffles
+			return X, None, self.n_shuffles
 
-		r = torch.as_tensor(references)
-		N, _, L = x.shape
-		if (r.dim() != 4 or r.shape[0] != N or r.shape[1] < 1
-				or tuple(r.shape[2:]) != (4, L)):
-			raise ValueError("references must have shape ({}, K >= 1, 4, {}), "
-				"got {}".format(N, L, tuple(r.shape)))
+		R = torch.as_tensor(references)
+		validate_input(R, "references", shape=(len(X), -1, 4, X.shape[-1]),
+			ohe=True, allow_N=True, ohe_dim=-2)
+		if R.shape[1] == 0:
+			raise ValueError("references must hold at least one reference per "
+				"sequence, got shape {}".format(tuple(R.shape)))
 
-		return x_tokens, _references.onehot_to_tokens(r), r.shape[1]
+		return X, R.to(device="cpu", dtype=torch.int8), R.shape[1]
 
 	def _counts_cotangent(self, length):
 		"""`counts_cotangent` at the input length, computed once per
@@ -2158,6 +2037,7 @@ class Engine:
 			"mem_budget_gb": self.mem_budget_gb,
 			"steps": 0,
 			"padded_peaks": 0,
+			"reference_s": 0.0,
 			"host_syncs": 0,
 			"oom": [],
 			"compile_s": None,

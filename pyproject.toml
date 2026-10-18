@@ -29,7 +29,7 @@ dependencies = [
     "tqdm>=4.64.1",
     "seaborn>=0.11.2",
     "modisco>=2.0.0",
-    "tangermeme>=1.5.0",
+    "tangermeme>=1.5.1",
     "macs3",
     "figwig[bam2bw]>=0.1.0",
     "bpnet-lite>=1.0.0",

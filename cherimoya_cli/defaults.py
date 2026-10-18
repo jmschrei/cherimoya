@@ -150,7 +150,6 @@ default_attribute_parameters = {
 	'precision': 'tf32',
 	'seqs_per_step': 'auto',
 	'mem_budget_gb': 12.0,
-	'ref_workers': None,
 	'audit': 8,
 	'skip': False,
 }

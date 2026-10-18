@@ -10,10 +10,9 @@ makes: a forward self-check before the run, and an audit after it.
   a few sequences, in strict float32. It catches a model the engine reads
   wrongly before anything is computed.
 * The audit attributes a few evenly spaced sequences again with
-  tangermeme's `deep_lift_shap`, as the default engine calls it, given the
-  references the engine used for them, and compares the attributions. It
-  checks first that those references are bit for bit the ones tangermeme
-  draws itself.
+  tangermeme's `deep_lift_shap`, as the default engine calls it, with the
+  engine's `random_state`, and compares the attributions. Both draw the
+  references with tangermeme's `dinucleotide_shuffle` and the same seeds.
 """
 
 import time
@@ -25,8 +24,6 @@ import torch
 from .engine import make_wrapper
 from .engine import model_forward
 from .engine import precision_mode
-from .references import onehot_to_tokens
-from .references import tokens_to_onehot
 
 
 SELF_CHECK_PEAKS = 4
@@ -54,8 +51,8 @@ architecture over 2114 bp, and about 6 GB at 20."""
 
 
 class AuditFailed(RuntimeError):
-	"""The audit found a sequence beyond its bounds, or references that are
-	not tangermeme's. The outputs were written before it was raised."""
+	"""The audit found a sequence beyond its bounds. The outputs were
+	written before it was raised."""
 
 
 def forward_self_check(engine, model, X, peaks=SELF_CHECK_PEAKS,
@@ -225,42 +222,17 @@ def compare_attributions(ours, stock, pearson_min=AUDIT_PEARSON_MIN,
 	}
 
 
-def tangermeme_references(X, peaks, n_shuffles, random_state):
-	"""tangermeme's own draw of the references of some sequences, made as
-	`deep_lift_shap` makes it: reference k of sequence e is
-	``dinucleotide_shuffle(X[e:e+1].float(), n=1, random_state=random_state
-	+ k)[:, 0]``.
-
-
-	Returns
-	-------
-	references: list of numpy.ndarray, dtype=uint8, shape=(n_shuffles, L)
-		The references of each sequence in `peaks`, as tokens.
-	"""
-
-	from tangermeme.ersatz import dinucleotide_shuffle
-
-	out = []
-	for e in peaks:
-		x = X[int(e):int(e) + 1].float()
-		references = [dinucleotide_shuffle(x, n=1,
-			random_state=random_state + k)[:, 0] for k in range(n_shuffles)]
-		out.append(onehot_to_tokens(torch.cat(references)))
-
-	return out
-
-
 def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 	warning_threshold=1e-3):
 	"""Attribute some sequences again with tangermeme's `deep_lift_shap`,
-	given the references the engine used, and compare.
+	with the engine's `random_state`, and compare.
 
 	`deep_lift_shap` runs as `cherimoya attribute`'s default engine runs it:
 	through the real ``LogCountWrapper(ControlWrapper(model), group)``, with
 	`attribution_ops()`, in float32, on the engine's device and in the
-	engine's precision mode, at min(batch_size, `AUDIT_MAX_BATCH`). Before
-	that, the engine's references for these sequences are compared, bit for
-	bit, with tangermeme's own draw (`tangermeme_references`). Its per-batch
+	engine's precision mode, at min(batch_size, `AUDIT_MAX_BATCH`), with the
+	engine's `random_state` and `n_shuffles`, so that it draws the
+	references the engine drew (`draw_references`). Its per-batch
 	convergence warnings are counted, not shown.
 
 
@@ -276,8 +248,7 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 		The sequences the engine attributed.
 
 	result: Result
-		The engine's result, with `result.references` the references of
-		`peaks` (`Engine.run(keep_references=peaks)`).
+		The engine's result, from a run that drew its references.
 
 	peaks: numpy.ndarray
 		The sequences to audit, as `audit_peaks` returns them.
@@ -295,17 +266,27 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 	Returns
 	-------
 	record: dict
-		The audited sequences, the comparison (`compare_attributions`),
-		whether the references are tangermeme's, and "pass".
+		The audited sequences, the comparison (`compare_attributions`) and
+		"pass".
+
+
+	Raises
+	------
+	ValueError
+		If the run was given its references rather than drawing them.
 	"""
 
 	from tangermeme.deep_lift_shap import deep_lift_shap
 
 	from ..deep_lift_shap import attribution_ops
 
+	if result.meta["references"] != "produced":
+		raise ValueError("the audit checks a run that drew its references; "
+			"this one was given them")
+
 	began = time.perf_counter()
 	device = engine.weights.device
-	K = result.references.shape[1]
+	K = result.meta["n_shuffles"]
 	bs = max(1, min(int(batch_size), AUDIT_MAX_BATCH))
 	record = {
 		"peaks": len(peaks),
@@ -319,14 +300,6 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 		"random_state": engine.random_state,
 	}
 
-	drawn = tangermeme_references(X, peaks, K, engine.random_state)
-	same = [bool(numpy.array_equal(result.references[i], drawn[i]))
-		for i in range(len(peaks))]
-	record["references_match_tangermeme"] = all(same)
-	record["references_mismatched_positions"] = [i for i, ok
-		in enumerate(same) if not ok]
-
-	R = tokens_to_onehot(result.references, torch.float32)
 	wrapper = make_wrapper(model, "counts", engine.group).to(device).eval()
 	index = torch.as_tensor(numpy.asarray(peaks, numpy.int64))
 	if device.type == "cuda":
@@ -344,7 +317,7 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 			inductor_cache=False), warnings.catch_warnings(
 			record=True) as caught:
 		warnings.simplefilter("always")
-		stock = deep_lift_shap(wrapper, X[index], references=R, n_shuffles=K,
+		stock = deep_lift_shap(wrapper, X[index], n_shuffles=K,
 			hypothetical=True, batch_size=bs, warning_threshold=threshold,
 			additional_nonlinear_ops=attribution_ops(), dtype="float32",
 			device=str(device), random_state=engine.random_state,
@@ -366,8 +339,6 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 
 	ours = result.attr[index].float()
 	record.update(compare_attributions(ours.numpy(), stock.numpy()))
-	record["pass"] = bool(record["pass"]
-		and record["references_match_tangermeme"])
 	record["seconds"] = time.perf_counter() - began
 	return record
 
@@ -377,9 +348,7 @@ def audit_summary(record):
 
 	return ("{} sequences against tangermeme's deep_lift_shap (batch {}, {} "
 		"precision): min Pearson {:.8f}, relative L2 median {:.3g} and max "
-		"{:.3g} (bounds {}, {:g}); references {} to tangermeme's; {:.1f} "
-		"s".format(record["peaks"], record["batch_size"], record["precision"],
-		record["min_pearson"], record["median_rel_l2"], record["max_rel_l2"],
-		AUDIT_PEARSON_MIN, AUDIT_REL_L2_MAX, "equal"
-		if record["references_match_tangermeme"] else "NOT equal",
-		record["seconds"]))
+		"{:.3g} (bounds {}, {:g}); {:.1f} s".format(record["peaks"],
+		record["batch_size"], record["precision"], record["min_pearson"],
+		record["median_rel_l2"], record["max_rel_l2"], AUDIT_PEARSON_MIN,
+		AUDIT_REL_L2_MAX, record["seconds"]))

@@ -107,7 +107,6 @@ def write_params(inputs, out_dir, name, **overrides):
 		"output": "counts",
 		"algorithm": "deep_lift_shap",
 		"engine": "fast",
-		"ref_workers": 0,
 		"verbose": False,
 		"ohe_filename": str(out_dir / "{}.ohe.npz".format(name)),
 		"attr_filename": str(out_dir / "{}.attr.npz".format(name)),
@@ -190,12 +189,11 @@ def default_runs(inputs, tmp_path_factory):
 ##
 
 
-@pytest.mark.parametrize("batch_size, ref_workers", [(64, 2), (7, 0)])
+@pytest.mark.parametrize("batch_size", [64, 7])
 def test_the_fast_engine_matches_the_default_engine(inputs, default_runs,
-	tmp_path, batch_size, ref_workers):
+	tmp_path, batch_size):
 	default = default_runs(batch_size)
-	path = write_params(inputs, tmp_path, "fast", batch_size=batch_size,
-		ref_workers=ref_workers)
+	path = write_params(inputs, tmp_path, "fast", batch_size=batch_size)
 	attribute.run(ns(path))
 	ours = load_outputs(path)
 
@@ -242,7 +240,6 @@ def test_the_fast_engine_matches_the_default_engine(inputs, default_runs,
 	assert audit["indices"] == numpy.round(numpy.linspace(0, KEPT.sum() - 1,
 		8)).astype(int).tolist()
 	assert audit["batch_size"] == min(batch_size, checks.AUDIT_MAX_BATCH)
-	assert audit["references_match_tangermeme"] is True
 	assert audit["failed_positions"] == []
 	assert audit["max_rel_l2"] <= REL_L2_MAX
 
@@ -266,7 +263,7 @@ def test_the_default_engine_is_the_default(inputs, tmp_path, monkeypatch):
 def test_the_default_engine_ignores_the_fast_options(default_runs):
 	plain = default_runs(64)
 	options = default_runs(64, precision="fp32", seqs_per_step=3,
-		mem_budget_gb=4, ref_workers=0, audit=0)
+		mem_budget_gb=4, audit=0)
 	for name in ("ohe", "attr", "idx"):
 		assert numpy.array_equal(options[name], plain[name])
 
@@ -349,8 +346,6 @@ def test_saturation_mutagenesis_ignores_the_engine(inputs, tmp_path,
 	("seqs_per_step", True, "seqs_per_step"),
 	("mem_budget_gb", -1, "mem_budget_gb"),
 	("mem_budget_gb", "8", "mem_budget_gb"),
-	("ref_workers", -1, "ref_workers"),
-	("ref_workers", 1.5, "ref_workers"),
 	("audit", -1, "audit"),
 	("audit", True, "audit"),
 	("dtype", "bfloat16", "dtype"),
@@ -443,14 +438,15 @@ def test_a_failed_self_check_aborts_before_anything_is_written(inputs,
 
 
 def _corrupting_run(monkeypatch, corrupt):
-	"""Make Engine.run return its result with corrupt(attr) applied."""
+	"""Make Engine.run return its result with corrupt(attr) applied, and
+	count its calls."""
 
 	real_run = fdls.Engine.run
 	calls = []
 
 	def run(self, *args, **kwargs):
 		result = real_run(self, *args, **kwargs)
-		calls.append(kwargs.get("keep_references"))
+		calls.append(result.meta["references"])
 		return result._replace(attr=corrupt(result.attr.clone()))
 
 	monkeypatch.setattr(fdls.Engine, "run", run)
@@ -478,11 +474,11 @@ def test_a_wrong_engine_output_fails_the_audit_after_writing(inputs, tmp_path,
 	assert all(p.exists() for p in output_paths(path))
 	audit = json.loads(output_paths(path)[-1].read_text())["audit"]
 	peaks = numpy.round(numpy.linspace(0, KEPT.sum() - 1, 8)).astype(int)
-	assert len(calls) == 1 and numpy.array_equal(calls[0], peaks)
+	assert calls == ["produced"]
+	assert audit["indices"] == peaks.tolist()
 	bad = [peaks.tolist().index(i) for i in (3, 7) if i in peaks
 		and (corrupt is _swap_two_loci or i == 3)]
 	assert audit["pass"] is False and audit["failed_positions"] == bad
-	assert audit["references_match_tangermeme"] is True
 	if corrupt is _scale_one_locus:
 		assert audit["rel_l2"][bad[0]] == pytest.approx(0.05, rel=1e-3)
 		assert audit["min_pearson"] > 0.99999
@@ -492,24 +488,21 @@ def test_a_wrong_engine_output_fails_the_audit_after_writing(inputs, tmp_path,
 
 def test_references_unlike_tangermemes_fail_the_audit(inputs, tmp_path,
 	monkeypatch):
-	"""If the engine's references for the audited loci were not tangermeme's
-	draw, the audit fails although the stock run, given the same
-	references, agrees with the engine."""
+	"""If the engine drew other references than deep_lift_shap does, the
+	audit, which lets deep_lift_shap draw its own, fails."""
 
-	real = checks.tangermeme_references
+	real = fdls.draw_references
 
-	def shifted(X, peaks, n_shuffles, random_state):
-		return real(X, peaks, n_shuffles, random_state + 1)
+	def shifted(X, n_shuffles, random_state):
+		return real(X, n_shuffles, random_state + 1)
 
-	monkeypatch.setattr(checks, "tangermeme_references", shifted)
+	monkeypatch.setattr(fdls, "draw_references", shifted)
 	path = write_params(inputs, tmp_path, "refs")
-	with pytest.raises(AuditFailed, match="NOT equal"):
+	with pytest.raises(AuditFailed, match="audit failed"):
 		attribute.run(ns(path))
 
 	audit = json.loads(output_paths(path)[-1].read_text())["audit"]
-	assert audit["references_match_tangermeme"] is False
-	assert audit["failed_positions"] == []
-	assert audit["references_mismatched_positions"] == list(range(8))
+	assert audit["pass"] is False and audit["failed_positions"]
 
 
 def test_audit_zero_runs_no_audit(inputs, tmp_path, monkeypatch):
@@ -524,40 +517,29 @@ def test_audit_zero_runs_no_audit(inputs, tmp_path, monkeypatch):
 	meta = json.loads(output_paths(path)[-1].read_text())
 	assert meta["audit"] == {"peaks": 0, "pass": None,
 		"status": "off (audit 0)"}
-	assert calls == [None]
+	assert calls == ["produced"]
 
 
 ##
 
 
-def test_the_cache_defaults_are_set_only_when_unset(tmp_path, monkeypatch):
-	import tempfile
-
-	monkeypatch.delenv("NUMBA_CACHE_DIR", raising=False)
+def test_the_cache_default_is_set_only_when_unset(monkeypatch):
 	monkeypatch.delenv("TRITON_CACHE_AUTOTUNING", raising=False)
-	monkeypatch.setenv("TMPDIR", str(tmp_path))
-	monkeypatch.setattr(tempfile, "tempdir", None)
 	record = attribute._set_cache_defaults()
-	assert os.environ["NUMBA_CACHE_DIR"].startswith(str(tmp_path))
-	assert os.path.isdir(os.environ["NUMBA_CACHE_DIR"])
 	assert os.environ["TRITON_CACHE_AUTOTUNING"] == "1"
-	assert record["set_by_cherimoya"] == ["NUMBA_CACHE_DIR",
-		"TRITON_CACHE_AUTOTUNING"]
+	assert record["set_by_cherimoya"] == ["TRITON_CACHE_AUTOTUNING"]
 
-	monkeypatch.setenv("NUMBA_CACHE_DIR", str(tmp_path / "mine"))
 	monkeypatch.setenv("TRITON_CACHE_AUTOTUNING", "0")
 	record = attribute._set_cache_defaults()
-	assert os.environ["NUMBA_CACHE_DIR"] == str(tmp_path / "mine")
 	assert os.environ["TRITON_CACHE_AUTOTUNING"] == "0"
 	assert record["set_by_cherimoya"] == []
 
 
-def test_the_cache_defaults_are_set_before_cherimoya_is_imported(tmp_path):
-	"""In a fresh process, `cherimoya attribute` with engine "fast" sets the
-	two variables before it imports cherimoya and tangermeme, so
-	tangermeme's kernel is cached under NUMBA_CACHE_DIR and cherimoya's
-	autotuned kernels keep their timings. Importing the command module
-	alone imports neither."""
+def test_the_cache_default_is_set_before_cherimoya_is_imported(tmp_path):
+	"""In a fresh process, `cherimoya attribute` with engine "fast" sets
+	TRITON_CACHE_AUTOTUNING before it imports cherimoya, so that cherimoya's
+	autotuned kernels keep their timings. Importing the command module alone
+	imports neither cherimoya nor its dependencies."""
 
 	params = {"model": MISSING_MODEL, "sequences": "x.fa", "loci": "x.bed",
 		"engine": "fast", "device": "cpu"}
@@ -573,25 +555,17 @@ def test_the_cache_defaults_are_set_before_cherimoya_is_imported(tmp_path):
 			attribute.run(argparse.Namespace(parameters={!r}))
 		except Exception:
 			pass
-		from tangermeme import ersatz
 		import cherimoya.cheri as cheri
-		print(os.environ["NUMBA_CACHE_DIR"])
-		print(ersatz._fast_shuffle._cache.cache_path)
 		print(os.environ["TRITON_CACHE_AUTOTUNING"])
 		kernel = getattr(cheri, "_fwd_stats_kernel", None)
 		print(getattr(kernel, "cache_results", None))
 		""".format(str(path)))
 	env = {k: v for k, v in os.environ.items()
-		if k not in ("NUMBA_CACHE_DIR", "TRITON_CACHE_AUTOTUNING")}
-	env["TMPDIR"] = str(tmp_path)
+		if k != "TRITON_CACHE_AUTOTUNING"}
 	done = subprocess.run([sys.executable, "-c", code], env=env,
 		capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
 	assert done.returncode == 0, done.stderr[-3000:]
 
-	numba_dir, kernel_cache, autotuning, cached = \
-		done.stdout.strip().splitlines()[-4:]
-	assert numba_dir.startswith(str(tmp_path))
-	assert Path(kernel_cache).resolve().is_relative_to(
-		Path(numba_dir).resolve())
+	autotuning, cached = done.stdout.strip().splitlines()[-2:]
 	assert autotuning == "1"
 	assert cached in ("True", "None")

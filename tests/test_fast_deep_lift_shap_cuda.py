@@ -20,7 +20,6 @@ it back on for this module (`dynamo_enabled`) and check that they did.
 
 import re
 
-import numpy
 import pytest
 import torch
 
@@ -28,7 +27,6 @@ from unittest import mock
 
 from cherimoya import Cherimoya
 from cherimoya.fast_deep_lift_shap import engine as fdls
-from cherimoya.fast_deep_lift_shap import references
 
 from . import fast_deep_lift_shap_helpers as tiny
 
@@ -385,12 +383,12 @@ def _inject_oom(engine, at_call, when_s):
 	calls = []
 	step = engine._device_step
 
-	def failing(tokens, S, K, G0, window):
+	def failing(inputs, S, K, G0, window):
 		calls.append(S)
 		if len(calls) == at_call and S == when_s:
 			raise torch.cuda.OutOfMemoryError("injected by the test")
 
-		return step(tokens, S, K, G0, window)
+		return step(inputs, S, K, G0, window)
 
 	engine._device_step = failing
 	return calls
@@ -440,25 +438,25 @@ def test_out_of_memory_in_a_step_halves_the_step_and_retries_it():
 		assert torch.equal(ours[4:], getattr(by_2, name)[4:]), name
 
 
-def test_a_warm_up_halving_recuts_the_pools_chunks():
-	"""The pool starts drawing chunks of 5 sequences before the warm-up,
-	which halves the step to 2: the run takes the 7 steps and 1 padded
-	sequence of an engine planned at 2, with its results bit for bit."""
+def test_a_warm_up_halving_with_drawn_references():
+	"""With references drawn rather than given, a warm-up that halves the
+	step from 5 to 2 leaves the run with the 7 steps and 1 padded sequence
+	of an engine planned at 2, and its results bit for bit, given the same
+	references."""
 
 	X, R = _case("C", "shuffled")
 	start, end = _window(X.shape[-1], X.shape[-1] // 4)
 	kwargs = dict(precision="fp32", deterministic=True, n_shuffles=K,
 		random_state=0)
-	engine = _tiny_engine("C", seqs_per_step=5, ref_workers=2, **kwargs)
+	engine = _tiny_engine("C", seqs_per_step=5, **kwargs)
 	calls = _inject_oom(engine, at_call=1, when_s=5)
-	got = engine.run(X, start, end, keep_references=list(range(len(X))))
+	got = engine.run(X, start, end)
 	expected = _tiny_engine("C", seqs_per_step=2, **kwargs).run(X, start, end,
 		references=R)
 
 	assert got.meta["oom"] == [{"step": "warm-up", "from": 5, "to": 2}]
 	assert calls == [5, 2] + [2] * 7
 	assert (got.meta["steps"], got.meta["padded_peaks"]) == (7, 1)
-	numpy.testing.assert_array_equal(got.references,
-		references.onehot_to_tokens(R))
+	assert got.meta["references"] == "produced"
 	for name in ("attr", "deltas", "y_x", "y_r"):
 		assert torch.equal(getattr(got, name), getattr(expected, name)), name
