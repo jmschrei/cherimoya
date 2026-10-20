@@ -17,8 +17,9 @@ This is only needed for DeepLIFT/SHAP. ``cherimoya attribute`` registers
 the rules itself when ``algorithm`` is ``"deep_lift_shap"``, its default.
 Saturation mutagenesis makes forward passes only and registers nothing.
 
-Requires ``tangermeme >= 1.5.0``, which is where the closed-form
-normalization rule that :func:`conv_norm_op` reuses was added.
+Requires ``tangermeme >= 1.6.0``, the first release with the tensor
+functions of the closed-form normalization rule that :func:`conv_norm_op`
+calls.
 
 
 attribution_ops

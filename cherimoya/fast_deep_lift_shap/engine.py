@@ -86,7 +86,7 @@ from ..wrappers import ProfileWrapper
 
 logger = logging.getLogger(__name__)
 
-VALIDATED_TANGERMEME_VERSIONS = ("1.5.1",)
+VALIDATED_TANGERMEME_VERSIONS = ("1.6.0",)
 """The tangermeme releases whose DeepLIFT rules, hypothetical projection and
 dinucleotide shuffle this engine was checked against. Another version runs,
 with a warning."""
@@ -778,11 +778,11 @@ def ln_rule(Gn, y, mu, v, S, K):
 	"""The normalization rule of `conv_norm_op` on the sequence half.
 
 	`cherimoya.deep_lift_shap.conv_norm_op` applies tangermeme's
-	`_layer_normalization_helper` to the depthwise convolution's output: the
-	whole (L, C) plane of each row, with no affine weight. This applies the
-	helper's tensor functions, `_layer_normalization_terms` and
-	`_layer_normalization_grad`, to each sequence row broadcast against its
-	K reference rows.
+	normalization rule to the depthwise convolution's output, over the whole
+	(L, C) plane of each row with no affine weight, through
+	`_layer_normalization_terms` and `_layer_normalization_grad`. This
+	applies the same two functions to each sequence row broadcast against
+	its K reference rows.
 
 	Gn (S, K, L, C) is each pair's gradient at the normalization's output, y
 	(S + S*K, L, C) its input over the joint rows, and mu and v (S + S*K,)

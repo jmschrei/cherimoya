@@ -13,7 +13,7 @@ Attribution
   rules, up to floating-point rounding: the same rules, the same
   dinucleotide-shuffled references with the same seeds, and the same
   hypothetical projection, each called from tangermeme
-  (``tangermeme >= 1.5.1``). It forwards each sequence once rather than
+  (``tangermeme >= 1.6.0``). It forwards each sequence once rather than
   once per reference, runs the backward over the sequence half of each
   pair only, and compiles its passes on a GPU. On an otherwise idle H200,
   with 1,000 peaks of 2,114 bp and 20 shuffles each, it attributed 7,740

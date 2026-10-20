@@ -36,40 +36,13 @@ from __future__ import annotations
 
 import torch
 
-from tangermeme._deep_lift_utils import _layer_normalization_helper
+from tangermeme._deep_lift_utils import _layer_normalization_grad
+from tangermeme._deep_lift_utils import _layer_normalization_stats
+from tangermeme._deep_lift_utils import _layer_normalization_terms
 
 from .cheri import CONV_NORM_EPS
 from .cheri import FusedDilatedConvNorm
 from .cheri import _cheri_conv
-
-
-class _ConvNormView:
-	"""A stand-in normalization for `_layer_normalization_helper` to read.
-
-	That helper takes four things off the module it is correcting: the
-	input tangermeme's forward hook cached, `eps`, `normalized_shape`, and
-	the affine weight. The last three are `torch.nn.LayerNorm`'s own
-	attributes, so supplying them for a normalization that is not a module
-	is a matter of naming, not of reimplementing a protocol.
-
-	The fused op normalizes over the whole (length, channels) plane of each
-	example and carries no affine weight, which is `normalized_shape` of
-	the trailing two axes and a weight of None.
-
-
-	Parameters
-	----------
-	y: torch.Tensor, shape=(2 * N, L, C)
-		The convolution's output, with the observed batch concatenated
-		with the reference batch along the first axis, which is the layout
-		every DeepLIFT rule reads.
-	"""
-
-	def __init__(self, y: torch.Tensor):
-		self.input = y
-		self.eps = CONV_NORM_EPS
-		self.normalized_shape = list(y.shape[1:])
-		self.weight = None
 
 
 def conv_norm_op(module, grad_input, grad_output):
@@ -104,8 +77,10 @@ def conv_norm_op(module, grad_input, grad_output):
 	The cost over registering nothing is one extra convolution forward and
 	one backward per call, against `integrated_gradients_op`'s K of each.
 
-	Requires tangermeme >= 1.5.0, which is where the closed-form
-	normalization rule this reuses was added.
+	The rule is tangermeme's `_layer_normalization_helper` over the
+	trailing two axes with no affine weight, called through the three
+	tensor functions it is built from. Requires tangermeme >= 1.6.0, the
+	first release with those functions.
 
 
 	Parameters
@@ -142,8 +117,12 @@ def conv_norm_op(module, grad_input, grad_output):
 		X_ = X.detach().requires_grad_()
 		y = _cheri_conv(X_, module.conv_weight, module.dilation)
 
-		multipliers, = _layer_normalization_helper(_ConvNormView(y.detach()),
-			grad_input, grad_output, norm_type="layernorm")
+		y_x, y_ref = y.detach().chunk(2)
+		mu, v = _layer_normalization_stats(y_x, 2, CONV_NORM_EPS)
+		mu_ref, v_ref = _layer_normalization_stats(y_ref, 2, CONV_NORM_EPS)
+		terms = _layer_normalization_terms(y_x, mu, v, y_ref, mu_ref, v_ref, 2)
+		multipliers = torch.cat([_layer_normalization_grad(g, *terms, 2)
+			for g in grad_output[0].chunk(2)])
 
 		grad, = torch.autograd.grad(y, X_, grad_outputs=multipliers)
 

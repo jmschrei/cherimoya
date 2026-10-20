@@ -229,7 +229,7 @@ set above that noise, rather than for equality (below).
 
 The engine calls tangermeme's rules, shuffle and projection and reproduces
 how ``deep_lift_shap`` applies them, so it is tied to the tangermeme it was
-validated against: tangermeme 1.5.1
+validated against: tangermeme 1.6.0
 (``cherimoya.fast_deep_lift_shap.VALIDATED_TANGERMEME_VERSIONS``). With
 another release it runs and warns; its audit then compares it with that
 release's ``deep_lift_shap``.

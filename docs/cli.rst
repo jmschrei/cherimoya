@@ -532,7 +532,7 @@ attribute_parameters
        ``"output": "profile"``, ``"fast"`` warns and the default engine
        runs.
        Saturation mutagenesis ignores it. ``"fast"`` needs ``dtype``
-       ``"float32"`` or ``null``, and tangermeme 1.5.1, which it was
+       ``"float32"`` or ``null``, and tangermeme 1.6.0, which it was
        validated with; another tangermeme release warns.
    * - ``precision``
      - ``"tf32"``

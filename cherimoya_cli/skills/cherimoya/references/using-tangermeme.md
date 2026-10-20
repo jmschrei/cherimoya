@@ -75,7 +75,7 @@ X_attr = deep_lift_shap(wrapper, X, references=references,
 Two more things it needs. Load the model with `compile=False` — DeepLIFT's
 backward hooks replace gradients, which Inductor cannot trace, so a compiled
 model graph-breaks and runs slightly slower for the same answer. And
-`attribution_ops()` requires `tangermeme >= 1.5.0`.
+`attribution_ops()` requires `tangermeme >= 1.6.0`.
 
 Do not add `_ProfileLogitScaling: _nonlinear` to the dictionary, as bpnet-lite
 code does for its own profile wrapper. The profile head's softmax and product

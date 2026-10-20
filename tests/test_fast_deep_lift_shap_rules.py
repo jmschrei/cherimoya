@@ -6,8 +6,8 @@ Each rule gets the same inputs as the function it replaces, in float64:
 * `gelu_rescale` against tangermeme's `_nonlinear` at |dz| = 0, 5e-7,
   9.999e-7, exactly 1e-6, 1.0001e-6, 1e-3 and 1: the same branch (the
   gradient where |dz| < 1e-6, strictly; the secant otherwise), within 1 ulp.
-* `ln_rule` against tangermeme's `_layer_normalization_helper` on
-  cherimoya's `_ConvNormView`, as `conv_norm_op` calls it: <= 1e-13.
+* `ln_rule` against tangermeme's `_layer_normalization_helper`, the rule
+  `conv_norm_op` applies, over each row's (L, C) plane: <= 1e-13.
 * `dw3` and its transpose against cherimoya's `_cheri_conv` and autograd
   through it: <= 1e-14.
 * `counts_cotangent` against autograd through the real
@@ -44,7 +44,6 @@ from cherimoya import ControlWrapper
 from cherimoya import LogCountWrapper
 from cherimoya.cheri import CONV_NORM_EPS
 from cherimoya.cheri import _cheri_conv
-from cherimoya.deep_lift_shap import _ConvNormView
 from cherimoya.deep_lift_shap import conv_norm_op
 from cherimoya.fast_deep_lift_shap import engine as fdls
 
@@ -182,13 +181,12 @@ def test_gelu_rescale_matches_tangermeme_nonlinear(dz):
 
 
 def _ln_reference(y, Gn, G_ref_half):
-	"""`conv_norm_op`'s call: `_layer_normalization_helper` on a
-	`_ConvNormView` of the joint rows, sequence half returned."""
+	"""`_layer_normalization_helper` on a normalization stub over the joint
+	rows' (L, C) planes with no affine weight, sequence half returned."""
 
-	view = _ConvNormView(_joint(y))
-	assert view.eps == CONV_NORM_EPS and view.weight is None
-	assert view.normalized_shape == list(y.shape[1:])
-	result, = _layer_normalization_helper(view, None,
+	stub = SimpleNamespace(input=_joint(y), eps=CONV_NORM_EPS,
+		normalized_shape=list(y.shape[1:]), weight=None)
+	result, = _layer_normalization_helper(stub, None,
 		(torch.cat([Gn.flatten(0, 1), G_ref_half]),))
 	return result[:S * K]
 
