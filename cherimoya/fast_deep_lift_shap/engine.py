@@ -46,7 +46,9 @@ Deliberate differences from the default engine:
   keeps float64.
 * The engine returns its results in the model's dtype and warns once per
   run, with a summary of the convergence deltas, where tangermeme warns once
-  per batch. A `warning_threshold` of None means no warning.
+  per batch. A `warning_threshold` of None means no warning for deltas above
+  it. tangermeme's second check, the mean delta against the mean output
+  difference, is made once over the run.
 """
 
 import collections
@@ -133,6 +135,10 @@ FCONV_KERNEL, FCONV_PADDING = 75, 37
 AUTO_SEQS_PER_STEP = 8
 """Sequences per step for `seqs_per_step="auto"` on the CPU. On CUDA "auto"
 sizes steps from the memory the process can use."""
+
+RELATIVE_DELTA_MAX = 0.01
+"""`run` warns when the mean convergence delta exceeds this fraction of the
+mean |y_x - y_r|, the bound `deep_lift_shap` checks per batch."""
 
 SEED_RANGE = 9_999_999
 """`random_state=None` draws a base seed from [0, SEED_RANGE), once per
@@ -1408,7 +1414,8 @@ class Engine:
 			y_r[a:b], deltas[a:b] = out.y_r[:n], out.delta[:n]
 
 		debug = self._execute(X, references, K, None, consume)
-		debug["deltas"] = delta_summary(deltas, self.warning_threshold)
+		debug["deltas"] = delta_summary(deltas, y_x[:, None] - y_r,
+			self.warning_threshold)
 		return RawResult(m, y_x, y_r, deltas, debug)
 
 	def run(self, X, start, end, references=None, verbose=False):
@@ -1417,8 +1424,9 @@ class Engine:
 
 		This is ``deep_lift_shap(wrapper, X, hypothetical=True, ...)[:, :,
 		start:end]`` as `cherimoya attribute` calls it. The convergence
-		deltas and the outputs of every pair come back too, and one warning
-		is given if a delta exceeds `warning_threshold`.
+		deltas and the outputs of every pair come back too. One warning is
+		given if a delta exceeds `warning_threshold`, and one if the mean
+		delta exceeds `RELATIVE_DELTA_MAX` of the mean output difference.
 
 
 		Parameters
@@ -1472,7 +1480,8 @@ class Engine:
 			progress.close()
 
 		meta["window"] = [start, end]
-		meta["deltas"] = delta_summary(deltas, self.warning_threshold)
+		meta["deltas"] = delta_summary(deltas, y_x[:, None] - y_r,
+			self.warning_threshold)
 		logger.info("fast DeepLIFT/SHAP: %d sequences x %d references in %d "
 			"steps of %d, %.1f s (%.0f pairs/s overall, %s steady; warm-up "
 			"%s s)", N, K, meta["steps"], meta["seqs_per_step"],
@@ -1485,6 +1494,10 @@ class Engine:
 		if meta["deltas"]["above"]:
 			warnings.warn(delta_warning(meta["deltas"]), RuntimeWarning,
 				stacklevel=2)
+
+		if meta["deltas"]["relative"] > RELATIVE_DELTA_MAX:
+			warnings.warn(relative_delta_warning(meta["deltas"]),
+				RuntimeWarning, stacklevel=2)
 
 		return Result(attr, deltas, y_x, y_r, meta)
 
@@ -1911,17 +1924,22 @@ def _target_device_type(model, device):
 	return weight.device.type if isinstance(weight, torch.Tensor) else None
 
 
-def delta_summary(deltas, threshold):
+def delta_summary(deltas, output_diffs, threshold):
 	"""The convergence deltas in brief: pairs, threshold, how many exceed it,
-	max, p50, p99 and p99.9.
+	max, p50, p99, p99.9, and the mean delta relative to the mean absolute
+	output difference.
 
 	A delta exceeds the threshold as tangermeme decides it, ``deltas >
 	threshold`` in the deltas' dtype. `above` is None when the threshold is.
+	`relative` is tangermeme's ratio, mean(deltas) / mean(|y_x - y_r|) with
+	the denominator at least 1e-12, over every pair in float64 rather than
+	per batch.
 	"""
 
 	values = deltas.detach().cpu()
 	p50, p99, p999 = numpy.quantile(values.double().flatten().numpy(),
 		[0.5, 0.99, 0.999])
+	scale = output_diffs.detach().cpu().double().abs().mean().clamp_min(1e-12)
 	return {
 		"pairs": values.numel(),
 		"threshold": threshold,
@@ -1930,6 +1948,7 @@ def delta_summary(deltas, threshold):
 		"p50": float(p50),
 		"p99": float(p99),
 		"p99.9": float(p999),
+		"relative": float(values.double().mean() / scale),
 	}
 
 
@@ -1941,6 +1960,16 @@ def delta_warning(summary):
 		"p50/p99/p99.9 {:.3g}/{:.3g}/{:.3g})".format(summary["above"],
 		summary["pairs"], summary["threshold"], summary["max"],
 		summary["p50"], summary["p99"], summary["p99.9"]))
+
+
+def relative_delta_warning(summary):
+	"""The one warning a run gives when the mean delta is a large fraction of
+	the mean output difference, where tangermeme warns per batch."""
+
+	return ("Convergence deltas are {:.1%} of the output differences over "
+		"{} pairs, above {:.0%}: the attributions do not sum to the change "
+		"in the output".format(summary["relative"], summary["pairs"],
+		RELATIVE_DELTA_MAX))
 
 
 def _positive_int(value, name, alternatives=""):

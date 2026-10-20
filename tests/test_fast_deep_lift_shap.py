@@ -955,6 +955,39 @@ def test_run_warns_once_for_high_deltas():
 			assert messages == []
 			assert summary["above"] == (None if threshold is None else 0)
 
+	dy = (result.y_x[:, None] - result.y_r).double().abs().mean()
+	assert summary["relative"] == float(result.deltas.double().mean() / dy)
+	assert 0 < summary["relative"] < fdls.RELATIVE_DELTA_MAX
+
+
+def test_run_warns_once_for_a_high_relative_delta(monkeypatch):
+	"""One RuntimeWarning per run when the mean delta exceeds
+	RELATIVE_DELTA_MAX of the mean output difference, whatever
+	`warning_threshold` is, as tangermeme's second check is."""
+
+	model = tiny.tiny_model("A")
+	X = tiny.sequences("A")[:4]
+	R = tiny.shuffled_references(X, 3)
+	engine = fdls.Engine(model, warning_threshold=None, seqs_per_step=3)
+	relative = engine.run(X, 0, X.shape[-1], references=R).meta["deltas"][
+		"relative"]
+
+	for bound, warns in ((relative / 2, True), (relative, False)):
+		monkeypatch.setattr(fdls, "RELATIVE_DELTA_MAX", bound)
+		with warnings.catch_warnings(record=True) as caught:
+			warnings.simplefilter("always")
+			engine.run(X, 0, X.shape[-1], references=R)
+
+		messages = [str(w.message) for w in caught
+			if issubclass(w.category, RuntimeWarning)]
+		if warns:
+			assert len(messages) == 1, messages
+			assert re.fullmatch(r"Convergence deltas are \S+% of the output "
+				r"differences over 12 pairs, above \S+%: the attributions do "
+				r"not sum to the change in the output", messages[0])
+		else:
+			assert messages == []
+
 
 ##
 

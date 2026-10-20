@@ -233,7 +233,8 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 	engine's precision mode, at min(batch_size, `AUDIT_MAX_BATCH`), with the
 	engine's `random_state` and `n_shuffles`, so that it draws the
 	references the engine drew (`draw_references`). Its per-batch
-	convergence warnings are counted, not shown.
+	convergence warnings, for deltas above `warning_threshold` and for a
+	mean delta above 1% of the output differences, are counted, not shown.
 
 
 	Parameters
@@ -326,7 +327,7 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 	record["stock_s"] = time.perf_counter() - t
 
 	delta_warnings = [w for w in caught if str(w.message).startswith(
-		"Convergence deltas too high")]
+		"Convergence deltas")]
 	for w in caught:
 		if w not in delta_warnings:
 			warnings.warn_explicit(w.message, w.category, w.filename,

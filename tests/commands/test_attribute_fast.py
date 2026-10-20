@@ -17,7 +17,9 @@ spaced loci again with tangermeme's `deep_lift_shap`.
 """
 
 import argparse
+import contextlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -29,6 +31,7 @@ import pytest
 
 from pathlib import Path
 
+import cherimoya.deep_lift_shap
 import cherimoya.fast_deep_lift_shap as fast
 
 from cherimoya.fast_deep_lift_shap import AuditFailed
@@ -502,6 +505,30 @@ def test_references_unlike_tangermemes_fail_the_audit(inputs, tmp_path,
 
 	audit = json.loads(output_paths(path)[-1].read_text())["audit"]
 	assert audit["pass"] is False and audit["failed_positions"]
+
+
+def test_the_audit_counts_deep_lift_shaps_delta_warnings(inputs, tmp_path,
+	monkeypatch):
+	"""deep_lift_shap's two per-batch convergence warnings in the audit, for
+	deltas above the threshold and for a mean delta above 1% of the output
+	differences, are counted in the record and not shown. Without
+	cherimoya's rules deep_lift_shap treats the normalization as linear,
+	which gives both in each of the audit's batches; its attributions move
+	too, so the audit may fail, which is not what this checks."""
+
+	monkeypatch.setattr(cherimoya.deep_lift_shap, "attribution_ops", dict)
+	path = write_params(inputs, tmp_path, "norules")
+	with warnings.catch_warnings(record=True) as caught:
+		warnings.simplefilter("always")
+		with contextlib.suppress(AuditFailed):
+			attribute.run(ns(path))
+
+	assert not [w for w in caught if str(w.message).startswith(
+		"Convergence deltas")]
+	audit = json.loads(output_paths(path)[-1].read_text())["audit"]
+	batches = math.ceil(audit["peaks"] * N_SHUFFLES / audit["batch_size"])
+	assert batches == 2
+	assert audit["stock_delta_warnings"] == 2 * batches
 
 
 def test_audit_zero_runs_no_audit(inputs, tmp_path, monkeypatch):

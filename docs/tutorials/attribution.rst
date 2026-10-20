@@ -252,8 +252,10 @@ Besides the three files, the fast engine writes two next to
 ``attr_filename``, without its ``.npz``: ``.deltas.npy``, the convergence
 delta of every sequence-reference pair, and ``.meta.json``, a record of
 the run (settings, timings, memory, the self-check and the audit). It
-warns once per run when deltas exceed ``warning_threshold``, where the
-default engine warns once per batch.
+warns once per run when deltas exceed ``warning_threshold``, and once when
+the mean delta exceeds 1% of the mean difference between the outputs of
+the sequences and their references, where the default engine makes both
+checks once per batch.
 
 Its options, all ignored by the default engine (see :doc:`../cli`):
 
