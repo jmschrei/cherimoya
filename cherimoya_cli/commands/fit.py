@@ -122,6 +122,11 @@ def run(args):
 	if parameters["skip"]:
 		return
 
+	# Set before any data is loaded, so that PyTorch starts its thread pool
+	# at this size; see the note on `num_threads` in defaults.py.
+	if parameters["num_threads"] is not None:
+		torch.set_num_threads(parameters["num_threads"])
+
 	# A chromosome in two splits would score the model on data it was
 	# trained on or selected with.
 	splits = {name: parameters[name] or [] for name in ("training_chroms",

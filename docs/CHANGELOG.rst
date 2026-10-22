@@ -22,6 +22,20 @@ CLI and pipeline
   figwig's benchmarks show no gain past 8 threads on that BAM (1.74 s at
   8, 1.82 s at 32).
 
+* ``fit_parameters.num_threads``, 4 by default, is the number of threads
+  PyTorch gives CPU operations in each process ``cherimoya fit`` runs,
+  set before any data is loaded; ``null`` keeps PyTorch's default of one
+  per physical core. A GPU fit does little CPU work in that process,
+  loading the data and computing the validation measures each epoch, and
+  at the default that work ran on every core. On a 256-CPU machine (128
+  threads) the validation measures for 23,139 loci took 0.87 s and 104
+  CPU s per epoch, against 0.12 s and 0.43 CPU s at 4 threads. Two
+  3-epoch fits of the default model at the default used 1,070 and 2,861
+  CPU s, and two at 4 threads used 571 and 496, and every epoch after
+  the first took 35 s in all four. The DataLoader workers were not the cause: PyTorch runs each
+  of them on one thread. Training on the CPU needs more than 4 threads;
+  raise ``num_threads`` or set it to ``null``.
+
 Documentation
 ~~~~~~~~~~~~~
 
