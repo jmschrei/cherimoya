@@ -15,12 +15,12 @@ Attribution
   hypothetical projection, each called from tangermeme
   (``tangermeme >= 1.6.0``). It forwards each sequence once rather than
   once per reference, runs the backward over the sequence half of each
-  pair only, and compiles its passes on a GPU. On an otherwise idle H200,
-  with 1,000 peaks of 2,114 bp and 20 shuffles each, it attributed 7,740
-  sequence-reference pairs per second at steady state
-  with a 128-filter, 9-layer model, against 374 to 433 for the default
-  engine at a ``batch_size`` of 64 after a warm-up, and 1,406 against 167
-  with a 512-filter model.
+  pair only, and compiles its passes on a GPU. On an H200, with 1,000
+  peaks of 2,114 bp and 20 shuffles each, it attributed 7,753
+  sequence-reference pairs per second at steady state with a 128-filter,
+  9-layer model, against 986 to 999 for the default engine with
+  tangermeme 1.6.0 at a ``batch_size`` of 64 after its first call, and
+  1,458 against 197 with a 512-filter model.
   Every run compares its forward with the model's before it starts and,
   after writing its outputs, attributes 8 evenly spaced sequences again
   with ``deep_lift_shap`` to compare (``audit``). It also writes the
