@@ -45,9 +45,9 @@ from cherimoya import LogCountsWrapper
 from cherimoya.cheri import CONV_NORM_EPS
 from cherimoya.cheri import _cheri_conv
 from cherimoya.deep_lift_shap import conv_norm_op
-from cherimoya.fast_deep_lift_shap import engine as fdls
+from cherimoya import _deep_lift_shap_engine as fdls
 
-from . import fast_deep_lift_shap_helpers as tiny
+from . import deep_lift_shap_engine_helpers as tiny
 
 
 F64 = torch.float64

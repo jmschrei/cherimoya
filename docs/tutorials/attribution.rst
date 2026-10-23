@@ -169,7 +169,7 @@ The fast DeepLIFT/SHAP engine for the count head
 ------------------------------------------------
 
 With ``"engine": "fast"``, ``cherimoya attribute`` computes the count
-head's DeepLIFT/SHAP attributions with ``cherimoya.fast_deep_lift_shap``
+head's DeepLIFT/SHAP attributions with ``cherimoya._deep_lift_shap_engine``
 instead of tangermeme's ``deep_lift_shap``. The method is the same:
 the same rules (tangermeme's rescale rule at every GELU and the
 normalization rule of ``conv_norm_op``), the same dinucleotide-shuffled
@@ -230,7 +230,7 @@ set above that noise, rather than for equality (below).
 The engine calls tangermeme's rules, shuffle and projection and reproduces
 how ``deep_lift_shap`` applies them, so it is tied to the tangermeme it was
 validated against: tangermeme 1.6.0
-(``cherimoya.fast_deep_lift_shap.VALIDATED_TANGERMEME_VERSIONS``). With
+(``cherimoya._deep_lift_shap_engine.VALIDATED_TANGERMEME_VERSIONS``). With
 another release it runs and warns; its audit then compares it with that
 release's ``deep_lift_shap``.
 
@@ -276,7 +276,7 @@ shape ``(n, 4, end - start)``:
 .. code-block:: python
 
    from cherimoya import Cherimoya
-   from cherimoya.fast_deep_lift_shap import Engine
+   from cherimoya._deep_lift_shap_engine import Engine
 
    model = Cherimoya.load("my_model.torch", device="cuda", compile=False)
    engine = Engine(model, group=0, n_shuffles=20, random_state=0)

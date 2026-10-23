@@ -32,14 +32,11 @@ import pytest
 from pathlib import Path
 
 import cherimoya.deep_lift_shap
-import cherimoya.fast_deep_lift_shap as fast
-
-from cherimoya.fast_deep_lift_shap import AuditFailed
-from cherimoya.fast_deep_lift_shap import engine as fdls
-from cherimoya.fast_deep_lift_shap import checks
+from cherimoya import _deep_lift_shap_engine as fdls
+from cherimoya._deep_lift_shap_engine import AuditFailed
 from cherimoya_cli.commands import attribute
 
-from .. import fast_deep_lift_shap_helpers as tiny
+from .. import deep_lift_shap_engine_helpers as tiny
 
 
 CONTIG_LENGTH = 3000
@@ -164,7 +161,6 @@ def _forbid_the_fast_engine(monkeypatch):
 		raise AssertionError("the fast engine must not run")
 
 	monkeypatch.setattr(fdls, "Engine", forbidden)
-	monkeypatch.setattr(fast, "Engine", forbidden)
 
 
 @pytest.fixture(scope="module")
@@ -241,7 +237,7 @@ def test_the_fast_engine_matches_the_default_engine(inputs, default_runs,
 	assert audit["pass"] is True and audit["warn"] is False
 	assert audit["indices"] == numpy.round(numpy.linspace(0, KEPT.sum() - 1,
 		8)).astype(int).tolist()
-	assert audit["batch_size"] == min(batch_size, checks.AUDIT_MAX_BATCH)
+	assert audit["batch_size"] == min(batch_size, fdls.AUDIT_MAX_BATCH)
 	assert audit["failed_positions"] == []
 	assert audit["max_rel_l2"] <= REL_L2_MAX
 
@@ -535,8 +531,7 @@ def test_audit_zero_runs_no_audit(inputs, tmp_path, monkeypatch):
 	def forbidden(*args, **kwargs):
 		raise AssertionError("audit 0 must not audit")
 
-	monkeypatch.setattr(checks, "audit", forbidden)
-	monkeypatch.setattr(fast, "audit", forbidden)
+	monkeypatch.setattr(fdls, "audit", forbidden)
 	calls = _corrupting_run(monkeypatch, lambda attr: attr)
 	path = write_params(inputs, tmp_path, "noaudit", audit=0)
 	attribute.run(ns(path))

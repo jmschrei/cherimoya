@@ -52,9 +52,9 @@ from cherimoya import LogCountsWrapper
 from cherimoya.cheri import CONV_NORM_EPS
 from cherimoya.cheri import _cheri_conv
 from cherimoya.deep_lift_shap import attribution_ops
-from cherimoya.fast_deep_lift_shap import engine as fdls
+from cherimoya import _deep_lift_shap_engine as fdls
 
-from . import fast_deep_lift_shap_helpers as tiny
+from . import deep_lift_shap_engine_helpers as tiny
 
 
 K = 5
@@ -443,7 +443,7 @@ def test_importing_the_engine_changes_no_environment_variable():
 	was after importing cherimoya, which imports the engine's dependencies."""
 
 	code = ("import os; import cherimoya; before = dict(os.environ); "
-		"import cherimoya.fast_deep_lift_shap; "
+		"import cherimoya._deep_lift_shap_engine; "
 		"changed = sorted(k for k in set(before) | set(os.environ) "
 		"if before.get(k) != os.environ.get(k)); "
 		"assert not changed, changed")
@@ -1093,7 +1093,7 @@ def test_compile_kwargs_follow_what_torch_supports(monkeypatch):
 
 
 def test_audit_peaks_are_evenly_spaced_and_distinct():
-	from cherimoya.fast_deep_lift_shap.checks import audit_peaks
+	from cherimoya._deep_lift_shap_engine import audit_peaks
 
 	assert audit_peaks(10, 8).tolist() == [0, 1, 3, 4, 5, 6, 8, 9]
 	assert audit_peaks(4999, 8).tolist() == [0, 714, 1428, 2142, 2856, 3570,
@@ -1109,7 +1109,7 @@ def test_audit_peaks_are_evenly_spaced_and_distinct():
 
 
 def test_the_audit_comparison_bounds_and_warning():
-	from cherimoya.fast_deep_lift_shap.checks import compare_attributions
+	from cherimoya._deep_lift_shap_engine import compare_attributions
 
 	rng = numpy.random.default_rng(0)
 	stock = rng.normal(size=(6, 4, 50))

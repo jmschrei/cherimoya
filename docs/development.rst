@@ -21,7 +21,7 @@ Repository layout
    │   ├── losses.py               # Profile MNLL + log1pMSE mixture loss
    │   ├── wrappers.py             # Control / profile / count output wrappers
    │   ├── deep_lift_shap.py       # DeepLIFT rules for tangermeme's deep_lift_shap
-   │   ├── fast_deep_lift_shap/    # The fast DeepLIFT/SHAP engine for the count head
+   │   ├── _deep_lift_shap_engine.py  # The fast DeepLIFT/SHAP path for the log-counts
    │   └── performance.py          # Evaluation metrics
    ├── cherimoya_cli/              # The CLI entry-point package
    │   ├── __main__.py             # Argparse driver and subcommand registry
@@ -186,16 +186,16 @@ the ``cherimoya`` CLI:
    * - ``tests/test_wrappers.py``
      - The output wrappers on their own and composed over
        ``ControlWrapper``.
-   * - ``tests/test_fast_deep_lift_shap.py``
+   * - ``tests/test_deep_lift_shap_engine.py``
      - The fast DeepLIFT/SHAP engine against the model's forward and
        tangermeme's ``deep_lift_shap`` on small models: raw multipliers,
        hypothetical attributions, convergence deltas, conservation and
        step-size invariance; the engine's arguments and its audit's
        comparison.
-   * - ``tests/test_fast_deep_lift_shap_rules.py``
+   * - ``tests/test_deep_lift_shap_engine_rules.py``
      - Each of the engine's backward rules against the tangermeme or
        cherimoya function it replaces.
-   * - ``tests/test_fast_deep_lift_shap_cuda.py``
+   * - ``tests/test_deep_lift_shap_engine_cuda.py``
      - The engine on a GPU: compiled passes against eager ones and the
        GPU against the CPU, both against float64; one synchronization per
        step; recovery from running out of memory.

@@ -8,7 +8,7 @@ Attribution
 ~~~~~~~~~~~
 
 * ``cherimoya attribute`` has a fast DeepLIFT/SHAP engine for the count
-  head, ``"engine": "fast"``, in ``cherimoya.fast_deep_lift_shap``. It
+  head, ``"engine": "fast"``, in ``cherimoya._deep_lift_shap_engine``. It
   computes what tangermeme's ``deep_lift_shap`` computes with Cherimoya's
   rules, up to floating-point rounding: the same rules, the same
   dinucleotide-shuffled references with the same seeds, and the same

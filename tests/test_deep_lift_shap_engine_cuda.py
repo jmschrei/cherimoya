@@ -26,9 +26,9 @@ import torch
 from unittest import mock
 
 from cherimoya import Cherimoya
-from cherimoya.fast_deep_lift_shap import engine as fdls
+from cherimoya import _deep_lift_shap_engine as fdls
 
-from . import fast_deep_lift_shap_helpers as tiny
+from . import deep_lift_shap_engine_helpers as tiny
 
 
 pytestmark = pytest.mark.cuda

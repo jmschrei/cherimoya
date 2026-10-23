@@ -36,7 +36,7 @@ def run(args):
 	fast = _fast_engine_selected(parameters)
 	environment = _set_cache_defaults() if fast else None
 	if fast:
-		from cherimoya.fast_deep_lift_shap.engine import check_options
+		from cherimoya._deep_lift_shap_engine import check_options
 
 		check_options(parameters["precision"], parameters["seqs_per_step"],
 			parameters["mem_budget_gb"])
@@ -220,10 +220,10 @@ def _fast_deep_lift_shap(parameters, model, X, start, end):
 	return the float32 attributions and what `_finish_fast_deep_lift_shap`
 	needs."""
 
-	from cherimoya.fast_deep_lift_shap import Engine
-	from cherimoya.fast_deep_lift_shap import audit_peaks
-	from cherimoya.fast_deep_lift_shap import forward_self_check
-	from cherimoya.fast_deep_lift_shap.checks import compare_run_outputs
+	from cherimoya._deep_lift_shap_engine import Engine
+	from cherimoya._deep_lift_shap_engine import audit_peaks
+	from cherimoya._deep_lift_shap_engine import forward_self_check
+	from cherimoya._deep_lift_shap_engine import compare_run_outputs
 
 	timings = {}
 	engine = Engine(
@@ -288,9 +288,9 @@ def _finish_fast_deep_lift_shap(parameters, model, X, idxs, start, end,
 	import numpy
 	import torch
 
-	from cherimoya.fast_deep_lift_shap import AuditFailed
-	from cherimoya.fast_deep_lift_shap import audit
-	from cherimoya.fast_deep_lift_shap.checks import audit_summary
+	from cherimoya._deep_lift_shap_engine import AuditFailed
+	from cherimoya._deep_lift_shap_engine import audit
+	from cherimoya._deep_lift_shap_engine import audit_summary
 
 	engine, result = fast_run["engine"], fast_run["result"]
 	meta, timings = result.meta, fast_run["timings"]

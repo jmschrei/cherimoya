@@ -1,5 +1,5 @@
 """Tiny Cherimoya models, one-hot inputs, references and a tangermeme oracle
-for the tests of ``cherimoya.fast_deep_lift_shap``.
+for the tests of ``cherimoya._deep_lift_shap_engine``.
 
 Models. `CONFIGS` holds three configurations, each built with
 ``Cherimoya(..., compile=False, random_state=seed)``:
