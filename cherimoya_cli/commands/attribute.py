@@ -13,7 +13,7 @@ def run(args):
 
 	from cherimoya import Cherimoya
 	from cherimoya import ControlWrapper
-	from cherimoya import LogCountsWrapper
+	from cherimoya import LogCountWrapper
 	from cherimoya import ProfileWrapper
 	from cherimoya.deep_lift_shap import deep_lift_shap
 	from ..defaults import default_attribute_parameters
@@ -111,7 +111,7 @@ def run(args):
 	else:
 		model = ControlWrapper(model)
 		if parameters["output"] == "logcounts":
-			wrapper = LogCountsWrapper(model, group=group)
+			wrapper = LogCountWrapper(model, group=group)
 		else:
 			wrapper = ProfileWrapper(model, group=group)
 

@@ -11,7 +11,7 @@ private and may change between versions:
 - `Cherimoya` — the model.
 - `CheriBlock` — the building block.
 - `EMA` — the exponential-moving-average wrapper used during training.
-- `ControlWrapper`, `ProfileWrapper`, `LogCountsWrapper`,
+- `ControlWrapper`, `ProfileWrapper`, `LogCountWrapper`,
   `ExpectedCountsWrapper` — output wrappers for analysis (see
   `references/using-tangermeme.md`).
 

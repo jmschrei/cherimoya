@@ -83,14 +83,14 @@ For an in-silico saturation mutagenesis sweep over a region, use
    import torch
    from cherimoya import Cherimoya
    from cherimoya import ControlWrapper
-   from cherimoya import LogCountsWrapper
+   from cherimoya import LogCountWrapper
    from tangermeme.saturation_mutagenesis import saturation_mutagenesis
 
    model = Cherimoya.load("my_model.torch", device="cuda")
    # ControlWrapper passes control-free models straight through, so it is
    # safe to apply unconditionally.
    model = ControlWrapper(model)
-   wrapper = LogCountsWrapper(model)
+   wrapper = LogCountWrapper(model)
 
    mid = X.shape[-1] // 2
    X_attr = saturation_mutagenesis(

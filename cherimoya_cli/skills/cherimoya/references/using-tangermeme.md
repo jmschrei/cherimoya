@@ -21,11 +21,11 @@ or optimize:
 | Wrapper | Returns | Use for |
 |---|---|---|
 | `ProfileWrapper` | scalar per example from profile logits (weighted softmax) | profile **shape** |
-| `LogCountsWrapper` | the log-count prediction | **total signal** (counts) at a locus |
+| `LogCountWrapper` | the log-count prediction | **total signal** (counts) at a locus |
 | `ExpectedCountsWrapper` | expected reads per base pair | per-position expected counts |
 | `ControlWrapper` | raw `(profile, log-count)`, synthesizing a zero control if needed | the **inner** wrapper for control-trained models |
 
-**`LogCountsWrapper` (counts) is the recommended default; use `ProfileWrapper`
+**`LogCountWrapper` (counts) is the recommended default; use `ProfileWrapper`
 when you care about profile shape.** `ControlWrapper` is the inner layer the
 profile/count wrappers sit on: for a control-trained model whose analysis tool
 passes only a sequence, it supplies a zero control of the right
@@ -33,25 +33,25 @@ shape/dtype/device automatically. For a model with no controls it's a
 pass-through, so wrapping is always safe.
 
 For a multi-group model (`signal_groups` with more than one entry),
-`LogCountsWrapper` returns every group's count and `ProfileWrapper` softmaxes
+`LogCountWrapper` returns every group's count and `ProfileWrapper` softmaxes
 all groups together. Pass `group=i` to either one to attribute group `i` alone;
 `cherimoya attribute` takes the same index as `group` (default `0`). tangermeme's
 `deep_lift_shap` attributes output `target=0` of whatever it is given, so an
-unselected multi-group `LogCountsWrapper` silently attributes group 0 only.
+unselected multi-group `LogCountWrapper` silently attributes group 0 only.
 
 ## Pattern
 
 ```python
 from cherimoya import Cherimoya
 from cherimoya import ControlWrapper
-from cherimoya import LogCountsWrapper
+from cherimoya import LogCountWrapper
 
 model = Cherimoya.load("my_run.torch", device="cuda")
 model = model.eval()
 
 # Attribute the counts (usual default); ControlWrapper handles a
 # control-trained model transparently. Swap in ProfileWrapper for shape.
-wrapper = LogCountsWrapper(ControlWrapper(model))
+wrapper = LogCountWrapper(ControlWrapper(model))
 
 # Hand `wrapper` to tangermeme (saturation_mutagenesis, deep_lift_shap,
 # variant effect, ledidi design, ...).

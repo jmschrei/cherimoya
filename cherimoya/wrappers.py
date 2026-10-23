@@ -5,8 +5,6 @@
 A set of wrappers to help in using Cherimoya models.
 """
 
-import warnings
-
 import torch
 
 from tangermeme.deep_lift_shap import BilinearOp
@@ -22,7 +20,7 @@ class ControlWrapper(torch.nn.Module):
 	control track of all zeroes with the matching shape, dtype, and device. Models
 	without control tracks are forwarded through unchanged. The wrapper returns the
 	model's full ``(profile, log-count)`` output, so it is meant to be the inner
-	wrapper that :class:`ProfileWrapper`, :class:`LogCountsWrapper`, or
+	wrapper that :class:`ProfileWrapper`, :class:`LogCountWrapper`, or
 	:class:`ExpectedCountsWrapper` are layered on top of. This is a port of
 	``bpnetlite.bpnet.ControlWrapper`` so that Cherimoya does not depend on
 	bpnet-lite for this behavior.
@@ -167,7 +165,7 @@ class ProfileWrapper(torch.nn.Module):
 		return self.scaling(logits).sum(dim=-1, keepdims=True)
 
 
-class LogCountsWrapper(torch.nn.Module):
+class LogCountWrapper(torch.nn.Module):
 	"""A wrapper that extracts the log count predictions.
 
 	This wraps a Cherimoya and slices out the second prediction, which is for the
@@ -204,17 +202,6 @@ class LogCountsWrapper(torch.nn.Module):
 			y_logcounts = y_logcounts[:, self.group:self.group+1]
 
 		return y_logcounts
-
-
-class LogCountWrapper(LogCountsWrapper):
-	"""The former name of :class:`LogCountsWrapper`, deprecated, to be
-	removed in cherimoya 0.7.0."""
-
-	def __init__(self, model, group=None):
-		warnings.warn("LogCountWrapper is deprecated and will be removed in "
-			"cherimoya 0.7.0; use LogCountsWrapper.", FutureWarning,
-			stacklevel=2)
-		super().__init__(model, group=group)
 
 
 class ExpectedCountsWrapper(torch.nn.Module):

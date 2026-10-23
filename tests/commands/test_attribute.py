@@ -148,7 +148,7 @@ def test_attr_window_wider_than_in_window_raises(tmp_path):
 
 
 
-@pytest.mark.parametrize("output, wrapper", [("logcounts", "LogCountsWrapper"),
+@pytest.mark.parametrize("output, wrapper", [("logcounts", "LogCountWrapper"),
 	("profile", "ProfileWrapper")])
 @pytest.mark.parametrize("algorithm", ["deep_lift_shap",
 	"saturation_mutagenesis"])
@@ -171,7 +171,7 @@ def test_counts_is_a_deprecated_name_for_logcounts(tmp_path):
 		old = _run_attribute(tmp_path, output="counts", group=1)
 
 	new = _run_attribute(tmp_path, output="logcounts", group=1)
-	assert type(old['wrapper']).__name__ == "LogCountsWrapper"
+	assert type(old['wrapper']).__name__ == "LogCountWrapper"
 	assert old['wrapper'].group == new['wrapper'].group == 1
 	assert old['dls'] == new['dls']
 	assert numpy.array_equal(old['attr'], new['attr'])

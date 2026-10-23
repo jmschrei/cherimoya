@@ -32,12 +32,13 @@ Attribution
   before by floating-point rounding; ``"fast": false`` gives tangermeme's.
   The profile and saturation mutagenesis are unchanged. Thanks @emattei!
 
-* ``LogCountWrapper`` is renamed :class:`cherimoya.LogCountsWrapper`, and
-  the ``output`` of ``cherimoya attribute`` that selects it is
-  ``"logcounts"`` rather than ``"counts"``. The wrapper returns
-  log-counts, which ``"counts"`` did not say and which
+* The ``output`` of ``cherimoya attribute`` that attributes the
+  log-counts, through :class:`cherimoya.LogCountWrapper`, is
+  ``"logcounts"`` rather than ``"counts"``, the value
+  :func:`cherimoya.deep_lift_shap.deep_lift_shap` takes. The wrapper
+  returns log-counts, which ``"counts"`` did not say and which
   :class:`cherimoya.ExpectedCountsWrapper`, the wrapper that does return
-  counts, made easy to confuse. The old names still work, with a
+  counts, made easy to confuse. ``"counts"`` still works, with a
   ``FutureWarning``, and will be removed in cherimoya 0.7.0.
 
 CLI and pipeline

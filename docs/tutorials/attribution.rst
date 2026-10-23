@@ -56,7 +56,7 @@ Example JSON:
 ``output`` controls what is being attributed to:
 
 * ``"logcounts"`` — attribute to total predicted log-counts (recommended
-  for most analyses; uses :class:`cherimoya.LogCountsWrapper`).
+  for most analyses; uses :class:`cherimoya.LogCountWrapper`).
 * ``"profile"`` — attribute to the predicted profile shape (uses
   :class:`cherimoya.ProfileWrapper`).
 
@@ -148,7 +148,7 @@ across the channel axis:
 
 :func:`~cherimoya.deep_lift_shap.deep_lift_shap` wraps the model in
 :class:`cherimoya.ControlWrapper`, which supplies zero control tracks, and
-in :class:`cherimoya.LogCountsWrapper` or :class:`cherimoya.ProfileWrapper`
+in :class:`cherimoya.LogCountWrapper` or :class:`cherimoya.ProfileWrapper`
 for ``group``, and registers Cherimoya's DeepLIFT rule. A tangermeme
 function called directly, such as ``tangermeme.deep_lift_shap`` or
 ``tangermeme.pisa``, needs the same: the wrappers, and
@@ -159,7 +159,7 @@ that they sum to the change in the prediction. See
 :doc:`../api/deep_lift_shap` for what the rule does and why.
 
 tangermeme's ``deep_lift_shap`` attributes output ``target=0`` of the
-model it is given. ``LogCountsWrapper`` without ``group`` returns one
+model it is given. ``LogCountWrapper`` without ``group`` returns one
 count per signal group, so on a multi-group model it would silently
 attribute group 0 only; pass ``group`` to say which one you mean.
 :func:`~cherimoya.deep_lift_shap.deep_lift_shap` raises instead.
@@ -246,7 +246,7 @@ mutated:
 
    model = ControlWrapper(Cherimoya.load("my_model.torch", device="cuda",
        compile=False))
-   wrapper = LogCountsWrapper(model, group=0)
+   wrapper = LogCountWrapper(model, group=0)
 
    mid = X.shape[-1] // 2
    X_attr = saturation_mutagenesis(

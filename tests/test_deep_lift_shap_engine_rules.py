@@ -11,7 +11,7 @@ Each rule gets the same inputs as the function it replaces, in float64:
 * `dw3` and its transpose against cherimoya's `_cheri_conv` and autograd
   through it: <= 1e-14.
 * `counts_cotangent` against autograd through the real
-  ``LogCountsWrapper(ControlWrapper(model))``: equal.
+  ``LogCountWrapper(ControlWrapper(model))``: equal.
 * The mean over references of the window of hypothetical attributions
   against tangermeme's stack-and-mean of its full-length
   `hypothetical_attributions`, sliced: within rounding.
@@ -41,7 +41,7 @@ from tangermeme._deep_lift_utils import _layer_normalization_helper
 from tangermeme._deep_lift_utils import _nonlinear
 
 from cherimoya import ControlWrapper
-from cherimoya import LogCountsWrapper
+from cherimoya import LogCountWrapper
 from cherimoya.cheri import CONV_NORM_EPS
 from cherimoya.cheri import _cheri_conv
 from cherimoya.deep_lift_shap import conv_norm_op
@@ -271,7 +271,7 @@ def test_counts_cotangent_is_autograd_through_the_real_head(config, group,
 		captured.update(hL=out))
 	try:
 		with torch.enable_grad():
-			y = LogCountsWrapper(ControlWrapper(model), group=group)(
+			y = LogCountWrapper(ControlWrapper(model), group=group)(
 				X1h.clone().requires_grad_())[:, 0]
 			expected, = torch.autograd.grad(y.sum(), captured["hL"])
 	finally:

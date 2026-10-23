@@ -194,7 +194,7 @@ def deep_lift_shap(model, X, output="logcounts", group=0, batch_size=32,
 
 	The model is attributed as `cherimoya attribute` attributes it: wrapped
 	in `ControlWrapper`, which gives it all-zero control tracks, and then in
-	`LogCountsWrapper` or `ProfileWrapper` for `group`, with
+	`LogCountWrapper` or `ProfileWrapper` for `group`, with
 	`attribution_ops()` registered for its fused convolution and
 	normalization.
 

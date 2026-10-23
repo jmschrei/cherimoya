@@ -23,7 +23,7 @@ from a forward and a backward written out by hand:
   functions. The references are tangermeme's `dinucleotide_shuffle`, called with
   the seeds `deep_lift_shap` uses (`draw_references`).
 
-Only the count head (`LogCountsWrapper`) is implemented. The profile head
+Only the count head (`LogCountWrapper`) is implemented. The profile head
 goes through a softmax rule that couples every position, and keeps the
 default engine.
 
@@ -86,7 +86,7 @@ from .cheri import _cheri_conv
 from .cheri import _cheri_conv_norm_cpu
 from .cherimoya import Cherimoya
 from .wrappers import ControlWrapper
-from .wrappers import LogCountsWrapper
+from .wrappers import LogCountWrapper
 from .wrappers import ProfileWrapper
 
 
@@ -404,7 +404,7 @@ def make_wrapper(model, output="logcounts", group=0):
 		The model.
 
 	output: str, optional
-		"logcounts" for `LogCountsWrapper`, "profile" for `ProfileWrapper`.
+		"logcounts" for `LogCountWrapper`, "profile" for `ProfileWrapper`.
 		Default is "logcounts".
 
 	group: int or None, optional
@@ -428,7 +428,7 @@ def make_wrapper(model, output="logcounts", group=0):
 
 	inner = ControlWrapper(model)
 	if output == "logcounts":
-		return LogCountsWrapper(inner, group=group)
+		return LogCountWrapper(inner, group=group)
 
 	return ProfileWrapper(inner, group=group)
 
@@ -603,7 +603,7 @@ def head_forward(hL, w, output="logcounts", group=0):
 	(R, L, C).
 
 	The count head runs the model's operations on the model's (R, C, L)
-	layout, then `LogCountsWrapper`'s group slice and `deep_lift_shap`'s
+	layout, then `LogCountWrapper`'s group slice and `deep_lift_shap`'s
 	target 0. Control tracks are zeros, as `ControlWrapper` feeds them, so
 	their count feature is log(0 + 1) = 0. The pooled stream is cast to the
 	count Linear's dtype, where the model calls ``.float()``: the same
@@ -1191,7 +1191,7 @@ class Engine:
 		"logcounts".
 
 	group: int or None, optional
-		The signal group to attribute, as `LogCountsWrapper` takes it. A model
+		The signal group to attribute, as `LogCountWrapper` takes it. A model
 		with several groups needs one. Default is 0.
 
 	device: str or torch.device or None, optional

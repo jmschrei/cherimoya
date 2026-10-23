@@ -60,10 +60,8 @@ Explicitly:
   :class:`~cherimoya.cherimoya.EMA`, and the four model wrappers
   :class:`~cherimoya.wrappers.ControlWrapper`,
   :class:`~cherimoya.wrappers.ProfileWrapper`,
-  :class:`~cherimoya.wrappers.LogCountsWrapper` and
-  :class:`~cherimoya.wrappers.ExpectedCountsWrapper`. ``LogCountWrapper``,
-  the former name of :class:`~cherimoya.wrappers.LogCountsWrapper`, is
-  deprecated and will be removed in cherimoya 0.7.0.
+  :class:`~cherimoya.wrappers.LogCountWrapper` and
+  :class:`~cherimoya.wrappers.ExpectedCountsWrapper`.
 * **Public** module-level symbols:
   :func:`~cherimoya.io.PeakGenerator`,
   :class:`~cherimoya.io.PeakNegativeSampler`,

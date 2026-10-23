@@ -48,7 +48,7 @@ import torch
 
 from cherimoya import Cherimoya
 from cherimoya import ControlWrapper
-from cherimoya import LogCountsWrapper
+from cherimoya import LogCountWrapper
 from cherimoya.cheri import CONV_NORM_EPS
 from cherimoya.cheri import _cheri_conv
 from cherimoya.deep_lift_shap import attribution_ops
@@ -112,7 +112,7 @@ def _module_forward(model, X1h, group):
 
 	try:
 		with torch.enable_grad():
-			y = LogCountsWrapper(ControlWrapper(model), group=group)(
+			y = LogCountWrapper(ControlWrapper(model), group=group)(
 				X1h.clone().requires_grad_())[:, 0]
 	finally:
 		for handle in handles:
@@ -238,7 +238,7 @@ def test_counts_head_groups_and_controls(batches):
 
 def test_make_wrapper_runs_the_reference_group_checks():
 	model = tiny.tiny_model("B")
-	for output, group, cls in (("logcounts", 1, "LogCountsWrapper"),
+	for output, group, cls in (("logcounts", 1, "LogCountWrapper"),
 			("profile", None, "ProfileWrapper")):
 		wrapped = fdls.make_wrapper(model, output, group)
 		assert type(wrapped).__name__ == cls
