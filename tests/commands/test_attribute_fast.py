@@ -1,40 +1,33 @@
-"""Tests of `cherimoya attribute` with ``"engine": "fast"`` against the same
-command with its default engine, on the CPU.
+"""Tests of `cherimoya attribute`'s ``"fast"`` key on the CPU. With
+``"fast": true``, the default, DeepLIFT/SHAP goes through
+`cherimoya.deep_lift_shap.deep_lift_shap`, which takes its fast path for the
+log-counts where it applies; the command writes the files that
+``"fast": false`` writes.
 
-Both engines run on the same synthetic inputs: a FASTA of 3 contigs of 3 kb
-with a run of 20 Ns, and 12 loci, one of which runs off the end of its
-contig (`extract_loci` drops it) and one of which covers the N run (the N
-filter drops it), so 10 are kept. The model is a tiny Cherimoya with
-weights redrawn so that the DeepLIFT rules matter, saved with model.save().
-The JSON attributes 4 shuffles over a 256 bp input and keeps 64 bp; batches
-of 7 split a locus's pairs across the default engine's batches.
+The inputs: a FASTA of 3 contigs of 3 kb with a run of 20 Ns, and 12 loci,
+one of which runs off the end of its contig (`extract_loci` drops it) and
+one of which covers the N run (the N filter drops it), so 10 are kept. The
+model is a tiny Cherimoya with weights redrawn so that the DeepLIFT rules
+matter, saved with model.save(). The JSON attributes 4 shuffles over a 256
+bp input and keeps 64 bp; batches of 7 split a locus's pairs across the
+default path's batches.
 
-The fast engine writes the default engine's three files with the same
-names, keys, dtypes and shapes: the one-hot and index files are equal, and
-the attributions are within 1e-5 per locus (relative L2). It also writes a
-deltas file and a record of the run, and its audit attributes 8 evenly
-spaced loci again with tangermeme's `deep_lift_shap`.
+Every job here would take the default path less than thirty seconds, so the
+tests that need the fast path set `_FAST_MIN_SECONDS` to 0 (`forced`).
 """
 
 import argparse
-import contextlib
 import json
-import math
-import os
-import subprocess
-import sys
-import textwrap
-import warnings
 
 import numpy
 import pytest
 
 from pathlib import Path
 
-import cherimoya.deep_lift_shap
-from cherimoya import _deep_lift_shap_engine as fdls
-from cherimoya._deep_lift_shap_engine import AuditFailed
+from cherimoya._deep_lift_shap_engine import Engine
 from cherimoya_cli.commands import attribute
+from cherimoya_cli.defaults import default_attribute_parameters
+from cherimoya_cli.defaults import default_pipeline_parameters
 
 from .. import deep_lift_shap_engine_helpers as tiny
 
@@ -88,6 +81,23 @@ def inputs(tmp_path_factory):
 		"model_b": str(model_b)}
 
 
+@pytest.fixture
+def forced(monkeypatch):
+	monkeypatch.setattr("cherimoya.deep_lift_shap._FAST_MIN_SECONDS", 0.0)
+
+
+@pytest.fixture
+def engines(monkeypatch):
+	built = []
+
+	def counting(*args, **kwargs):
+		built.append(Engine(*args, **kwargs))
+		return built[-1]
+
+	monkeypatch.setattr("cherimoya.deep_lift_shap.Engine", counting)
+	return built
+
+
 def write_params(inputs, out_dir, name, **overrides):
 	"""An attribute JSON for the synthetic inputs, writing
 	<out_dir>/<name>.{ohe.npz,attr.npz,idx.npy}."""
@@ -106,7 +116,6 @@ def write_params(inputs, out_dir, name, **overrides):
 		"device": "cpu",
 		"output": "logcounts",
 		"algorithm": "deep_lift_shap",
-		"engine": "fast",
 		"verbose": False,
 		"ohe_filename": str(out_dir / "{}.ohe.npz".format(name)),
 		"attr_filename": str(out_dir / "{}.attr.npz".format(name)),
@@ -119,14 +128,9 @@ def write_params(inputs, out_dir, name, **overrides):
 	return path
 
 
-def _params(path):
-	return json.loads(Path(path).read_text())
-
-
-def load_outputs(path):
-	"""The three files a run of the JSON at `path` wrote, and the npz keys."""
-
-	p = _params(path)
+def run(path):
+	attribute.run(argparse.Namespace(parameters=str(path)))
+	p = json.loads(Path(path).read_text())
 	out = {}
 	for name in ("ohe", "attr"):
 		with numpy.load(p["{}_filename".format(name)]) as npz:
@@ -137,14 +141,6 @@ def load_outputs(path):
 	return out
 
 
-def output_paths(path):
-	p = _params(path)
-	base = p["attr_filename"][:-len(".npz")]
-	names = [p["ohe_filename"], p["attr_filename"], p["idx_filename"],
-		base + ".deltas.npy", base + ".meta.json"]
-	return [Path(n) for n in names]
-
-
 def per_locus_rel_l2(a, b):
 	a = a.astype(numpy.float64).reshape(len(a), -1)
 	b = b.astype(numpy.float64).reshape(len(b), -1)
@@ -152,49 +148,17 @@ def per_locus_rel_l2(a, b):
 		numpy.linalg.norm(b, axis=1), 1e-30)
 
 
-def ns(path):
-	return argparse.Namespace(parameters=str(path))
-
-
-def _forbid_the_fast_engine(monkeypatch):
-	def forbidden(*args, **kwargs):
-		raise AssertionError("the fast engine must not run")
-
-	monkeypatch.setattr(fdls, "Engine", forbidden)
-
-
-@pytest.fixture(scope="module")
-def default_runs(inputs, tmp_path_factory):
-	"""The default engine's run of the synthetic JSON, once per batch size
-	and set of overrides."""
-
-	cache = {}
-
-	def get(batch_size, **overrides):
-		key = (batch_size, json.dumps(overrides, sort_keys=True))
-		if key not in cache:
-			out = tmp_path_factory.mktemp("default{}".format(batch_size))
-			overrides.setdefault("engine", "default")
-			path = write_params(inputs, out, "default", batch_size=batch_size,
-				**overrides)
-			attribute.run(ns(path))
-			cache[key] = load_outputs(path)
-
-		return cache[key]
-
-	return get
-
-
 ##
 
 
 @pytest.mark.parametrize("batch_size", [64, 7])
-def test_the_fast_engine_matches_the_default_engine(inputs, default_runs,
-	tmp_path, batch_size):
-	default = default_runs(batch_size)
-	path = write_params(inputs, tmp_path, "fast", batch_size=batch_size)
-	attribute.run(ns(path))
-	ours = load_outputs(path)
+def test_the_fast_path_writes_the_default_paths_files(inputs, tmp_path, forced,
+	engines, batch_size):
+	default = run(write_params(inputs, tmp_path, "default",
+		batch_size=batch_size, fast=False))
+	assert engines == []
+	ours = run(write_params(inputs, tmp_path, "fast", batch_size=batch_size))
+	assert len(engines) == 1
 
 	for name in ("ohe", "attr"):
 		assert ours[name + "_keys"] == default[name + "_keys"] == ["arr_0"]
@@ -208,385 +172,59 @@ def test_the_fast_engine_matches_the_default_engine(inputs, default_runs,
 	assert ours["attr"].dtype == default["attr"].dtype == numpy.float32
 	assert ours["attr"].shape == default["attr"].shape
 	assert per_locus_rel_l2(ours["attr"], default["attr"]).max() <= REL_L2_MAX
-
-	_, _, _, deltas_file, meta_file = output_paths(path)
-	deltas = numpy.load(deltas_file)
-	assert deltas.dtype == numpy.float32
-	assert deltas.shape == (KEPT.sum(), N_SHUFFLES)
-	assert numpy.isfinite(deltas).all()
-
-	meta = json.loads(meta_file.read_text())
-	assert meta["engine"] == "fast" and meta["precision"] == "tf32"
-	assert meta["n_shuffles"] == N_SHUFFLES
-	assert meta["random_state"] == 0 and meta["random_state_drawn"] is False
-	assert meta["forward_stats"] == "cpu_mirror" and meta["compile"] == "none"
-	assert meta["inputs"] == {"loci": len(LOCI), "kept": int(KEPT.sum()),
-		"length": IN_WINDOW, "window": [IN_WINDOW // 2 - ATTR_WINDOW // 2,
-		IN_WINDOW // 2 + ATTR_WINDOW // 2]}
-	assert meta["run"]["references"] == "produced"
-	assert meta["deltas"]["pairs"] == KEPT.sum() * N_SHUFFLES
-	assert meta["deltas"]["finite"]
-
-	# On the CPU both sides of the self-check run the model's CPU path.
-	check = meta["self_check"]
-	assert check["pass"] and check["peaks"] == 4
-	assert check["max_abs"] <= 1e-6
-	assert check["run_outputs"]["max_abs"] <= 1e-6
-
-	audit = meta["audit"]
-	assert audit["pass"] is True and audit["warn"] is False
-	assert audit["indices"] == numpy.round(numpy.linspace(0, KEPT.sum() - 1,
-		8)).astype(int).tolist()
-	assert audit["batch_size"] == min(batch_size, fdls.AUDIT_MAX_BATCH)
-	assert audit["failed_positions"] == []
-	assert audit["max_rel_l2"] <= REL_L2_MAX
+	assert sorted(p.name for p in tmp_path.iterdir()) == sorted("{}.{}".format(
+		run_name, suffix) for run_name in ("default", "fast") for suffix in (
+		"json", "ohe.npz", "attr.npz", "idx.npy"))
 
 
-def test_the_default_engine_is_the_default(inputs, tmp_path, monkeypatch):
-	"""Without `engine`, `cherimoya attribute` runs tangermeme's
-	deep_lift_shap and never builds the fast engine or its sidecars."""
-
-	_forbid_the_fast_engine(monkeypatch)
-	path = write_params(inputs, tmp_path, "plain")
-	params = _params(path)
-	del params["engine"]
-	path.write_text(json.dumps(params))
-	attribute.run(ns(path))
-
-	ohe, attr, idx, deltas, meta = output_paths(path)
-	assert ohe.exists() and attr.exists() and idx.exists()
-	assert not deltas.exists() and not meta.exists()
+def test_fast_is_the_default(inputs, tmp_path, forced, engines):
+	assert default_attribute_parameters["fast"] is True
+	assert default_pipeline_parameters["attribute_parameters"]["fast"] is True
+	run(write_params(inputs, tmp_path, "plain"))
+	assert len(engines) == 1
 
 
-def test_the_default_engine_ignores_the_fast_options(default_runs):
-	plain = default_runs(64)
-	options = default_runs(64, precision="fp32", seqs_per_step=3,
-		mem_budget_gb=4, audit=0)
+@pytest.mark.parametrize("overrides", [{"output": "profile"},
+	{"algorithm": "saturation_mutagenesis"}])
+def test_profile_and_ism_take_the_default_path(inputs, tmp_path, forced,
+	engines, overrides):
+	fast = run(write_params(inputs, tmp_path, "fast", **overrides))
+	default = run(write_params(inputs, tmp_path, "default", fast=False,
+		**overrides))
+	assert engines == []
 	for name in ("ohe", "attr", "idx"):
-		assert numpy.array_equal(options[name], plain[name])
-
-
-def test_the_sidecars_follow_the_three_files(inputs, tmp_path, monkeypatch):
-	"""ohe, attr and idx are written in the default engine's order, then the
-	deltas, then the record of the run."""
-
-	path = write_params(inputs, tmp_path, "order", audit=0)
-	calls = []
-	real_save, real_savez = numpy.save, numpy.savez_compressed
-
-	def save(file, *args, **kwargs):
-		calls.append(("save", str(file)))
-		return real_save(file, *args, **kwargs)
-
-	def savez(file, *args, **kwargs):
-		calls.append(("savez_compressed", str(file)))
-		return real_savez(file, *args, **kwargs)
-
-	monkeypatch.setattr(numpy, "save", save)
-	monkeypatch.setattr(numpy, "savez_compressed", savez)
-	attribute.run(ns(path))
-	ohe, attr, idx, deltas, meta = output_paths(path)
-	assert calls == [("savez_compressed", str(ohe)),
-		("savez_compressed", str(attr)), ("save", str(idx)),
-		("save", str(deltas))]
-	assert meta.exists()
-
-
-##
+		assert numpy.array_equal(fast[name], default[name]), name
 
 
 def test_skip_returns_before_anything_is_loaded(inputs, tmp_path):
 	path = write_params(inputs, tmp_path, "skip", skip=True,
 		model=MISSING_MODEL)
-	assert attribute.run(ns(path)) is None
-	assert not any(p.exists() for p in output_paths(path))
-
-
-def test_profile_falls_back_to_the_default_engine(inputs, default_runs,
-	tmp_path, monkeypatch):
-	"""The fast engine attributes the count head only: output "profile"
-	warns and runs the default engine, whose files it writes, and no
-	sidecar."""
-
-	_forbid_the_fast_engine(monkeypatch)
-	default = default_runs(64, output="profile")
-	path = write_params(inputs, tmp_path, "profile", output="profile",
-		precision="fp32")
-	with pytest.warns(UserWarning, match="count head only"):
-		attribute.run(ns(path))
-
-	ours = load_outputs(path)
-	for name in ("ohe", "attr", "idx"):
-		assert ours[name].dtype == default[name].dtype
-		assert numpy.array_equal(ours[name], default[name]), name
-
-	_, _, _, deltas_file, meta_file = output_paths(path)
-	assert not deltas_file.exists() and not meta_file.exists()
-
-
-def test_saturation_mutagenesis_ignores_the_engine(inputs, tmp_path,
-	monkeypatch):
-	_forbid_the_fast_engine(monkeypatch)
-	path = write_params(inputs, tmp_path, "ism",
-		algorithm="saturation_mutagenesis")
-	with pytest.warns(UserWarning, match="DeepLIFT/SHAP only"):
-		attribute.run(ns(path))
-
-	assert load_outputs(path)["attr"].shape == (KEPT.sum(), 4, ATTR_WINDOW)
+	assert attribute.run(argparse.Namespace(parameters=str(path))) is None
+	assert sorted(p.name for p in tmp_path.iterdir()) == ["skip.json"]
 
 
 @pytest.mark.parametrize("key, value, message", [
-	("engine", "faster", "engine must be"),
-	("precision", "bf16", "precision"),
-	("precision", "reference", "precision"),
-	("seqs_per_step", 0, "seqs_per_step"),
-	("seqs_per_step", "4", "seqs_per_step"),
-	("seqs_per_step", True, "seqs_per_step"),
-	("mem_budget_gb", -1, "mem_budget_gb"),
-	("mem_budget_gb", "8", "mem_budget_gb"),
-	("audit", -1, "audit"),
-	("audit", True, "audit"),
-	("dtype", "bfloat16", "dtype"),
-	("dtype", "float16", "dtype"),
-	("dtype", "float64", "dtype"),
+	("fast", "yes", "`fast` must be true or false"),
+	("fast", 1, "`fast` must be true or false"),
+	("output", "counts_and_profile", "output must be either"),
 ])
-def test_bad_options_are_refused_before_the_model_is_loaded(inputs, tmp_path,
+def test_bad_values_are_refused_before_the_model_is_loaded(inputs, tmp_path,
 	key, value, message):
 	path = write_params(inputs, tmp_path, "bad", model=MISSING_MODEL,
 		**{key: value})
 	with pytest.raises(ValueError, match=message):
-		attribute.run(ns(path))
+		attribute.run(argparse.Namespace(parameters=str(path)))
 
 
-def test_a_multi_group_model_without_a_group_raises_the_default_error(
-	inputs, tmp_path):
-	ours = write_params(inputs, tmp_path, "ours", model=inputs["model_b"],
-		group=None)
-	default = write_params(inputs, tmp_path, "default",
-		model=inputs["model_b"], group=None, engine="default")
-	with pytest.raises(ValueError, match="attributes one output") as fast:
-		attribute.run(ns(ours))
+def test_a_multi_group_model_without_a_group_raises_the_same_error(inputs,
+	tmp_path):
+	errors = []
+	for fast in (True, False):
+		path = write_params(inputs, tmp_path, "grouped{}".format(fast),
+			model=inputs["model_b"], group=None, fast=fast)
+		with pytest.raises(ValueError, match="attributes one output") as error:
+			attribute.run(argparse.Namespace(parameters=str(path)))
 
-	with pytest.raises(ValueError, match="attributes one output") as stock:
-		attribute.run(ns(default))
+		errors.append(str(error.value))
 
-	assert str(fast.value) == str(stock.value)
-
-
-##
-
-
-@pytest.mark.parametrize("threshold, expected", [(1e-12, 1), (None, 0)])
-def test_one_summary_warning_or_none(inputs, tmp_path, threshold, expected):
-	path = write_params(inputs, tmp_path, "warn", warning_threshold=threshold,
-		audit=0)
-	with warnings.catch_warnings(record=True) as caught:
-		warnings.simplefilter("always")
-		attribute.run(ns(path))
-
-	found = [w for w in caught if issubclass(w.category, RuntimeWarning)
-		and str(w.message).startswith("Convergence deltas too high")]
-	assert len(found) == expected
-	meta = json.loads(output_paths(path)[-1].read_text())
-	if threshold is None:
-		assert meta["deltas"]["above"] is None
-	else:
-		assert meta["deltas"]["above"] >= 1
-
-
-def test_random_state_null_records_the_drawn_seed(inputs, tmp_path):
-	drawn = write_params(inputs, tmp_path, "drawn", random_state=None, audit=0)
-	attribute.run(ns(drawn))
-	meta = json.loads(output_paths(drawn)[-1].read_text())
-	seed = meta["random_state"]
-	assert isinstance(seed, int) and meta["random_state_drawn"] is True
-
-	again = write_params(inputs, tmp_path, "again", random_state=seed, audit=0)
-	attribute.run(ns(again))
-	assert numpy.array_equal(load_outputs(again)["attr"],
-		load_outputs(drawn)["attr"])
-
-
-def test_a_failed_self_check_aborts_before_anything_is_written(inputs,
-	tmp_path, monkeypatch):
-	"""Weights that are not the model's (the count Linear scaled by 1.05)
-	fail the self-check, before the run and before any file."""
-
-	original = fdls.CheriWeights.from_model
-
-	def perturbed(cls, model, device=None):
-		weights = original(model, device)
-		weights.Wl.mul_(1.05)
-		return weights
-
-	monkeypatch.setattr(fdls.CheriWeights, "from_model",
-		classmethod(perturbed))
-	runs = []
-	monkeypatch.setattr(fdls.Engine, "run", lambda self, *args, **kwargs:
-		runs.append(args))
-	path = write_params(inputs, tmp_path, "selfcheck")
-	with pytest.raises(RuntimeError, match="self-check failed"):
-		attribute.run(ns(path))
-
-	assert not runs
-	assert not any(p.exists() for p in output_paths(path))
-
-
-##
-
-
-def _corrupting_run(monkeypatch, corrupt):
-	"""Make Engine.run return its result with corrupt(attr) applied, and
-	count its calls."""
-
-	real_run = fdls.Engine.run
-	calls = []
-
-	def run(self, *args, **kwargs):
-		result = real_run(self, *args, **kwargs)
-		calls.append(result.meta["references"])
-		return result._replace(attr=corrupt(result.attr.clone()))
-
-	monkeypatch.setattr(fdls.Engine, "run", run)
-	return calls
-
-
-def _scale_one_locus(attr):
-	attr[3] *= 1.05  # relative L2 0.05, Pearson still 1
-	return attr
-
-
-def _swap_two_loci(attr):
-	attr[[3, 7]] = attr[[7, 3]]  # Pearson far below 0.9999
-	return attr
-
-
-@pytest.mark.parametrize("corrupt", [_scale_one_locus, _swap_two_loci])
-def test_a_wrong_engine_output_fails_the_audit_after_writing(inputs, tmp_path,
-	monkeypatch, corrupt):
-	calls = _corrupting_run(monkeypatch, corrupt)
-	path = write_params(inputs, tmp_path, "corrupt")
-	with pytest.raises(AuditFailed, match="audit failed"):
-		attribute.run(ns(path))
-
-	assert all(p.exists() for p in output_paths(path))
-	audit = json.loads(output_paths(path)[-1].read_text())["audit"]
-	peaks = numpy.round(numpy.linspace(0, KEPT.sum() - 1, 8)).astype(int)
-	assert calls == ["produced"]
-	assert audit["indices"] == peaks.tolist()
-	bad = [peaks.tolist().index(i) for i in (3, 7) if i in peaks
-		and (corrupt is _swap_two_loci or i == 3)]
-	assert audit["pass"] is False and audit["failed_positions"] == bad
-	if corrupt is _scale_one_locus:
-		assert audit["rel_l2"][bad[0]] == pytest.approx(0.05, rel=1e-3)
-		assert audit["min_pearson"] > 0.99999
-	else:
-		assert max(audit["pearson"][i] for i in bad) < 0.9999
-
-
-def test_references_unlike_tangermemes_fail_the_audit(inputs, tmp_path,
-	monkeypatch):
-	"""If the engine drew other references than deep_lift_shap does, the
-	audit, which lets deep_lift_shap draw its own, fails."""
-
-	real = fdls.draw_references
-
-	def shifted(X, n_shuffles, random_state):
-		return real(X, n_shuffles, random_state + 1)
-
-	monkeypatch.setattr(fdls, "draw_references", shifted)
-	path = write_params(inputs, tmp_path, "refs")
-	with pytest.raises(AuditFailed, match="audit failed"):
-		attribute.run(ns(path))
-
-	audit = json.loads(output_paths(path)[-1].read_text())["audit"]
-	assert audit["pass"] is False and audit["failed_positions"]
-
-
-def test_the_audit_counts_deep_lift_shaps_delta_warnings(inputs, tmp_path,
-	monkeypatch):
-	"""deep_lift_shap's two per-batch convergence warnings in the audit, for
-	deltas above the threshold and for a mean delta above 1% of the output
-	differences, are counted in the record and not shown. Without
-	cherimoya's rules deep_lift_shap treats the normalization as linear,
-	which gives both in each of the audit's batches; its attributions move
-	too, so the audit may fail, which is not what this checks."""
-
-	monkeypatch.setattr(cherimoya.deep_lift_shap, "attribution_ops", dict)
-	path = write_params(inputs, tmp_path, "norules")
-	with warnings.catch_warnings(record=True) as caught:
-		warnings.simplefilter("always")
-		with contextlib.suppress(AuditFailed):
-			attribute.run(ns(path))
-
-	assert not [w for w in caught if str(w.message).startswith(
-		"Convergence deltas")]
-	audit = json.loads(output_paths(path)[-1].read_text())["audit"]
-	batches = math.ceil(audit["peaks"] * N_SHUFFLES / audit["batch_size"])
-	assert batches == 2
-	assert audit["stock_delta_warnings"] == 2 * batches
-
-
-def test_audit_zero_runs_no_audit(inputs, tmp_path, monkeypatch):
-	def forbidden(*args, **kwargs):
-		raise AssertionError("audit 0 must not audit")
-
-	monkeypatch.setattr(fdls, "audit", forbidden)
-	calls = _corrupting_run(monkeypatch, lambda attr: attr)
-	path = write_params(inputs, tmp_path, "noaudit", audit=0)
-	attribute.run(ns(path))
-	meta = json.loads(output_paths(path)[-1].read_text())
-	assert meta["audit"] == {"peaks": 0, "pass": None,
-		"status": "off (audit 0)"}
-	assert calls == ["produced"]
-
-
-##
-
-
-def test_the_cache_default_is_set_only_when_unset(monkeypatch):
-	monkeypatch.delenv("TRITON_CACHE_AUTOTUNING", raising=False)
-	record = attribute._set_cache_defaults()
-	assert os.environ["TRITON_CACHE_AUTOTUNING"] == "1"
-	assert record["set_by_cherimoya"] == ["TRITON_CACHE_AUTOTUNING"]
-
-	monkeypatch.setenv("TRITON_CACHE_AUTOTUNING", "0")
-	record = attribute._set_cache_defaults()
-	assert os.environ["TRITON_CACHE_AUTOTUNING"] == "0"
-	assert record["set_by_cherimoya"] == []
-
-
-def test_the_cache_default_is_set_before_cherimoya_is_imported(tmp_path):
-	"""In a fresh process, `cherimoya attribute` with engine "fast" sets
-	TRITON_CACHE_AUTOTUNING before it imports cherimoya, so that cherimoya's
-	autotuned kernels keep their timings. Importing the command module alone
-	imports neither cherimoya nor its dependencies."""
-
-	params = {"model": MISSING_MODEL, "sequences": "x.fa", "loci": "x.bed",
-		"engine": "fast", "device": "cpu"}
-	path = tmp_path / "p.json"
-	path.write_text(json.dumps(params))
-	code = textwrap.dedent("""
-		import argparse, os, sys
-		from cherimoya_cli.commands import attribute
-		heavy = sorted(m for m in ("torch", "cherimoya", "tangermeme")
-			if m in sys.modules)
-		assert not heavy, heavy
-		try:
-			attribute.run(argparse.Namespace(parameters={!r}))
-		except Exception:
-			pass
-		import cherimoya.cheri as cheri
-		print(os.environ["TRITON_CACHE_AUTOTUNING"])
-		kernel = getattr(cheri, "_fwd_stats_kernel", None)
-		print(getattr(kernel, "cache_results", None))
-		""".format(str(path)))
-	env = {k: v for k, v in os.environ.items()
-		if k != "TRITON_CACHE_AUTOTUNING"}
-	done = subprocess.run([sys.executable, "-c", code], env=env,
-		capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
-	assert done.returncode == 0, done.stderr[-3000:]
-
-	autotuning, cached = done.stdout.strip().splitlines()[-2:]
-	assert autotuning == "1"
-	assert cached in ("True", "None")
+	assert errors[0] == errors[1]

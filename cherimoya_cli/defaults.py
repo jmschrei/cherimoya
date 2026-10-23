@@ -146,11 +146,7 @@ default_attribute_parameters = {
 	'idx_filename': 'attributions.idx.npy',
 	'dtype': 'float32',
 	'device': 'cuda',
-	'engine': 'default',
-	'precision': 'tf32',
-	'seqs_per_step': 'auto',
-	'mem_budget_gb': 12.0,
-	'audit': 8,
+	'fast': True,
 	'skip': False,
 }
 
@@ -300,7 +296,7 @@ default_pipeline_parameters = {
 		'compile': False,
 		'chroms': training_chroms + validation_chroms,
 		'algorithm': 'deep_lift_shap',
-		'engine': 'default',
+		'fast': True,
 		'output': 'logcounts',
 		'group': 0,
 		'attr_window': None,

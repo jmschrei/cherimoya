@@ -57,7 +57,23 @@ wrapper = LogCountsWrapper(ControlWrapper(model))
 # variant effect, ledidi design, ...).
 ```
 
-## DeepLIFT/SHAP needs `attribution_ops()` registered
+## DeepLIFT/SHAP: use `cherimoya.deep_lift_shap.deep_lift_shap`
+
+For DeepLIFT/SHAP of a Cherimoya model, call Cherimoya's own function. It takes
+the model itself, wraps it as above, registers `attribution_ops()`, and takes a
+fast path for the log-counts where it applies:
+
+```python
+from cherimoya.deep_lift_shap import deep_lift_shap
+
+X_attr = deep_lift_shap(model, X, output="logcounts", group=0,
+    hypothetical=True, random_state=0)   # output="profile" for shape
+```
+
+Calling tangermeme's functions directly is still right for the rest (ISM,
+`pisa`, variant effects, design). Those that run DeepLIFT need the rule below.
+
+## tangermeme's DeepLIFT needs `attribution_ops()` registered
 
 ISM needs nothing. `deep_lift_shap` does: it corrects the module types it knows
 and silently treats the rest as linear, and `FusedDilatedConvNorm` is neither

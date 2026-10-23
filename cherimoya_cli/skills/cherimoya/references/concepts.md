@@ -49,12 +49,11 @@ The "what did the model learn" chain, in order:
   **DeepLIFT/SHAP** by default — gradients relative to shuffled reference
   sequences — or by **saturation mutagenesis (ISM)** — mutating each base and
   measuring the change in prediction — with `algorithm: saturation_mutagenesis`.
-  For the count head, `engine: "fast"` computes the same DeepLIFT/SHAP
-  attributions up to floating-point rounding (nearly as close to the
-  default engine's as two default-engine runs are to each other), several
-  times faster on a GPU, and checks itself against tangermeme's
-  `deep_lift_shap` on every run; the profile head always uses the default
-  engine.
+  For the log-counts, DeepLIFT/SHAP takes a fast path by default
+  (`fast: true`) that computes the same attributions up to floating-point
+  rounding, several times faster on a GPU; each job that uses it is checked
+  against tangermeme's `deep_lift_shap`, which it falls back to with a
+  warning when they disagree. The profile always uses tangermeme's.
 - **Seqlets** — short, contiguous high-importance stretches pulled out of the
   attributions (lengths ~4–25 bp): candidate functional elements.
 - **Motifs** — recurring sequence patterns (e.g. a transcription-factor binding

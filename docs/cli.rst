@@ -523,44 +523,17 @@ attribute_parameters
    * - ``dtype`` / ``device``
      - ``"float32"`` / ``"cuda"``
      - Inference dtype and device.
-   * - ``engine``
-     - ``"default"``
-     - How DeepLIFT/SHAP is computed: ``"default"``, tangermeme's
-       ``deep_lift_shap``, or ``"fast"``, Cherimoya's fast engine for the
-       count head, which agrees with the default engine nearly as closely
-       as two runs of the default engine agree with each other, runs
-       several times faster on a GPU, checks itself on every run and
-       writes two more files (see :doc:`tutorials/attribution`). With
-       ``"output": "profile"``, ``"fast"`` warns and the default engine
-       runs.
-       Saturation mutagenesis ignores it. ``"fast"`` needs ``dtype``
-       ``"float32"`` or ``null``, and tangermeme 1.6.0, which it was
-       validated with; another tangermeme release warns.
-   * - ``precision``
-     - ``"tf32"``
-     - ``"fast"`` engine only. ``"tf32"``: matrix products and
-       convolutions in TF32 where the GPU supports it, the precision the
-       default engine computes in; ``"fp32"``: strict IEEE float32.
-   * - ``seqs_per_step``
-     - ``"auto"``
-     - ``"fast"`` engine only. Sequences per step, each with its
-       ``n_shuffles`` references. ``"auto"`` takes the largest step whose
-       estimated memory fits ``mem_budget_gb`` and 0.6 of the GPU memory
-       this process can use, at most 32 sequences, and 8 on the CPU. A
-       step that runs out of memory is halved and retried.
-   * - ``mem_budget_gb``
-     - 12.0
-     - ``"fast"`` engine only. The GPU memory, in GB of 1e9 bytes, that
-       ``"auto"`` plans a step for.
-   * - ``audit``
-     - 8
-     - ``"fast"`` engine only. Evenly spaced sequences that tangermeme's
-       ``deep_lift_shap`` attributes again after the run, with the
-       engine's ``random_state`` and so the same references, to compare;
-       0 turns the audit off. A
-       sequence beyond the bounds fails the run after the outputs are
-       written.
-
+   * - ``fast``
+     - ``true``
+     - DeepLIFT/SHAP of the log-counts: whether
+       :func:`cherimoya.deep_lift_shap.deep_lift_shap` may take its fast
+       path, which runs several times faster on a GPU, is checked against
+       tangermeme's ``deep_lift_shap`` on the first sequences of every
+       job that uses it, and falls back to it with a warning when the two
+       disagree (see :doc:`tutorials/attribution`). ``false`` always uses
+       tangermeme's ``deep_lift_shap``. The profile, a ``dtype`` other than
+       ``"float32"`` and saturation mutagenesis use tangermeme's functions
+       either way.
 
 seqlet_parameters
 ~~~~~~~~~~~~~~~~~
@@ -933,18 +906,6 @@ mutagenesis with ``"algorithm": "saturation_mutagenesis"``; see
 
 JSON schema: the ``attribute_parameters`` table above, plus
 ``model``, ``sequences``, ``loci`` and ``exclusion_lists``.
-
-With ``"engine": "fast"`` the command also writes, next to
-``attr_filename`` without its ``.npz``, ``.deltas.npy`` (the convergence
-delta of every sequence-reference pair) and ``.meta.json`` (a record of
-the run, its self-check and its audit), and a failed audit raises after
-every file is written. Before it imports Cherimoya, it sets
-``TRITON_CACHE_AUTOTUNING`` to ``1`` if it is unset, so that Triton keeps
-the autotuning results of Cherimoya's kernels, which the self-check and
-the audit run, and a later run on the same machine does not autotune them
-again. A value already set is kept. Run as a step of ``cherimoya
-pipeline``, which has imported Cherimoya by then, the variable comes too
-late to take effect.
 
 
 cherimoya seqlets

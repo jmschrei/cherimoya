@@ -416,28 +416,6 @@ def test_architecture_changes_are_refused():
 	assert fdls.contract_violations(model) == []
 
 
-def test_an_unvalidated_tangermeme_warns(monkeypatch):
-	"""The engine reproduces tangermeme's rules, so an unvalidated release
-	warns; a validated one does not."""
-
-	import tangermeme
-
-	model = tiny.tiny_model("A")
-	if tangermeme.__version__ in fdls.VALIDATED_TANGERMEME_VERSIONS:
-		with warnings.catch_warnings():
-			warnings.simplefilter("error")
-			fdls.Engine(model)
-	else:
-		with pytest.warns(UserWarning, match="validated against"):
-			fdls.Engine(model)
-
-	monkeypatch.setattr(tangermeme, "__version__", "9.9.9")
-	with pytest.warns(UserWarning, match="tangermeme 9.9.9 is installed"):
-		fdls.Engine(model)
-
-	assert fdls.check_tangermeme_version() == "9.9.9"
-
-
 def test_importing_the_engine_changes_no_environment_variable():
 	"""In a fresh process, importing the fast engine leaves os.environ as it
 	was after importing cherimoya, which imports the engine's dependencies."""
@@ -844,13 +822,16 @@ def test_engine_arguments():
 	with pytest.raises(ValueError, match="forward_stats"):
 		fdls.Engine(model, group=1, forward_stats="three_pass")
 
-	for name, bad in (("precision", "reference"), ("precision", None),
+	for name, bad in (("precision", "reference"), ("precision", "bf16"),
 			("compile", "default"), ("compile", "max-autotune"),
 			("mem_budget_gb", 0), ("mem_budget_gb", -1.0),
 			("mem_budget_gb", True), ("mem_budget_gb", "8"),
 			("deterministic", 1), ("deterministic", None)):
 		with pytest.raises(ValueError, match=name):
 			fdls.Engine(model, group=1, **{name: bad})
+
+	with pytest.raises(ValueError, match="deterministic=True sets"):
+		fdls.Engine(model, group=1, precision=None, deterministic=True)
 
 	with pytest.raises(ValueError, match="random_state"):
 		fdls.Engine(model, group=1, random_state=1.5)
@@ -1092,38 +1073,23 @@ def test_compile_kwargs_follow_what_torch_supports(monkeypatch):
 ##
 
 
-def test_audit_peaks_are_evenly_spaced_and_distinct():
-	from cherimoya._deep_lift_shap_engine import audit_peaks
-
-	assert audit_peaks(10, 8).tolist() == [0, 1, 3, 4, 5, 6, 8, 9]
-	assert audit_peaks(4999, 8).tolist() == [0, 714, 1428, 2142, 2856, 3570,
-		4284, 4998]
-	assert audit_peaks(5, 8).tolist() == [0, 1, 2, 3, 4]
-	assert audit_peaks(5, 0).tolist() == [] and audit_peaks(0, 8).tolist() == []
-	assert audit_peaks(1, 1).tolist() == [0]
-	for n in range(1, 40):
-		for k in range(1, n + 1):
-			peaks = audit_peaks(n, k)
-			assert len(numpy.unique(peaks)) == k and peaks[0] == 0
-			assert peaks[-1] == (n - 1 if k > 1 else 0)
-
-
-def test_the_audit_comparison_bounds_and_warning():
+def test_the_comparison_bounds():
 	from cherimoya._deep_lift_shap_engine import compare_attributions
 
 	rng = numpy.random.default_rng(0)
 	stock = rng.normal(size=(6, 4, 50))
 	same = compare_attributions(stock, stock)
-	assert same["pass"] and not same["warn"] and same["max_rel_l2"] == 0.0
+	assert same["pass"] and same["max_rel_l2"] == 0.0
 	assert same["min_pearson"] == pytest.approx(1)
 
-	# A median relative L2 of 5e-4: within the bounds, but it warns.
+	# A relative L2 of 5e-3 on every sequence passes; 2e-2 fails.
 	noise = rng.normal(size=stock.shape)
-	noise *= 5e-4 * (numpy.linalg.norm(stock.reshape(6, -1), axis=1)
+	noise *= (numpy.linalg.norm(stock.reshape(6, -1), axis=1)
 		/ numpy.linalg.norm(noise.reshape(6, -1), axis=1))[:, None, None]
-	near = compare_attributions(stock + noise, stock)
-	assert near["pass"] and near["warn"]
-	assert near["median_rel_l2"] == pytest.approx(5e-4, rel=1e-6)
+	near = compare_attributions(stock + 5e-3 * noise, stock)
+	assert near["pass"] and near["max_rel_l2"] == pytest.approx(5e-3, rel=1e-6)
+	far = compare_attributions(stock + 2e-2 * noise, stock)
+	assert not far["pass"] and far["failed_positions"] == list(range(6))
 
 	# A large constant offset: the centred values decorrelate (Pearson below
 	# 0.9999) while the relative L2 stays under 1e-2, so Pearson alone fails.

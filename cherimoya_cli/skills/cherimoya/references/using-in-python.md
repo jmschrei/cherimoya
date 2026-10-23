@@ -17,8 +17,12 @@ private and may change between versions:
 
 Some module-level symbols are also public though not re-exported (the full
 list is in the docs' development page):
-- `attribution_ops`, imported from `cherimoya.deep_lift_shap`, which every
-  DeepLIFT/SHAP call on a Cherimoya model passes as `additional_nonlinear_ops`.
+- `deep_lift_shap`, imported from `cherimoya.deep_lift_shap`: DeepLIFT/SHAP
+  attributions of a Cherimoya model's log-counts or profile (see
+  `references/using-tangermeme.md`).
+- `attribution_ops`, imported from `cherimoya.deep_lift_shap`, which a
+  tangermeme DeepLIFT call on a Cherimoya model passes as
+  `additional_nonlinear_ops`.
 - `cherimoya.training.fit` and `cherimoya.training.CherimoyaModule` — training
   (see "Training in Python" below).
 - `cherimoya.io.PeakGenerator`, `PeakNegativeSampler` and

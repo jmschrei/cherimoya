@@ -20,7 +20,7 @@ Repository layout
    │   ├── io.py                   # PeakGenerator + PeakNegativeSampler + ShardedEpochSampler
    │   ├── losses.py               # Profile MNLL + log1pMSE mixture loss
    │   ├── wrappers.py             # Control / profile / count output wrappers
-   │   ├── deep_lift_shap.py       # DeepLIFT rules for tangermeme's deep_lift_shap
+   │   ├── deep_lift_shap.py       # deep_lift_shap and the DeepLIFT rules
    │   ├── _deep_lift_shap_engine.py  # The fast DeepLIFT/SHAP path for the log-counts
    │   └── performance.py          # Evaluation metrics
    ├── cherimoya_cli/              # The CLI entry-point package
@@ -74,7 +74,8 @@ Explicitly:
   :class:`~cherimoya.cheri.FusedDilatedConvNorm`,
   :class:`~cherimoya.cheri.FusedDilatedConvNormFunc`,
   :func:`~cherimoya.performance.calculate_performance_measures` and
-  its component metrics, :func:`~cherimoya.deep_lift_shap.attribution_ops`,
+  its component metrics, :func:`~cherimoya.deep_lift_shap.deep_lift_shap`,
+  :func:`~cherimoya.deep_lift_shap.attribution_ops`,
   :func:`~cherimoya.losses._mixture_loss`
   (despite the underscore — it is the trainer's loss function and
   the API is stable).
@@ -190,8 +191,14 @@ the ``cherimoya`` CLI:
      - The fast DeepLIFT/SHAP engine against the model's forward and
        tangermeme's ``deep_lift_shap`` on small models: raw multipliers,
        hypothetical attributions, convergence deltas, conservation and
-       step-size invariance; the engine's arguments and its audit's
-       comparison.
+       step-size invariance; the engine's arguments and the comparison
+       ``deep_lift_shap`` checks it with.
+   * - ``tests/test_deep_lift_shap_paths.py``
+     - :func:`~cherimoya.deep_lift_shap.deep_lift_shap`'s choice between
+       tangermeme's ``deep_lift_shap`` and the fast path: ``fast=False``
+       against tangermeme bit for bit, the fast path against it within
+       rounding, what takes tangermeme's path, and the fallback when the
+       fast path disagrees or raises.
    * - ``tests/test_deep_lift_shap_engine_rules.py``
      - Each of the engine's backward rules against the tangermeme or
        cherimoya function it replaces.
@@ -223,9 +230,9 @@ the ``cherimoya`` CLI:
      - The seam between the two: the coordinate ``seqlets`` reports
        is the genome position of the base ``attribute`` scored.
    * - ``tests/commands/test_attribute_fast.py``
-     - ``cherimoya attribute`` with ``"engine": "fast"`` against its
-       default engine, its options, its two extra files, the self-check
-       and the audit.
+     - ``cherimoya attribute``'s ``fast`` key: the files the fast path
+       writes against ``"fast": false``'s, what takes tangermeme's path,
+       and the values refused before the model is loaded.
    * - ``tests/commands/test_attribute.py``,
        ``test_seqlets.py``, ``test_evaluate.py``,
        ``test_marginalize.py``, ``test_negatives.py``,

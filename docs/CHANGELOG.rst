@@ -7,28 +7,30 @@ v0.3.1 (unreleased)
 Attribution
 ~~~~~~~~~~~
 
-* ``cherimoya attribute`` has a fast DeepLIFT/SHAP engine for the count
-  head, ``"engine": "fast"``, in ``cherimoya._deep_lift_shap_engine``. It
-  computes what tangermeme's ``deep_lift_shap`` computes with Cherimoya's
-  rules, up to floating-point rounding: the same rules, the same
-  dinucleotide-shuffled references with the same seeds, and the same
-  hypothetical projection, each called from tangermeme
+* :func:`cherimoya.deep_lift_shap.deep_lift_shap` computes DeepLIFT/SHAP
+  attributions of a Cherimoya model's log-counts or profile from the model
+  itself, and ``cherimoya attribute`` calls it. It wraps the model and
+  registers Cherimoya's DeepLIFT rule, which a call to tangermeme's
+  ``deep_lift_shap`` needs by hand, and for the log-counts in float32 it
+  takes a fast path by default (``fast=True``, ``"fast": true`` in
+  ``cherimoya attribute``). The fast path computes what tangermeme's
+  ``deep_lift_shap`` computes, up to floating-point rounding: the same
+  rules, the same dinucleotide-shuffled references with the same seeds,
+  and the same hypothetical projection, each called from tangermeme
   (``tangermeme >= 1.6.0``). It forwards each sequence once rather than
   once per reference, runs the backward over the sequence half of each
   pair only, and compiles its passes on a GPU. On an H200, with 1,000
   peaks of 2,114 bp and 20 shuffles each, it attributed 7,753
   sequence-reference pairs per second at steady state with a 128-filter,
-  9-layer model, against 986 to 999 for the default engine with
-  tangermeme 1.6.0 at a ``batch_size`` of 64 after its first call, and
-  1,458 against 197 with a 512-filter model.
-  Every run compares its forward with the model's before it starts and,
-  after writing its outputs, attributes 8 evenly spaced sequences again
-  with ``deep_lift_shap`` to compare (``audit``). It also writes the
-  convergence deltas and a record of the run next to ``attr_filename``.
-  The default engine is unchanged, and the profile head and saturation
-  mutagenesis always use it. New keys: ``engine``, ``precision``,
-  ``seqs_per_step``, ``mem_budget_gb`` and ``audit``; ``engine`` is
-  also in the pipeline's ``attribute_parameters``. Thanks @emattei!
+  9-layer model, against 986 to 999 for tangermeme's ``deep_lift_shap``
+  at a ``batch_size`` of 64 after its first call, and 1,458 against 197
+  with a 512-filter model. A job that tangermeme's path would finish in
+  under thirty seconds stays on it, and a job that takes the fast path is
+  checked against tangermeme's on its first four sequences and falls back
+  to it, with a ``RuntimeWarning``, when the two disagree. Log-count
+  attributions from jobs that take the fast path therefore differ from
+  before by floating-point rounding; ``"fast": false`` gives tangermeme's.
+  The profile and saturation mutagenesis are unchanged. Thanks @emattei!
 
 * ``LogCountWrapper`` is renamed :class:`cherimoya.LogCountsWrapper`, and
   the ``output`` of ``cherimoya attribute`` that selects it is
