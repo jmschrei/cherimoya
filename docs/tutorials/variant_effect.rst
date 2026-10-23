@@ -32,7 +32,7 @@ Example JSON:
        "loci": "peaks.narrowPeak",
        "chroms": ["chr2", "chr4", "chr5"],
        "algorithm": "saturation_mutagenesis",
-       "output": "counts",
+       "output": "logcounts",
        "batch_size": 512,
        "device": "cuda",
        "ohe_filename": "attributions.ohe.npz",
@@ -40,7 +40,7 @@ Example JSON:
        "idx_filename": "attributions.idx.npy"
    }
 
-``output`` can be ``"counts"`` (recommended for most analyses) or
+``output`` can be ``"logcounts"`` (recommended for most analyses) or
 ``"profile"``. The output array has shape ``(n_examples, 4, 400)`` and
 contains hypothetical importance scores per base per channel —
 equivalent to the predicted delta when substituting that nucleotide at
@@ -83,14 +83,14 @@ For an in-silico saturation mutagenesis sweep over a region, use
    import torch
    from cherimoya import Cherimoya
    from cherimoya import ControlWrapper
-   from cherimoya import LogCountWrapper
+   from cherimoya import LogCountsWrapper
    from tangermeme.saturation_mutagenesis import saturation_mutagenesis
 
    model = Cherimoya.load("my_model.torch", device="cuda")
    # ControlWrapper passes control-free models straight through, so it is
    # safe to apply unconditionally.
    model = ControlWrapper(model)
-   wrapper = LogCountWrapper(model)
+   wrapper = LogCountsWrapper(model)
 
    mid = X.shape[-1] // 2
    X_attr = saturation_mutagenesis(

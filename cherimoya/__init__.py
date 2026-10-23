@@ -6,6 +6,7 @@ from .cherimoya import EMA
 from .cheri import CheriBlock
 from .wrappers import ControlWrapper
 from .wrappers import ProfileWrapper
+from .wrappers import LogCountsWrapper
 from .wrappers import LogCountWrapper
 from .wrappers import ExpectedCountsWrapper
 

@@ -148,7 +148,7 @@ def test_attr_window_wider_than_in_window_raises(tmp_path):
 
 
 
-@pytest.mark.parametrize("output, wrapper", [("counts", "LogCountWrapper"),
+@pytest.mark.parametrize("output, wrapper", [("logcounts", "LogCountsWrapper"),
 	("profile", "ProfileWrapper")])
 @pytest.mark.parametrize("algorithm", ["deep_lift_shap",
 	"saturation_mutagenesis"])
@@ -161,6 +161,20 @@ def test_group_reaches_the_wrapper(tmp_path, output, wrapper, algorithm):
 
 	assert type(captured['wrapper']).__name__ == wrapper
 	assert captured['wrapper'].group == 1
+
+
+def test_counts_is_a_deprecated_name_for_logcounts(tmp_path):
+	"""`output` "counts", the former name, warns and attributes the
+	log-counts as "logcounts" does."""
+
+	with pytest.warns(FutureWarning, match="logcounts"):
+		old = _run_attribute(tmp_path, output="counts", group=1)
+
+	new = _run_attribute(tmp_path, output="logcounts", group=1)
+	assert type(old['wrapper']).__name__ == "LogCountsWrapper"
+	assert old['wrapper'].group == new['wrapper'].group == 1
+	assert old['dls'] == new['dls']
+	assert numpy.array_equal(old['attr'], new['attr'])
 
 
 def test_default_group_is_the_first(tmp_path):

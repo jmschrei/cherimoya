@@ -48,7 +48,7 @@ import torch
 
 from cherimoya import Cherimoya
 from cherimoya import ControlWrapper
-from cherimoya import LogCountWrapper
+from cherimoya import LogCountsWrapper
 from cherimoya.cheri import CONV_NORM_EPS
 from cherimoya.cheri import _cheri_conv
 from cherimoya.deep_lift_shap import attribution_ops
@@ -112,7 +112,7 @@ def _module_forward(model, X1h, group):
 
 	try:
 		with torch.enable_grad():
-			y = LogCountWrapper(ControlWrapper(model), group=group)(
+			y = LogCountsWrapper(ControlWrapper(model), group=group)(
 				X1h.clone().requires_grad_())[:, 0]
 	finally:
 		for handle in handles:
@@ -135,7 +135,7 @@ def test_cpu_mirror_forward_matches_the_module(config, dtype, batches):
 	w = fdls.CheriWeights.from_model(model)
 	with torch.no_grad():
 		ours = fdls.model_forward(X1h, w, forward_stats="cpu_mirror",
-			output="counts", group=cfg.group)
+			output="logcounts", group=cfg.group)
 
 	assert ours.y.dtype == dtype and ours.y.shape == y_ref.shape
 	assert len(ours.saved) == len(acts["block_in"]) == cfg.n_layers
@@ -214,7 +214,7 @@ def test_counts_head_groups_and_controls(batches):
 	for group in (0, 1, None):
 		y_ref, _ = _module_forward(model, X1h, group)
 		with torch.no_grad():
-			y = fdls.head_forward(hL, w, output="counts", group=group)
+			y = fdls.head_forward(hL, w, output="logcounts", group=group)
 
 		assert _rel(y, y_ref) <= C1_TOL[torch.float32]
 
@@ -238,16 +238,16 @@ def test_counts_head_groups_and_controls(batches):
 
 def test_make_wrapper_runs_the_reference_group_checks():
 	model = tiny.tiny_model("B")
-	for output, group, cls in (("counts", 1, "LogCountWrapper"),
+	for output, group, cls in (("logcounts", 1, "LogCountsWrapper"),
 			("profile", None, "ProfileWrapper")):
 		wrapped = fdls.make_wrapper(model, output, group)
 		assert type(wrapped).__name__ == cls
 		assert isinstance(wrapped.model, ControlWrapper)
 
 	with pytest.raises(ValueError, match="attributes one output"):
-		fdls.make_wrapper(model, "counts", None)
+		fdls.make_wrapper(model, "logcounts", None)
 
-	for output in ("counts", "profile"):
+	for output in ("logcounts", "profile"):
 		for bad in (2, True):
 			with pytest.raises(ValueError, match="group must be"):
 				fdls.make_wrapper(model, output, bad)
@@ -495,7 +495,7 @@ def test_the_oracle_returns_tangermemes_deltas_in_pair_order():
 	model = tiny.tiny_model("A")
 	X = tiny.sequences("A")
 	R = tiny.shuffled_references(X, K)
-	wrapped = tiny.wrapper(model, "counts", 0)
+	wrapped = tiny.wrapper(model, "logcounts", 0)
 	threads = torch.get_num_threads()
 	result = tiny.oracle(wrapped, X, R, raw_outputs=True, dtype=torch.float32,
 		batch_size=7)
@@ -604,7 +604,7 @@ def _theirs(config, dtype, kind, raw_outputs):
 
 	X, R = _case(config, kind)
 	model = tiny.tiny_model(config, dtype=dtype)
-	wrapped = tiny.wrapper(model, "counts", tiny.CONFIGS[config].group)
+	wrapped = tiny.wrapper(model, "logcounts", tiny.CONFIGS[config].group)
 	return tiny.oracle(wrapped, X, R, raw_outputs=raw_outputs, dtype=dtype,
 		batch_size=ORACLE_BATCH, num_threads=torch.get_num_threads())
 
@@ -615,7 +615,7 @@ def _gradient(config):
 	(13, 4, L), by autograd through the float64 wrapper, with no rules."""
 
 	model = tiny.tiny_model(config, dtype=F64)
-	wrapped = tiny.wrapper(model, "counts", tiny.CONFIGS[config].group)
+	wrapped = tiny.wrapper(model, "logcounts", tiny.CONFIGS[config].group)
 	X = tiny.sequences(config).to(F64).requires_grad_()
 	with torch.enable_grad():
 		grad, = torch.autograd.grad(wrapped(X)[:, 0].sum(), X)

@@ -23,7 +23,7 @@ from a forward and a backward written out by hand:
   functions. The references are tangermeme's `dinucleotide_shuffle`, called with
   the seeds `deep_lift_shap` uses (`draw_references`).
 
-Only the count head (`LogCountWrapper`) is implemented. The profile head
+Only the count head (`LogCountsWrapper`) is implemented. The profile head
 goes through a softmax rule that couples every position, and keeps the
 default engine.
 
@@ -82,7 +82,7 @@ from ..cheri import _cheri_conv
 from ..cheri import _cheri_conv_norm_cpu
 from ..cherimoya import Cherimoya
 from ..wrappers import ControlWrapper
-from ..wrappers import LogCountWrapper
+from ..wrappers import LogCountsWrapper
 from ..wrappers import ProfileWrapper
 
 
@@ -94,7 +94,7 @@ dinucleotide shuffle this engine was checked against. Another version runs,
 with a warning."""
 
 FORWARD_STATS = ("two_pass", "one_pass", "cpu_mirror")
-OUTPUTS = ("counts", "profile")
+OUTPUTS = ("logcounts", "profile")
 PRECISIONS = ("tf32", "fp32")
 COMPILE_MODES = ("auto", "default", "none")
 
@@ -426,7 +426,7 @@ def _conv_violations(name, conv, in_channels, out_channels, kernel, padding):
 	return problems
 
 
-def make_wrapper(model, output="counts", group=0):
+def make_wrapper(model, output="logcounts", group=0):
 	"""The wrapper `cherimoya attribute` attributes, built from cherimoya's
 	own classes, so that a bad group fails exactly as there.
 
@@ -437,8 +437,8 @@ def make_wrapper(model, output="counts", group=0):
 		The model.
 
 	output: str, optional
-		"counts" for `LogCountWrapper`, "profile" for `ProfileWrapper`.
-		Default is "counts".
+		"logcounts" for `LogCountsWrapper`, "profile" for `ProfileWrapper`.
+		Default is "logcounts".
 
 	group: int or None, optional
 		The signal group to attribute. A count head with several groups
@@ -452,16 +452,16 @@ def make_wrapper(model, output="counts", group=0):
 	"""
 
 	if output not in OUTPUTS:
-		raise ValueError("output must be either `counts` or `profile`.")
+		raise ValueError("output must be either `logcounts` or `profile`.")
 
-	if output == "counts" and group is None and len(model.signal_groups) > 1:
+	if output == "logcounts" and group is None and len(model.signal_groups) > 1:
 		raise ValueError("deep_lift_shap attributes one output; set `group` "
 			"to one of the model's {} signal groups".format(
 			len(model.signal_groups)))
 
 	inner = ControlWrapper(model)
-	if output == "counts":
-		return LogCountWrapper(inner, group=group)
+	if output == "logcounts":
+		return LogCountsWrapper(inner, group=group)
 
 	return ProfileWrapper(inner, group=group)
 
@@ -631,12 +631,12 @@ def forward_save(z0, blocks, rs, eps, stats):
 	return h, saved
 
 
-def head_forward(hL, w, output="counts", group=0):
+def head_forward(hL, w, output="logcounts", group=0):
 	"""The attributed scalar per row, from the final residual stream hL
 	(R, L, C).
 
 	The count head runs the model's operations on the model's (R, C, L)
-	layout, then `LogCountWrapper`'s group slice and `deep_lift_shap`'s
+	layout, then `LogCountsWrapper`'s group slice and `deep_lift_shap`'s
 	target 0. Control tracks are zeros, as `ControlWrapper` feeds them, so
 	their count feature is log(0 + 1) = 0. The pooled stream is cast to the
 	count Linear's dtype, where the model calls ``.float()``: the same
@@ -648,8 +648,8 @@ def head_forward(hL, w, output="counts", group=0):
 			"only; attribute the profile head with tangermeme's "
 			"deep_lift_shap")
 
-	if output != "counts":
-		raise ValueError("output must be either `counts` or `profile`.")
+	if output != "logcounts":
+		raise ValueError("output must be either `logcounts` or `profile`.")
 
 	R, L, _ = hL.shape
 	T = w.T
@@ -670,7 +670,7 @@ def head_forward(hL, w, output="counts", group=0):
 	return y[:, 0]
 
 
-def model_forward(X1h, w, forward_stats="auto", output="counts", group=0):
+def model_forward(X1h, w, forward_stats="auto", output="logcounts", group=0):
 	"""The whole forward on a batch of one-hot rows X1h (R, 4, L), cast to
 	the weights' dtype and device. Run it under torch.no_grad() unless a
 	graph is wanted; the engine never needs one for its forward.
@@ -1220,11 +1220,11 @@ class Engine:
 		The model. Its weights are copied once and never changed.
 
 	output: str, optional
-		What is attributed. Only "counts" is implemented. Default is
-		"counts".
+		What is attributed. Only "logcounts" is implemented. Default is
+		"logcounts".
 
 	group: int or None, optional
-		The signal group to attribute, as `LogCountWrapper` takes it. A model
+		The signal group to attribute, as `LogCountsWrapper` takes it. A model
 		with several groups needs one. Default is 0.
 
 	device: str or torch.device or None, optional
@@ -1279,14 +1279,14 @@ class Engine:
 		is False.
 	"""
 
-	def __init__(self, model, output="counts", group=0, device=None,
+	def __init__(self, model, output="logcounts", group=0, device=None,
 		precision="tf32", n_shuffles=20, random_state=0,
 		seqs_per_step="auto", mem_budget_gb=12.0,
 		compile="auto", forward_stats="auto", warning_threshold=1e-3,
 		deterministic=False):
 
 		if output not in OUTPUTS:
-			raise ValueError("output must be either `counts` or `profile`.")
+			raise ValueError("output must be either `logcounts` or `profile`.")
 
 		if output == "profile":
 			raise NotImplementedError("the fast engine attributes the count "

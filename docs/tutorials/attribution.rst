@@ -44,7 +44,7 @@ Example JSON:
        "loci": "peaks.narrowPeak",
        "chroms": ["chr2", "chr4", "chr5"],
        "algorithm": "deep_lift_shap",
-       "output": "counts",
+       "output": "logcounts",
        "group": 0,
        "batch_size": 64,
        "device": "cuda",
@@ -55,8 +55,8 @@ Example JSON:
 
 ``output`` controls what is being attributed to:
 
-* ``"counts"`` — attribute to total predicted log-counts (recommended
-  for most analyses; uses :class:`cherimoya.LogCountWrapper`).
+* ``"logcounts"`` — attribute to total predicted log-counts (recommended
+  for most analyses; uses :class:`cherimoya.LogCountsWrapper`).
 * ``"profile"`` — attribute to the predicted profile shape (uses
   :class:`cherimoya.ProfileWrapper`).
 
@@ -118,7 +118,7 @@ sequence, keeping the central 400 bp.
 
    from cherimoya import Cherimoya
    from cherimoya import ControlWrapper
-   from cherimoya import LogCountWrapper
+   from cherimoya import LogCountsWrapper
    from cherimoya import ProfileWrapper
    from cherimoya.deep_lift_shap import attribution_ops
    from tangermeme.deep_lift_shap import deep_lift_shap
@@ -129,7 +129,7 @@ sequence, keeping the central 400 bp.
    # ControlWrapper wraps the model so that .forward(X) returns just the
    # profile/counts tuple, supplying zero controls if the model has none.
    model = ControlWrapper(model)
-   wrapper = LogCountWrapper(model, group=0)   # or ProfileWrapper(model, group=0) for profile shape
+   wrapper = LogCountsWrapper(model, group=0)   # or ProfileWrapper(model, group=0) for profile shape
 
    X_attr = deep_lift_shap(
        wrapper, X,
@@ -160,7 +160,7 @@ guarantee that they sum to the change in the prediction. See
 :doc:`../api/deep_lift_shap` for what the rule does and why.
 
 tangermeme's ``deep_lift_shap`` attributes output ``target=0`` of the
-model it is given. ``LogCountWrapper`` without ``group`` returns one
+model it is given. ``LogCountsWrapper`` without ``group`` returns one
 count per signal group, so on a multi-group model it would silently
 attribute group 0 only; pass ``group`` to say which one you mean.
 
@@ -197,7 +197,7 @@ mean over references. What changes is how they are computed:
        "sequences": "hg38.fa",
        "loci": "peaks.narrowPeak",
        "algorithm": "deep_lift_shap",
-       "output": "counts",
+       "output": "logcounts",
        "engine": "fast",
        "device": "cuda",
        "ohe_filename": "attributions.ohe.npz",
@@ -205,7 +205,7 @@ mean over references. What changes is how they are computed:
        "idx_filename": "attributions.idx.npy"
    }
 
-It covers the count head (:class:`cherimoya.LogCountWrapper`) only. With
+It covers the count head (:class:`cherimoya.LogCountsWrapper`) only. With
 ``"output": "profile"`` it warns and the default engine attributes the
 profile head, whose softmax couples every position to every other and has
 no counterpart in the fast engine. Saturation mutagenesis ignores
@@ -302,7 +302,7 @@ mutated:
 
    model = ControlWrapper(Cherimoya.load("my_model.torch", device="cuda",
        compile=False))
-   wrapper = LogCountWrapper(model, group=0)
+   wrapper = LogCountsWrapper(model, group=0)
 
    mid = X.shape[-1] // 2
    X_attr = saturation_mutagenesis(

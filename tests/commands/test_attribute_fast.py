@@ -107,7 +107,7 @@ def write_params(inputs, out_dir, name, **overrides):
 		"random_state": 0,
 		"dtype": "float32",
 		"device": "cpu",
-		"output": "counts",
+		"output": "logcounts",
 		"algorithm": "deep_lift_shap",
 		"engine": "fast",
 		"verbose": False,

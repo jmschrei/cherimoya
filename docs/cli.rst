@@ -478,13 +478,15 @@ attribute_parameters
      - training + validation chroms
      - Chromosomes to attribute.
    * - ``output``
-     - ``"counts"``
-     - Attribute to counts or profile (``"profile"``).
+     - ``"logcounts"``
+     - Attribute to the log-counts or the profile (``"profile"``).
+       ``"counts"``, the former name of ``"logcounts"``, is deprecated:
+       it warns and will be removed in cherimoya 0.7.0.
    * - ``group``
      - 0
      - Index into the model's ``signal_groups`` of the one group to
        attribute. ``null`` attributes every group at once; DeepLIFT/SHAP
-       rejects that for ``"counts"`` on a model with more than one group,
+       rejects that for ``"logcounts"`` on a model with more than one group,
        since it attributes a single output.
    * - ``n_shuffles``
      - 20

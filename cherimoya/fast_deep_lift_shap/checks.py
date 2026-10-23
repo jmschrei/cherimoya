@@ -6,7 +6,7 @@ The two checks every run of the fast engine through `cherimoya attribute`
 makes: a forward self-check before the run, and an audit after it.
 
 * The forward self-check compares the engine's count output with the
-  model's own forward, through `LogCountWrapper(ControlWrapper(model))`, on
+  model's own forward, through `LogCountsWrapper(ControlWrapper(model))`, on
   a few sequences, in strict float32. It catches a model the engine reads
   wrongly before anything is computed.
 * The audit attributes a few evenly spaced sequences again with
@@ -61,7 +61,7 @@ def forward_self_check(engine, model, X, peaks=SELF_CHECK_PEAKS,
 	sequences of X.
 
 	The model runs as `deep_lift_shap` runs it: through
-	``LogCountWrapper(ControlWrapper(model), group)``, under
+	``LogCountsWrapper(ControlWrapper(model), group)``, under
 	torch.enable_grad(), which on a GPU is the Triton training path. The
 	engine runs `model_forward` eagerly with its own weights and statistics.
 
@@ -102,7 +102,7 @@ def forward_self_check(engine, model, X, peaks=SELF_CHECK_PEAKS,
 	device = engine.weights.device
 	X4 = torch.as_tensor(X[:n]).to(device=device, dtype=torch.float32)
 
-	wrapper = make_wrapper(model, "counts", engine.group).to(device).eval()
+	wrapper = make_wrapper(model, "logcounts", engine.group).to(device).eval()
 	record = {"peaks": n, "bound": bound, "gate_precision": "fp32",
 		"comparisons": {}}
 
@@ -228,7 +228,7 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 	with the engine's `random_state`, and compare.
 
 	`deep_lift_shap` runs as `cherimoya attribute`'s default engine runs it:
-	through the real ``LogCountWrapper(ControlWrapper(model), group)``, with
+	through the real ``LogCountsWrapper(ControlWrapper(model), group)``, with
 	`attribution_ops()`, in float32, on the engine's device and in the
 	engine's precision mode, at min(batch_size, `AUDIT_MAX_BATCH`), with the
 	engine's `random_state` and `n_shuffles`, so that it draws the
@@ -301,7 +301,7 @@ def audit(engine, model, X, result, peaks, start, end, batch_size=64,
 		"random_state": engine.random_state,
 	}
 
-	wrapper = make_wrapper(model, "counts", engine.group).to(device).eval()
+	wrapper = make_wrapper(model, "logcounts", engine.group).to(device).eval()
 	index = torch.as_tensor(numpy.asarray(peaks, numpy.int64))
 	if device.type == "cuda":
 		# The engine's cached blocks go back before deep_lift_shap allocates.

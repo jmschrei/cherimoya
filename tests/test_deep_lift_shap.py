@@ -14,7 +14,7 @@ from tangermeme.ersatz import dinucleotide_shuffle
 from tangermeme.utils import random_one_hot
 
 from cherimoya import Cherimoya
-from cherimoya import LogCountWrapper
+from cherimoya import LogCountsWrapper
 from cherimoya import ProfileWrapper
 from cherimoya.deep_lift_shap import attribution_ops
 from cherimoya.deep_lift_shap import conv_norm_op
@@ -258,7 +258,7 @@ def small_model():
 		compile=False).eval()
 
 
-@pytest.mark.parametrize("wrapper", [LogCountWrapper, ProfileWrapper])
+@pytest.mark.parametrize("wrapper", [LogCountsWrapper, ProfileWrapper])
 def test_attribution_ops_converges_on_a_real_model(small_model, wrapper):
 	length = 2 * small_model.trimming + 64
 	X = random_one_hot((2, 4, length), random_state=0).type(torch.float32)
@@ -273,7 +273,7 @@ def test_attribution_ops_converges_on_a_real_model(small_model, wrapper):
 	assert delta < scale / 1e4
 
 
-@pytest.mark.parametrize("wrapper", [LogCountWrapper, ProfileWrapper])
+@pytest.mark.parametrize("wrapper", [LogCountsWrapper, ProfileWrapper])
 def test_attribution_ops_converges_on_one_signal_group(wrapper):
 	"""Selecting one group of a multi-group model with `group=` keeps the
 	attributions summing to the change in that group's prediction."""

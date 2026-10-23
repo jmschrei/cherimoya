@@ -121,7 +121,7 @@ This calls peaks with MACS3 (unless `-p` gave peaks, as above), samples GC-match
 
 ### Python API and saving/loading
 
-For programmatic use, the public API is `Cherimoya` (the model), `CheriBlock` (the building block), `EMA` (the parameter exponential-moving-average wrapper used during training), and four output wrappers — `ControlWrapper`, `ProfileWrapper`, `LogCountWrapper`, and `ExpectedCountsWrapper` — that expose a single tensor from the model's `(profile, log-count)` output for attribution and design tools. Training is `cherimoya.training.fit`, which builds a PyTorch Lightning `Trainer` around the model. See the [Python API tutorial](https://cherimoya.readthedocs.io/en/latest/tutorials/python_api.html) for an end-to-end training walkthrough:
+For programmatic use, the public API is `Cherimoya` (the model), `CheriBlock` (the building block), `EMA` (the parameter exponential-moving-average wrapper used during training), and four output wrappers — `ControlWrapper`, `ProfileWrapper`, `LogCountsWrapper`, and `ExpectedCountsWrapper` — that expose a single tensor from the model's `(profile, log-count)` output for attribution and design tools. Training is `cherimoya.training.fit`, which builds a PyTorch Lightning `Trainer` around the model. See the [Python API tutorial](https://cherimoya.readthedocs.io/en/latest/tutorials/python_api.html) for an end-to-end training walkthrough:
 
 ```python
 from cherimoya import Cherimoya

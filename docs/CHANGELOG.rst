@@ -30,6 +30,14 @@ Attribution
   ``seqs_per_step``, ``mem_budget_gb`` and ``audit``; ``engine`` is
   also in the pipeline's ``attribute_parameters``. Thanks @emattei!
 
+* ``LogCountWrapper`` is renamed :class:`cherimoya.LogCountsWrapper`, and
+  the ``output`` of ``cherimoya attribute`` that selects it is
+  ``"logcounts"`` rather than ``"counts"``. The wrapper returns
+  log-counts, which ``"counts"`` did not say and which
+  :class:`cherimoya.ExpectedCountsWrapper`, the wrapper that does return
+  counts, made easy to confuse. The old names still work, with a
+  ``FutureWarning``, and will be removed in cherimoya 0.7.0.
+
 CLI and pipeline
 ~~~~~~~~~~~~~~~~
 

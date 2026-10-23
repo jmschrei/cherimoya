@@ -54,7 +54,7 @@ from tangermeme.ersatz import dinucleotide_shuffle
 
 from cherimoya import Cherimoya
 from cherimoya import ControlWrapper
-from cherimoya import LogCountWrapper
+from cherimoya import LogCountsWrapper
 from cherimoya import ProfileWrapper
 from cherimoya.deep_lift_shap import attribution_ops
 
@@ -243,17 +243,17 @@ def random_references(X, k, seed=0):
 		length).float()
 
 
-def wrapper(model, output="counts", group=0):
+def wrapper(model, output="logcounts", group=0):
 	"""The module `cherimoya attribute` attributes."""
 
 	inner = ControlWrapper(model)
-	if output == "counts":
-		return LogCountWrapper(inner, group=group)
+	if output == "logcounts":
+		return LogCountsWrapper(inner, group=group)
 
 	if output == "profile":
 		return ProfileWrapper(inner, group=group)
 
-	raise ValueError("output must be counts or profile, got {!r}".format(
+	raise ValueError("output must be logcounts or profile, got {!r}".format(
 		output))
 
 

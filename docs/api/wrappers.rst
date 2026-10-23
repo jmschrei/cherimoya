@@ -26,7 +26,7 @@ ControlWrapper
 Returns the model's full ``(profile, log-count)`` output, synthesizing an
 all-zero control track when the model expects one but none is passed. It is
 the inner wrapper that the output wrappers below are layered on top of — for
-example ``LogCountWrapper(ControlWrapper(model))`` — and is what
+example ``LogCountsWrapper(ControlWrapper(model))`` — and is what
 ``cherimoya attribute`` and ``cherimoya marginalize`` use so a model can be
 called with the sequence alone. A drop-in port of
 ``bpnetlite.bpnet.ControlWrapper``.
@@ -55,7 +55,7 @@ shape-sensitive number per example. This is the wrapper used by
 ``cherimoya attribute`` when ``output`` is ``"profile"`` (see
 :doc:`../tutorials/attribution`). It is a drop-in port of
 ``bpnetlite.bpnet.ProfileWrapper`` so that attribution does not require
-bpnet-lite. As with :class:`LogCountWrapper`, pair it with
+bpnet-lite. As with :class:`LogCountsWrapper`, pair it with
 :class:`ControlWrapper` for models trained with control tracks.
 
 For a model with several signal groups the default flattens every group
@@ -65,10 +65,10 @@ calculation to group ``i``'s channels, which is how to attribute one
 modality's profile shape (see :doc:`../multi_task`).
 
 
-LogCountWrapper
----------------
+LogCountsWrapper
+----------------
 
-.. autoclass:: LogCountWrapper
+.. autoclass:: LogCountsWrapper
    :members: forward
    :undoc-members:
    :show-inheritance:
@@ -78,16 +78,20 @@ LogCountWrapper
    .. automethod:: __init__
 
 Returns the model's per-group log-count predictions. This is the wrapper
-used by ``cherimoya attribute`` when ``output`` is ``"counts"`` (see
+used by ``cherimoya attribute`` when ``output`` is ``"logcounts"`` (see
 :doc:`../tutorials/attribution`). Pair it with :class:`ControlWrapper` when
 attributing a model that was trained with control tracks, so that zero
 controls are supplied automatically.
 
-``LogCountWrapper(model, group=i)`` returns only group ``i``'s log-count, with
+``LogCountsWrapper(model, group=i)`` returns only group ``i``'s log-count, with
 shape ``(batch_size, 1)``, for attributing one modality of a multi-group
 model. Without ``group``, tangermeme's ``deep_lift_shap`` attributes its
 default ``target=0`` — group 0 alone — while ``saturation_mutagenesis``
 averages over every group.
+
+It was named ``LogCountWrapper`` before cherimoya 0.3.1. That name still
+works, as a subclass that gives a ``FutureWarning``, and will be removed
+in cherimoya 0.7.0.
 
 
 ExpectedCountsWrapper

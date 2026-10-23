@@ -6,7 +6,7 @@ A fast DeepLIFT/DeepSHAP engine for the count head of a Cherimoya model.
 
 It computes the attributions `cherimoya attribute` computes with tangermeme's
 `deep_lift_shap` and Cherimoya's DeepLIFT rules (`attribution_ops`), for the
-count head (`LogCountWrapper`), several times faster on a GPU. Each sequence
+count head (`LogCountsWrapper`), several times faster on a GPU. Each sequence
 is forwarded once rather than once per reference, and the backward runs over
 the sequence half of each sequence-reference pair only. The rules, the
 references and the hypothetical projection are tangermeme's, and the CPU

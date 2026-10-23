@@ -9,6 +9,7 @@ from numpy.testing import assert_array_almost_equal
 from cherimoya import Cherimoya
 from cherimoya.wrappers import ControlWrapper
 from cherimoya.wrappers import ProfileWrapper
+from cherimoya.wrappers import LogCountsWrapper
 from cherimoya.wrappers import LogCountWrapper
 from cherimoya.wrappers import ExpectedCountsWrapper
 
@@ -110,7 +111,7 @@ def test_control_wrapper_composes_with_output_wrappers(control_model):
 
 	wrapped = ControlWrapper(control_model)
 	with torch.no_grad():
-		counts = LogCountWrapper(wrapped)(X)
+		counts = LogCountsWrapper(wrapped)(X)
 		profile = ProfileWrapper(wrapped)(X)
 
 	assert counts.shape == (2, 2)
@@ -186,7 +187,7 @@ def test_profile_wrapper_is_differentiable(grouped_model):
 	assert torch.isfinite(X.grad).all()
 
 
-# --------- LogCountWrapper -------------------------------------------------
+# --------- LogCountsWrapper -------------------------------------------------
 
 def test_logcount_wrapper_matches_count_head(grouped_model):
 	"""The wrapper output is exactly the model's second return value."""
@@ -196,7 +197,7 @@ def test_logcount_wrapper_matches_count_head(grouped_model):
 
 	with torch.no_grad():
 		_, y_logcounts = grouped_model(X)
-		y_hat = LogCountWrapper(grouped_model)(X)
+		y_hat = LogCountsWrapper(grouped_model)(X)
 
 	assert y_hat.shape == (4, 2)
 	assert torch.equal(y_hat, y_logcounts)
@@ -209,11 +210,28 @@ def test_logcount_wrapper_regression(grouped_model):
 	X = torch.randn(2, 4, L)
 
 	with torch.no_grad():
-		y_hat = LogCountWrapper(grouped_model)(X)
+		y_hat = LogCountsWrapper(grouped_model)(X)
 
 	assert_array_almost_equal(y_hat.numpy(), [
 		[-0.00048958, 0.00141992],
 		[0.00084040, 0.00089380]], 6)
+
+
+def test_logcount_wrapper_deprecated_name(grouped_model):
+	"""`LogCountWrapper`, the former name, warns and returns what
+	`LogCountsWrapper` returns, with or without a group."""
+	L = _input_window_for(grouped_model)
+	torch.manual_seed(0)
+	X = torch.randn(3, 4, L)
+
+	for group in (None, 1):
+		with pytest.warns(FutureWarning, match="LogCountsWrapper"):
+			old = LogCountWrapper(grouped_model, group=group)
+
+		assert isinstance(old, LogCountsWrapper) and old.group == group
+		with torch.no_grad():
+			assert torch.equal(old(X), LogCountsWrapper(grouped_model,
+				group=group)(X))
 
 
 def test_logcount_wrapper_passes_control(control_model):
@@ -227,7 +245,7 @@ def test_logcount_wrapper_passes_control(control_model):
 
 	with torch.no_grad():
 		expected = control_model(X, X_ctl=X_ctl)[1]
-		y_hat = LogCountWrapper(control_model)(X, X_ctl=X_ctl)
+		y_hat = LogCountsWrapper(control_model)(X, X_ctl=X_ctl)
 
 	assert torch.equal(y_hat, expected)
 
@@ -238,7 +256,7 @@ def test_logcount_wrapper_is_differentiable(grouped_model):
 	torch.manual_seed(0)
 	X = torch.randn(2, 4, L, requires_grad=True)
 
-	LogCountWrapper(grouped_model)(X).sum().backward()
+	LogCountsWrapper(grouped_model)(X).sum().backward()
 
 	assert X.grad is not None
 	assert torch.isfinite(X.grad).all()
@@ -374,9 +392,9 @@ def test_expected_counts_requires_signal_groups_attribute(grouped_model):
 	L = _input_window_for(grouped_model)
 	X = torch.randn(2, 4, L)
 
-	# Wrapping the LogCountWrapper (which has no signal_groups and returns
+	# Wrapping the LogCountsWrapper (which has no signal_groups and returns
 	# only counts) is a misuse and should surface clearly.
-	wrapped = ExpectedCountsWrapper(LogCountWrapper(grouped_model))
+	wrapped = ExpectedCountsWrapper(LogCountsWrapper(grouped_model))
 
 	with pytest.raises(AttributeError):
 		wrapped(X)
@@ -396,7 +414,7 @@ def test_expected_counts_missing_control_raises(control_model):
 # Composition with ControlWrapper.
 #
 # `ControlWrapper`'s docstring calls it "the inner wrapper that
-# ProfileWrapper, LogCountWrapper, or ExpectedCountsWrapper are layered
+# ProfileWrapper, LogCountsWrapper, or ExpectedCountsWrapper are layered
 # on top of", and the attribute CLI builds exactly that stack. A wrapper
 # that reads configuration off the model therefore has to look through
 # it.
@@ -413,7 +431,7 @@ def controlled_model():
 		n_control_tracks=2, verbose=False, compile=False).eval()
 
 
-@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountWrapper,
+@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountsWrapper,
 	ExpectedCountsWrapper])
 def test_wrappers_compose_over_control_wrapper(wrapper, controlled_model):
 	"""Every output wrapper must run when layered over ControlWrapper,
@@ -463,7 +481,7 @@ def test_expected_counts_group_structure_through_control_wrapper(
 # Selecting one signal group.
 #
 # For a multi-group model `ProfileWrapper` otherwise softmaxes every group
-# together and `LogCountWrapper` returns every group, so `group=` is the
+# together and `LogCountsWrapper` returns every group, so `group=` is the
 # only way to attribute one modality.
 ##
 
@@ -533,13 +551,13 @@ def test_logcount_wrapper_group_is_that_column(grouped_model, group):
 
 	with torch.no_grad():
 		_, y_logcounts = grouped_model(X)
-		y_hat = LogCountWrapper(grouped_model, group=group)(X)
+		y_hat = LogCountsWrapper(grouped_model, group=group)(X)
 
 	assert y_hat.shape == (3, 1)
 	assert torch.equal(y_hat, y_logcounts[:, group:group+1])
 
 
-@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountWrapper])
+@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountsWrapper])
 def test_group_wrappers_compose_over_control_wrapper(wrapper,
 		controlled_model):
 	"""The group offsets are read through ControlWrapper, which is the
@@ -555,7 +573,7 @@ def test_group_wrappers_compose_over_control_wrapper(wrapper,
 	assert_array_almost_equal(wrapped.numpy(), direct.numpy(), 5)
 
 
-@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountWrapper])
+@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountsWrapper])
 def test_group_wrappers_are_differentiable(wrapper, grouped_model):
 	"""Gradients flow to the input through the group slice."""
 
@@ -570,7 +588,7 @@ def test_group_wrappers_are_differentiable(wrapper, grouped_model):
 
 
 def test_logcount_wrapper_group_matches_ism_target(grouped_model):
-	"""Attributing ``LogCountWrapper(group=g)`` gives what tangermeme
+	"""Attributing ``LogCountsWrapper(group=g)`` gives what tangermeme
 	gives for the unselected wrapper with ``target=g``."""
 
 	from tangermeme.saturation_mutagenesis import saturation_mutagenesis
@@ -582,15 +600,15 @@ def test_logcount_wrapper_group_matches_ism_target(grouped_model):
 	kwargs = dict(start=L // 2 - 5, end=L // 2 + 5, device='cpu',
 		verbose=False)
 
-	X_attr = saturation_mutagenesis(LogCountWrapper(grouped_model, group=1),
+	X_attr = saturation_mutagenesis(LogCountsWrapper(grouped_model, group=1),
 		X, **kwargs)
-	X_attr_target = saturation_mutagenesis(LogCountWrapper(grouped_model),
+	X_attr_target = saturation_mutagenesis(LogCountsWrapper(grouped_model),
 		X, target=1, **kwargs)
 
 	assert_array_almost_equal(X_attr.numpy(), X_attr_target.numpy(), 6)
 
 
-@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountWrapper])
+@pytest.mark.parametrize("wrapper", [ProfileWrapper, LogCountsWrapper])
 @pytest.mark.parametrize("group", [2, -1, 1.0, True, "0"])
 def test_group_wrappers_reject_bad_group(wrapper, group, grouped_model):
 	"""An index outside ``range(len(signal_groups))``, or anything that is

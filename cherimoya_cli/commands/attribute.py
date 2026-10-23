@@ -24,6 +24,12 @@ def run(args):
 		raise ValueError("algorithm must be either `deep_lift_shap` or "
 			"`saturation_mutagenesis`, got {!r}".format(algorithm))
 
+	if parameters["output"] == "counts":
+		warnings.warn("`output` \"counts\" is deprecated and will be removed "
+			"in cherimoya 0.7.0; use \"logcounts\".", FutureWarning,
+			stacklevel=2)
+		parameters["output"] = "logcounts"
+
 	# Whether the fast engine runs is decided, and its cache default set,
 	# before cherimoya is imported, which is when cherimoya decorates its
 	# Triton kernels. Its options are checked before anything is loaded.
@@ -45,7 +51,7 @@ def run(args):
 
 	from cherimoya import Cherimoya
 	from cherimoya import ControlWrapper
-	from cherimoya import LogCountWrapper
+	from cherimoya import LogCountsWrapper
 	from cherimoya import ProfileWrapper
 	from cherimoya.deep_lift_shap import attribution_ops
 
@@ -61,7 +67,7 @@ def run(args):
 	# DeepLIFT attributes one output, so a count head with several groups
 	# has to be narrowed to one of them first.
 	group = parameters["group"]
-	if (algorithm == "deep_lift_shap" and parameters["output"] == "counts"
+	if (algorithm == "deep_lift_shap" and parameters["output"] == "logcounts"
 			and group is None and len(model.signal_groups) > 1):
 		raise ValueError("deep_lift_shap attributes one output; set `group` "
 			"to one of the model's {} signal groups"
@@ -84,12 +90,12 @@ def run(args):
 	idxs[idxs.clone()] = n_idxs
 
 	control = ControlWrapper(model)
-	if parameters["output"] == "counts":
-		wrapper = LogCountWrapper(control, group=group)
+	if parameters["output"] == "logcounts":
+		wrapper = LogCountsWrapper(control, group=group)
 	elif parameters["output"] == "profile":
 		wrapper = ProfileWrapper(control, group=group)
 	else:
-		raise ValueError("output must be either `counts` or `profile`.")
+		raise ValueError("output must be either `logcounts` or `profile`.")
 
 	# Only the centred `attr_window` slice is saved. Saturation mutagenesis
 	# is one forward pass per alternate base per position, so for it this
@@ -222,7 +228,7 @@ def _fast_deep_lift_shap(parameters, model, X, start, end):
 	timings = {}
 	engine = Engine(
 		model,
-		output="counts",
+		output="logcounts",
 		group=parameters["group"],
 		device=parameters["device"],
 		precision=parameters["precision"],
