@@ -202,8 +202,8 @@ attributed with tangermeme's ``deep_lift_shap`` and the last two of them
 timed. A job that would take tangermeme's path
 less than thirty seconds at that rate stays on it, because on a GPU the
 fast path warms up the first time a process runs it, compiling its passes,
-which took 23 seconds on an H200 with empty compile caches and 7 to 8
-seconds with warm ones. Otherwise the fast path
+which took 23 seconds on an H200 with empty compile caches and from 7 to
+23 seconds with warm ones in our measurements. Otherwise the fast path
 attributes every sequence and is checked against those first four: a
 Pearson correlation below 0.9999 or a relative L2 distance above 1e-2 on
 any of them, or an error in the fast path, gives a ``RuntimeWarning``, and

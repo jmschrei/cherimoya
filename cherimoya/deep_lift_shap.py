@@ -183,7 +183,8 @@ _FAST_MIN_SECONDS = 30.0
 """`deep_lift_shap` takes the fast path only for a job that the default path
 would take at least this many seconds to finish. On a GPU the fast path
 warms up the first time a process runs it, compiling its passes, which took
-23 seconds on an H200 with empty compile caches and 7 to 8 with warm ones."""
+23 seconds on an H200 with empty compile caches and from 7 to 23 with warm
+ones in our measurements."""
 
 _CHECK_PEARSON_MIN = 0.9999
 _CHECK_REL_L2_MAX = 1e-2
