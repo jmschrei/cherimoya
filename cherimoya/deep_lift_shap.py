@@ -43,15 +43,16 @@ from tangermeme._deep_lift_utils import _layer_normalization_grad
 from tangermeme._deep_lift_utils import _layer_normalization_stats
 from tangermeme._deep_lift_utils import _layer_normalization_terms
 from tangermeme.ersatz import dinucleotide_shuffle
+from tangermeme.utils import validate_input
 
-from ._deep_lift_shap_engine import SEED_RANGE
 from ._deep_lift_shap_engine import Engine
-from ._deep_lift_shap_engine import compare_attributions
-from ._deep_lift_shap_engine import draw_references
-from ._deep_lift_shap_engine import make_wrapper
 from .cheri import CONV_NORM_EPS
 from .cheri import FusedDilatedConvNorm
 from .cheri import _cheri_conv
+from .cherimoya import Cherimoya
+from .wrappers import ControlWrapper
+from .wrappers import LogCountWrapper
+from .wrappers import ProfileWrapper
 
 
 def conv_norm_op(module, grad_input, grad_output):
@@ -184,6 +185,49 @@ would take at least this many seconds to finish. On a GPU the fast path
 warms up the first time a process runs it, compiling its passes, which took
 23 seconds on an H200 with empty compile caches and 7 to 8 with warm ones."""
 
+_CHECK_PEARSON_MIN = 0.9999
+_CHECK_REL_L2_MAX = 1e-2
+"""The fast path's attributions of a sequence agree with the default path's
+when their Pearson correlation is at least `_CHECK_PEARSON_MIN` and their
+relative L2 distance at most `_CHECK_REL_L2_MAX`."""
+
+_SEED_RANGE = 9_999_999
+"""`deep_lift_shap` draws a seed from [0, _SEED_RANGE) when `random_state`
+is None and it may take the fast path."""
+
+
+def _make_wrapper(model, output, group):
+	"""`LogCountWrapper` or `ProfileWrapper` over `ControlWrapper(model)`,
+	the module `cherimoya attribute` attributes."""
+
+	if output not in ("logcounts", "profile"):
+		raise ValueError("output must be either `logcounts` or `profile`.")
+
+	if output == "logcounts" and group is None and len(model.signal_groups) > 1:
+		raise ValueError("deep_lift_shap attributes one output; set `group` "
+			"to one of the model's {} signal groups".format(
+			len(model.signal_groups)))
+
+	inner = ControlWrapper(model)
+	if output == "logcounts":
+		return LogCountWrapper(inner, group=group)
+
+	return ProfileWrapper(inner, group=group)
+
+
+def _agreement(ours, stock):
+	"""The lowest Pearson correlation and the highest relative L2 distance,
+	||ours - stock|| / ||stock||, between the attributions of each sequence
+	(n, 4, length), in float64. A NaN in either gives NaN."""
+
+	a, b = ours.double().flatten(1), stock.double().flatten(1)
+	rel = (a - b).norm(dim=1) / b.norm(dim=1).clamp_min(1e-30)
+	ac = a - a.mean(dim=1, keepdim=True)
+	bc = b - b.mean(dim=1, keepdim=True)
+	r = (ac * bc).sum(dim=1) / (ac.norm(dim=1) * bc.norm(dim=1)).clamp_min(
+		1e-300)
+	return float(r.min()), float(rel.max())
+
 
 def deep_lift_shap(model, X, output="logcounts", group=0, batch_size=32,
 	references=dinucleotide_shuffle, n_shuffles=20, hypothetical=False,
@@ -209,11 +253,13 @@ def deep_lift_shap(model, X, output="logcounts", group=0, batch_size=32,
 	rounding, which on a GPU is the rounding of TF32, which ``import
 	cherimoya`` turns on for matrix products.
 
-	The fast path is used when `fast` is True, `output` is "logcounts", the
-	model runs in float32, `X` is a tensor of more than four sequences, and
-	`references` is `dinucleotide_shuffle` or a tensor. The first four
-	sequences are then attributed with the default path, and the last two of
-	them are timed. When the whole job would take the default path less
+	The fast path is used when `fast` is True, `output` is "logcounts",
+	`model` is a `Cherimoya` that runs in float32, `X` is a tensor of more
+	than four sequences, and `references` is `dinucleotide_shuffle` or a
+	tensor. All of `X` and the references are then checked as tangermeme
+	checks them, so an unknown character raises before either path runs,
+	and the first four sequences are attributed with the default path, the
+	last two of them timed. When the whole job would take the default path less
 	than thirty seconds at that rate, the default path attributes the rest,
 	since the fast path's first compile on a GPU can take longer than it
 	saves. Otherwise the fast path attributes every sequence, and its
@@ -226,7 +272,8 @@ def deep_lift_shap(model, X, output="logcounts", group=0, batch_size=32,
 	Both paths draw the same references. With `random_state`, reference k of
 	every sequence is the dinucleotide shuffle drawn with seed
 	``random_state + k``, as tangermeme's `deep_lift_shap` draws it. With
-	`random_state` None, a seed is drawn once per call.
+	`random_state` None, a seed is drawn once per call when the fast path
+	may be used.
 
 
 	Parameters
@@ -301,16 +348,20 @@ def deep_lift_shap(model, X, output="logcounts", group=0, batch_size=32,
 		CPU.
 	"""
 
-	wrapper = make_wrapper(model, output, group)
+	wrapper = _make_wrapper(model, output, group)
 	threshold = float("inf") if warning_threshold is None else warning_threshold
+	given = isinstance(references, torch.Tensor)
 
-	def default(X_, references_, random_state_):
+	def default(X_, references_):
 		return tangermeme.deep_lift_shap.deep_lift_shap(wrapper, X_,
 			batch_size=batch_size, references=references_,
 			n_shuffles=n_shuffles, hypothetical=True,
 			warning_threshold=threshold,
 			additional_nonlinear_ops=attribution_ops(), dtype=dtype,
-			device=device, random_state=random_state_, verbose=verbose)
+			device=device, random_state=random_state, verbose=verbose)
+
+	def default_part(a, b=None):
+		return default(X[a:b], references[a:b] if given else references)
 
 	def finish(attributions):
 		return attributions if hypothetical else attributions * X.cpu()
@@ -318,25 +369,28 @@ def deep_lift_shap(model, X, output="logcounts", group=0, batch_size=32,
 	float32 = dtype in (None, "float32", torch.float32) and all(
 		p.dtype == torch.float32 for p in model.parameters())
 	n, half = _CHECK_SEQUENCES, _CHECK_SEQUENCES // 2
-	if not (fast and output == "logcounts" and float32
-			and isinstance(X, torch.Tensor) and len(X) > n
-			and (references is dinucleotide_shuffle
-				or isinstance(references, torch.Tensor))):
-		return finish(default(X, references, random_state))
+	if not (fast and output == "logcounts" and isinstance(model, Cherimoya)
+			and float32 and isinstance(X, torch.Tensor) and len(X) > n
+			and (references is dinucleotide_shuffle or given)):
+		return finish(default(X, references))
 
+	# The default path checks only the sequences it is given, so the whole
+	# input is checked here, before either path runs, as tangermeme checks
+	# it: an unknown character in a sequence the check does not attribute
+	# raises the same error with fast=True as with fast=False.
+	validate_input(X, "X", shape=(-1, -1, -1), ohe=True)
+	if given:
+		validate_input(references, "references", shape=(X.shape[0], -1,
+			X.shape[1], X.shape[2]), ohe=True, allow_N=True, ohe_dim=-2)
+
+	# Both paths draw reference k of every sequence with the seed
+	# random_state + k, so they draw the same references only with a seed.
 	if random_state is None:
-		random_state = int(numpy.random.randint(0, SEED_RANGE))
+		random_state = int(numpy.random.randint(0, _SEED_RANGE))
 
-	if references is dinucleotide_shuffle:
-		first = draw_references(X[:n], n_shuffles, random_state)
-		rest, engine_references = dinucleotide_shuffle, None
-	else:
-		first, rest = references[:n], references[n:]
-		engine_references = references
-
-	checked = [default(X[:half], first[:half], random_state)]
+	checked = [default_part(0, half)]
 	began = time.perf_counter()
-	checked.append(default(X[half:n], first[half:], random_state))
+	checked.append(default_part(half, n))
 	seconds = time.perf_counter() - began
 	checked = torch.cat(checked)
 
@@ -345,19 +399,19 @@ def deep_lift_shap(model, X, output="logcounts", group=0, batch_size=32,
 			if device is None:
 				device = "cuda" if torch.cuda.is_available() else "cpu"
 
-			engine = Engine(model, output="logcounts", group=group,
-				device=device, precision=None, n_shuffles=n_shuffles,
-				random_state=random_state, warning_threshold=warning_threshold)
-			attributions = engine.run(X, 0, X.shape[-1],
-				references=engine_references, verbose=verbose).attr
-			comparison = compare_attributions(attributions[:n], checked)
-			if comparison["pass"]:
+			engine = Engine(model, group=group, device=device,
+				n_shuffles=n_shuffles, random_state=random_state,
+				warning_threshold=warning_threshold)
+			attributions = engine.run(X, references if given else None,
+				verbose=verbose).attr
+			pearson, rel_l2 = _agreement(attributions[:n], checked)
+			if pearson >= _CHECK_PEARSON_MIN and rel_l2 <= _CHECK_REL_L2_MAX:
 				return finish(attributions)
 
 			reason = ("its attributions of the first {} sequences had a "
 				"Pearson correlation as low as {:.6f} and a relative L2 "
 				"distance as high as {:.3g} with the default path's".format(n,
-				comparison["min_pearson"], comparison["max_rel_l2"]))
+				pearson, rel_l2))
 		except Exception as exc:
 			reason = "it raised {}: {}".format(type(exc).__name__,
 				str(exc).strip().split("\n")[0])
@@ -366,4 +420,4 @@ def deep_lift_shap(model, X, output="logcounts", group=0, batch_size=32,
 			"fast path {}. Pass fast=False to skip the fast path."
 			.format(reason), RuntimeWarning, stacklevel=2)
 
-	return finish(torch.cat([checked, default(X[n:], rest, random_state)]))
+	return finish(torch.cat([checked, default_part(n)]))

@@ -29,13 +29,9 @@ of a comparison: `shuffled_references` (exactly the dinucleotide shuffles
 `mutated_references` (x with 3 positions changed) and `random_references`.
 
 Oracle: `oracle` runs tangermeme's `deep_lift_shap` as `cherimoya attribute`
-calls it, but with injected references and on the CPU, and returns its
-per-pair convergence deltas, caught through a module-global ``print``
-(`capture_deltas`).
+calls it, but with injected references and on the CPU.
 """
 
-import builtins
-import contextlib
 import importlib
 import inspect
 import math
@@ -45,7 +41,6 @@ import types
 import warnings
 
 from dataclasses import dataclass
-from typing import NamedTuple
 
 import numpy
 import torch
@@ -257,68 +252,20 @@ def wrapper(model, output="logcounts", group=0):
 		output))
 
 
-class OracleResult(NamedTuple):
-	"""`oracle`'s output."""
-
-	attributions: torch.Tensor  # multipliers (N, K, 4, L) or hyp (N, 4, L)
-	deltas: torch.Tensor  # (N, K) tangermeme's own convergence deltas
-
-
-@contextlib.contextmanager
-def capture_deltas():
-	"""Capture the convergence deltas `deep_lift_shap` prints with
-	``print_convergence_deltas=True``.
-
-	``print(convergence_deltas)`` is that module's only print, and a
-	module-global ``print`` shadows the builtin there. The sink keeps a copy
-	of each per-batch delta tensor and passes any other call on to the
-	builtin. The global is removed on exit, also when the body raises.
-	"""
-
-	if "print" in vars(TDLS):
-		raise RuntimeError("tangermeme.deep_lift_shap already has a "
-			"module-global print")
-
-	captured = []
-
-	def sink(*args, **kwargs):
-		if len(args) == 1 and not kwargs and isinstance(args[0], torch.Tensor):
-			captured.append(args[0].detach().clone())
-		else:
-			builtins.print(*args, **kwargs)
-
-	TDLS.print = sink
-	try:
-		yield captured
-	finally:
-		vars(TDLS).pop("print", None)
-
-
-def oracle(model, X, references, raw_outputs, dtype, batch_size=7,
-	warning_threshold=1e-3, num_threads=1):
+def oracle(model, X, references, dtype, raw_outputs=False, batch_size=7):
 	"""tangermeme's `deep_lift_shap` on the CPU with injected references
-	(N, K, 4, L), plus its convergence deltas.
+	(N, K, 4, L).
 
 	The call is `cherimoya attribute`'s, hypothetical=True with cherimoya's
 	`attribution_ops()`, except that the references are injected, the device
 	is the CPU and the batch size defaults to 7, which splits sequences
-	across batches. Pass a float64 model with dtype=torch.float64. torch
-	runs `num_threads` intra-op threads during the call.
+	across batches. Pass a float64 model with dtype=torch.float64.
 	"""
 
-	previous = torch.get_num_threads()
-	torch.set_num_threads(num_threads)
-	try:
-		with warnings.catch_warnings(), capture_deltas() as captured:
-			warnings.filterwarnings("ignore",
-				message="Convergence deltas too high", category=RuntimeWarning)
-			out = TDLS.deep_lift_shap(model, X, references=references,
-				batch_size=batch_size, hypothetical=True,
-				raw_outputs=raw_outputs, warning_threshold=warning_threshold,
-				additional_nonlinear_ops=attribution_ops(),
-				print_convergence_deltas=True, dtype=dtype, device="cpu")
-	finally:
-		torch.set_num_threads(previous)
-
-	deltas = torch.cat(captured).reshape(len(X), references.shape[1])
-	return OracleResult(out, deltas)
+	with warnings.catch_warnings():
+		warnings.filterwarnings("ignore", message="Convergence deltas too high",
+			category=RuntimeWarning)
+		return TDLS.deep_lift_shap(model, X, references=references,
+			batch_size=batch_size, hypothetical=True, raw_outputs=raw_outputs,
+			additional_nonlinear_ops=attribution_ops(), dtype=dtype,
+			device="cpu")
