@@ -61,7 +61,8 @@ Quote these; don't guess others — read `defaults.py` or the docs.
 - Training: `batch_size` 64, `max_epochs` 20, `min_total_steps` 20000,
   `early_stopping` `null` (off — set an int for epochs of no validation
   count-Pearson improvement), `n_warmup_epochs` 2, `negative_ratio` 0.25,
-  `reverse_complement` true, `num_workers` 1 (per device), `loss_weights`
+  `reverse_complement` true, `num_workers` 1 (per device), `num_threads` 4
+  (PyTorch CPU threads per device's process), `loss_weights`
   `null`, `devices` 1 (`-1` = every visible device; more than one trains with
   DDP and splits the global `batch_size` evenly across them).
 - Training output: `verbose` false for a standalone `fit` JSON (the pipeline's
@@ -71,7 +72,8 @@ Quote these; don't guess others — read `defaults.py` or the docs.
   Lightning's progress bar only when stdout is a terminal or a Jupyter kernel;
   `true`/`false` force it).
 - Inference stages: `batch_size` 512.
-- Device/dtype: `cuda` / `float32`.
+- Device/dtype: `cuda` / `float32`. For a `fit` with `device` `cpu`, raise
+  `num_threads` or set it to `null`; 4 threads is sized for GPU training.
 - Split (hg38): `validation_chroms` = chr8, chr20 (choose the checkpoint);
   `test_chroms` = chr1, chr3, chr6 (scored once after training); everything
   else trains. **Change all three for non-hg38 genomes.**

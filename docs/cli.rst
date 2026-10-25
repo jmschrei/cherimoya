@@ -352,6 +352,16 @@ Unspecified keys fall back to the fit-level defaults.
    * - ``num_workers``
      - 1
      - Data-loading workers per device.
+   * - ``num_threads``
+     - 4
+     - Threads PyTorch uses for CPU operations in each device's process,
+       set before the data is loaded. A GPU fit does little CPU work
+       there, loading the data and computing the validation measures, and
+       PyTorch's default of one thread per physical core runs it slower on
+       a machine with many cores while taking those cores from other jobs.
+       Raise it when training on the CPU, or set ``null`` to keep
+       PyTorch's default. PyTorch gives each loader worker one thread
+       whatever this is set to.
    * - ``early_stopping``
      - ``null``
      - Stop after N consecutive epochs with no validation count
@@ -757,8 +767,9 @@ What changes and what does not:
 * **Memory.** Each GPU holds ``batch_size / devices`` training
   examples, so the global batch can grow with the number of GPUs.
   Every rank loads the whole training and validation set into host
-  memory and runs ``num_workers`` loader workers of its own, so host
-  memory and worker count scale with ``devices``.
+  memory, runs ``num_workers`` loader workers of its own and gives
+  PyTorch's CPU operations ``num_threads`` threads, so host memory,
+  workers and threads scale with ``devices``.
 * **The schedule.** A step is one global batch whatever the number of
   devices, so ``max_epochs``, ``min_total_steps`` and the warmup and
   decay lengths mean the same thing on one GPU or several.

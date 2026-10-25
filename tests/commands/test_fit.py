@@ -11,6 +11,18 @@ from unittest import mock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def restore_num_threads():
+	"""`fit.run` sets PyTorch's thread count for the whole process, so each
+	test puts it back for the tests that follow."""
+
+	import torch
+
+	n_threads = torch.get_num_threads()
+	yield
+	torch.set_num_threads(n_threads)
+
+
 @pytest.fixture
 def fit_json(tmp_path):
 	"""Write a minimal JSON that satisfies merge_parameters' required keys."""
@@ -72,6 +84,7 @@ def _run_capturing_training_fit(fit_json, n_on_chroms=1):
 
 	def fake_peak_generator(**kwargs):
 		captured['peak_generator'] = kwargs
+		captured['num_threads'] = torch.get_num_threads()
 		return _FakeLoader([None] * 4)
 
 	# One validation peak, and two validation negatives.
@@ -235,6 +248,43 @@ def test_default_fit_parameters_default_num_workers_is_one():
 	)
 	assert default_fit_parameters['num_workers'] == 1
 	assert default_pipeline_parameters['fit_parameters']['num_workers'] == 1
+
+
+def test_default_fit_parameters_default_num_threads_is_four():
+	from cherimoya_cli.defaults import (
+		default_fit_parameters,
+		default_pipeline_parameters,
+	)
+	assert default_fit_parameters['num_threads'] == 4
+	assert default_pipeline_parameters['fit_parameters']['num_threads'] == 4
+
+
+@pytest.mark.parametrize("num_threads", [1, 3])
+def test_fit_sets_the_thread_count_before_loading_data(fit_json, num_threads):
+	"""The thread count is in force when the training data is loaded, so
+	PyTorch's thread pool starts at that size."""
+
+	import torch
+
+	cfg = json.loads(open(fit_json).read())
+	cfg['num_threads'] = num_threads
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	captured = _run_capturing_training_fit(fit_json)
+	assert captured['num_threads'] == num_threads
+	assert torch.get_num_threads() == num_threads
+
+
+def test_fit_null_num_threads_keeps_the_thread_count(fit_json):
+	import torch
+
+	torch.set_num_threads(2)
+
+	cfg = json.loads(open(fit_json).read())
+	cfg['num_threads'] = None
+	open(fit_json, 'w').write(json.dumps(cfg))
+
+	assert _run_capturing_training_fit(fit_json)['num_threads'] == 2
 
 
 def test_default_fit_parameters_disable_early_stopping():

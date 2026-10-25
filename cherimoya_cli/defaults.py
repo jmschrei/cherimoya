@@ -41,6 +41,18 @@
 # the sequence of examples, not the arithmetic. CPU runs with the same seed
 # are bitwise identical.
 
+# A note on `num_threads`:
+#
+# This is the number of threads PyTorch gives CPU operations in each
+# process `fit` runs, one per device; PyTorch gives each DataLoader worker
+# one whatever this is set to.
+# A GPU fit does little CPU work in that process, loading the data and
+# computing the validation measures each epoch. On a machine with many
+# cores, PyTorch's default of one thread per physical core runs that work
+# slower than a few threads do, and takes those cores from other jobs.
+# Training on the CPU needs more: raise it, or set it to null to keep
+# PyTorch's default.
+
 training_chroms = ["chr2", "chr4", "chr5", "chr7", "chr9", "chr10", "chr11",
 	"chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19",
 	"chr21", "chr22", "chrX", "chrY"]
@@ -78,6 +90,7 @@ default_fit_parameters = {
 	'n_warmup_epochs': 2,
 	'negative_ratio': 0.25,
 	'num_workers': 1,
+	'num_threads': 4,
 	'dtype': 'float32',
 	'device': 'cuda',
 	'devices': 1,
@@ -268,6 +281,7 @@ default_pipeline_parameters = {
 		'n_warmup_epochs': 2,
 		'negative_ratio': 0.25,
 		'num_workers': 1,
+		'num_threads': 4,
 		'devices': 1,
 		'progress_bar': None,
 		'early_stopping': None,
