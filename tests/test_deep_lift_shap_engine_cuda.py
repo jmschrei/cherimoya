@@ -2,16 +2,18 @@
 passes, a run at the default model's size, and the recovery from running out
 of memory.
 
-Every fp32 path through these models sits 1e-6 to 1e-4 (relative L2, per
-sequence) from float64, because the rescale rule's secants, (g(z_x) -
-g(z_r)) / (z_x - z_r), turn a last-bit difference in a GELU input into a
-relative error of about one ulp / |z_x - z_r|. Any reordering of a sum shows
-up this way: another matrix-product blocking, a fused reduction, another
-device. So each path is held to the float64 engine on the GPU, run eagerly,
-as the reference: it must be no farther from it than the path it replaces,
-by 1.2 x at the median and 2 x at the max, and within 1e-3 of that path.
-The max over the sequences is one element's amplified rounding, and moves
-between compilations: Inductor picks its reduction configurations by timing.
+Every fp32 path through these models sits away from float64 by more than
+float32's rounding, because the rescale rule's secants, (g(z_x) - g(z_r)) /
+(z_x - z_r), turn a last-bit difference in a GELU input into a relative
+error of about one ulp / |z_x - z_r|. Any reordering of a sum shows up this
+way: another matrix-product blocking, a fused reduction, another device, and
+Inductor picks its reduction configurations by timing. So each path is held
+to the float64 engine on the GPU, run eagerly, within bounds on the relative
+L2 distance of each sequence's attributions: 1e-4 at the median and 2e-4 at
+the max. On an H200 every fp32 path, the CPU path included, was at most
+1.2e-5 and 2.9e-5 from float64; with TF32 matrix products the compiled
+passes were 2.7e-4 and 4.7e-4 from it on config C, the default model's
+widths.
 
 `tests/conftest.py` disables dynamo for the suite, under which
 `torch.compile` returns the function unchanged; the tests that compile turn
@@ -34,8 +36,7 @@ from . import deep_lift_shap_engine_helpers as tiny
 pytestmark = pytest.mark.cuda
 
 K = 5
-ACCURACY_FACTORS = {"median": 1.2, "max": 2.0}
-SANITY_MAX = 1e-3
+ACCURACY_MEDIAN, ACCURACY_MAX = 1e-4, 2e-4
 MEMORY_FACTOR = 1.3
 RERUN_MAX = 1e-6
 REAL_K, REAL_S, REAL_PEAKS, REAL_LENGTH = 20, 4, 13, 2114
@@ -87,23 +88,17 @@ def _rows_rel_l2(a, b):
 	return (a - b).norm(dim=1) / b.norm(dim=1).clamp_min(1e-30)
 
 
-def _accuracy_relative(a, b, truth):
-	"""The violations of the accuracy-relative bound: a no farther from the
-	truth than b, by `ACCURACY_FACTORS` at the median and the max, and the
-	two within `SANITY_MAX` of each other."""
+def _inaccurate(name, attr, truth):
+	"""The violations of the accuracy bounds, each sequence's relative L2
+	distance from the truth at most `ACCURACY_MEDIAN` at the median and
+	`ACCURACY_MAX` at the max."""
 
-	da, db = _rows_rel_l2(a, truth), _rows_rel_l2(b, truth)
-	failures = []
-	for stat, fn in (("median", torch.median), ("max", torch.max)):
-		if not float(fn(da)) <= ACCURACY_FACTORS[stat] * float(fn(db)):
-			failures.append("{} {:.3g} > {} x {:.3g}".format(stat,
-				float(fn(da)), ACCURACY_FACTORS[stat], float(fn(db))))
+	r = _rows_rel_l2(attr, truth)
+	median, largest = float(r.median()), float(r.max())
+	if median <= ACCURACY_MEDIAN and largest <= ACCURACY_MAX:
+		return []
 
-	between = float(_rows_rel_l2(a, b).max())
-	if not between <= SANITY_MAX:
-		failures.append("between the paths {:.3g}".format(between))
-
-	return failures
+	return ["{}: median {:.3g}, max {:.3g}".format(name, median, largest)]
 
 
 ##
@@ -114,8 +109,8 @@ def _accuracy_relative(a, b, truth):
 def test_the_cuda_passes_are_as_accurate_as_the_cpu(config, dynamo_enabled,
 	strict_fp32):
 	"""In strict fp32 the eager CUDA passes, the shift-add convolution and the
-	rule's statistics, are as accurate as the CPU path, the model's own; and
-	the compiled passes are as accurate as the eager ones."""
+	rule's statistics, and the compiled ones are within the bounds the CPU
+	path, the model's own, meets."""
 
 	from torch._dynamo.utils import counters
 
@@ -128,8 +123,8 @@ def test_the_cuda_passes_are_as_accurate_as_the_cpu(config, dynamo_enabled,
 	compiled = _engine(config).run(X, R).attr
 	assert counters["stats"]["unique_graphs"] >= 2  # it did compile
 
-	failures = _accuracy_relative(eager, cpu, truth)
-	failures += _accuracy_relative(compiled, eager, truth)
+	failures = (_inaccurate("cpu", cpu, truth) + _inaccurate("eager", eager,
+		truth) + _inaccurate("compiled", compiled, truth))
 	assert not failures, failures
 
 
@@ -209,7 +204,9 @@ def test_out_of_memory_halves_the_step_and_retries_it(at_call, calls):
 	"""An out-of-memory error in the first or the second step of 4 sequences,
 	with the references drawn: the sequences before it keep their step of 4,
 	the rest run in steps of 2 and give what an engine planned at that size
-	gives, and every sequence is attributed once."""
+	gives, to cuDNN's non-repeatable rounding, and every sequence is
+	attributed once. The deltas are rounding themselves, so they are held to
+	the scale of |y_x - y_r|."""
 
 	X = tiny.sequences("C")
 	engine = _engine("C", seqs_per_step=4, n_shuffles=K)
@@ -230,11 +227,14 @@ def test_out_of_memory_halves_the_step_and_retries_it(at_call, calls):
 	kept = 4 * (at_call - 1)
 	by_4 = _engine("C", seqs_per_step=4, n_shuffles=K).run(X)
 	by_2 = _engine("C", seqs_per_step=2, n_shuffles=K).run(X)
-	for name in ("attr", "deltas", "y_x", "y_r"):
-		ours = getattr(got, name)
-		for theirs, part in ((by_4, slice(None, kept)), (by_2,
-				slice(kept, None))):
+	for theirs, part in ((by_4, slice(None, kept)), (by_2, slice(kept, None))):
+		if part.stop == 0:
+			continue
+
+		dy = (theirs.y_x[part, None] - theirs.y_r[part]).abs().max()
+		for name in ("attr", "deltas", "y_x", "y_r"):
+			ours = getattr(got, name)[part]
 			expected = getattr(theirs, name)[part]
-			if len(expected):
-				err = (ours[part] - expected).abs().max() / expected.abs().max()
-				assert float(err) <= RERUN_MAX, name
+			scale = dy if name == "deltas" else expected.abs().max()
+			err = (ours - expected).abs().max() / scale
+			assert float(err) <= RERUN_MAX, name
