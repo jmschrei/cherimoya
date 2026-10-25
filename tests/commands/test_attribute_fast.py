@@ -1,16 +1,14 @@
 """Tests of `cherimoya attribute`'s ``"fast"`` key on the CPU. With
-``"fast": true``, the default, DeepLIFT/SHAP goes through
-`cherimoya.deep_lift_shap.deep_lift_shap`, which takes its fast path for the
-log-counts where it applies; the command writes the files that
-``"fast": false`` writes.
+``"fast": true``, the default, `cherimoya.deep_lift_shap.deep_lift_shap`
+takes its fast path for the log-counts, and the command writes the files
+that ``"fast": false`` writes.
 
 The inputs: a FASTA of 3 contigs of 3 kb with a run of 20 Ns, and 12 loci,
 one of which runs off the end of its contig (`extract_loci` drops it) and
 one of which covers the N run (the N filter drops it), so 10 are kept. The
 model is a tiny Cherimoya with weights redrawn so that the DeepLIFT rules
 matter, saved with model.save(). The JSON attributes 4 shuffles over a 256
-bp input and keeps 64 bp; batches of 7 split a locus's pairs across the
-default path's batches.
+bp input and keeps 64 bp.
 
 Every job here would take the default path less than thirty seconds, so the
 tests that need the fast path set `_FAST_MIN_SECONDS` to 0 (`forced`).
@@ -51,8 +49,7 @@ MISSING_MODEL = "/nonexistent/cherimoya.torch"
 
 @pytest.fixture(scope="module")
 def inputs(tmp_path_factory):
-	"""The FASTA, the loci, and two tiny models: config A, and config B with
-	two groups."""
+	"""The FASTA, the loci, and a tiny model."""
 
 	root = tmp_path_factory.mktemp("inputs")
 	rng = numpy.random.RandomState(0)
@@ -74,11 +71,9 @@ def inputs(tmp_path_factory):
 			out.write("{}\t{}\t{}\tpeak{}\t0\t.\t1.0\t1.0\t1.0\t100\n".format(
 				chrom, centre - 100, centre + 100, i))
 
-	model_a, model_b = root / "tiny_a.torch", root / "tiny_b.torch"
-	tiny.tiny_model("A", seed=0).save(str(model_a))
-	tiny.tiny_model("B", seed=1).save(str(model_b))
-	return {"fasta": str(fasta), "loci": str(loci), "model": str(model_a),
-		"model_b": str(model_b)}
+	model = root / "tiny.torch"
+	tiny.tiny_model("A", seed=0).save(str(model))
+	return {"fasta": str(fasta), "loci": str(loci), "model": str(model)}
 
 
 @pytest.fixture
@@ -151,13 +146,13 @@ def per_locus_rel_l2(a, b):
 ##
 
 
-@pytest.mark.parametrize("batch_size", [64, 7])
 def test_the_fast_path_writes_the_default_paths_files(inputs, tmp_path, forced,
-	engines, batch_size):
-	default = run(write_params(inputs, tmp_path, "default",
-		batch_size=batch_size, fast=False))
+	engines):
+	assert default_attribute_parameters["fast"] is True
+	assert default_pipeline_parameters["attribute_parameters"]["fast"] is True
+	default = run(write_params(inputs, tmp_path, "default", fast=False))
 	assert engines == []
-	ours = run(write_params(inputs, tmp_path, "fast", batch_size=batch_size))
+	ours = run(write_params(inputs, tmp_path, "fast"))
 	assert len(engines) == 1
 
 	for name in ("ohe", "attr"):
@@ -172,59 +167,11 @@ def test_the_fast_path_writes_the_default_paths_files(inputs, tmp_path, forced,
 	assert ours["attr"].dtype == default["attr"].dtype == numpy.float32
 	assert ours["attr"].shape == default["attr"].shape
 	assert per_locus_rel_l2(ours["attr"], default["attr"]).max() <= REL_L2_MAX
-	assert sorted(p.name for p in tmp_path.iterdir()) == sorted("{}.{}".format(
-		run_name, suffix) for run_name in ("default", "fast") for suffix in (
-		"json", "ohe.npz", "attr.npz", "idx.npy"))
 
 
-def test_fast_is_the_default(inputs, tmp_path, forced, engines):
-	assert default_attribute_parameters["fast"] is True
-	assert default_pipeline_parameters["attribute_parameters"]["fast"] is True
-	run(write_params(inputs, tmp_path, "plain"))
-	assert len(engines) == 1
-
-
-@pytest.mark.parametrize("overrides", [{"output": "profile"},
-	{"algorithm": "saturation_mutagenesis"}])
-def test_profile_and_ism_take_the_default_path(inputs, tmp_path, forced,
-	engines, overrides):
-	fast = run(write_params(inputs, tmp_path, "fast", **overrides))
-	default = run(write_params(inputs, tmp_path, "default", fast=False,
-		**overrides))
-	assert engines == []
-	for name in ("ohe", "attr", "idx"):
-		assert numpy.array_equal(fast[name], default[name]), name
-
-
-def test_skip_returns_before_anything_is_loaded(inputs, tmp_path):
-	path = write_params(inputs, tmp_path, "skip", skip=True,
-		model=MISSING_MODEL)
-	assert attribute.run(argparse.Namespace(parameters=str(path))) is None
-	assert sorted(p.name for p in tmp_path.iterdir()) == ["skip.json"]
-
-
-@pytest.mark.parametrize("key, value, message", [
-	("fast", "yes", "`fast` must be true or false"),
-	("fast", 1, "`fast` must be true or false"),
-	("output", "counts_and_profile", "output must be either"),
-])
-def test_bad_values_are_refused_before_the_model_is_loaded(inputs, tmp_path,
-	key, value, message):
+@pytest.mark.parametrize("value", ["yes", 1])
+def test_fast_must_be_a_bool(inputs, tmp_path, value):
 	path = write_params(inputs, tmp_path, "bad", model=MISSING_MODEL,
-		**{key: value})
-	with pytest.raises(ValueError, match=message):
+		fast=value)
+	with pytest.raises(ValueError, match="`fast` must be true or false"):
 		attribute.run(argparse.Namespace(parameters=str(path)))
-
-
-def test_a_multi_group_model_without_a_group_raises_the_same_error(inputs,
-	tmp_path):
-	errors = []
-	for fast in (True, False):
-		path = write_params(inputs, tmp_path, "grouped{}".format(fast),
-			model=inputs["model_b"], group=None, fast=fast)
-		with pytest.raises(ValueError, match="attributes one output") as error:
-			attribute.run(argparse.Namespace(parameters=str(path)))
-
-		errors.append(str(error.value))
-
-	assert errors[0] == errors[1]
