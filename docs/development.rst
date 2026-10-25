@@ -186,24 +186,22 @@ the ``cherimoya`` CLI:
      - The output wrappers on their own and composed over
        ``ControlWrapper``.
    * - ``tests/test_deep_lift_shap_engine.py``
-     - The fast DeepLIFT/SHAP engine against the model's forward and
-       tangermeme's ``deep_lift_shap`` on small models: raw multipliers,
-       hypothetical attributions, convergence deltas, conservation and
-       step-size invariance; the engine's arguments and the comparison
-       ``deep_lift_shap`` checks it with.
+     - The fast DeepLIFT/SHAP engine against tangermeme's
+       ``deep_lift_shap`` on small models, with four kinds of
+       references: hypothetical attributions, outputs, convergence
+       deltas, step-size invariance, and its two convergence warnings.
    * - ``tests/test_deep_lift_shap_paths.py``
      - :func:`~cherimoya.deep_lift_shap.deep_lift_shap`'s choice between
        tangermeme's ``deep_lift_shap`` and the fast path: ``fast=False``
        against tangermeme bit for bit, the fast path against it within
-       rounding, what takes tangermeme's path, and the fallback when the
-       fast path disagrees or raises.
-   * - ``tests/test_deep_lift_shap_engine_rules.py``
-     - Each of the engine's backward rules against the tangermeme or
-       cherimoya function it replaces.
+       rounding, what takes tangermeme's path, the check of the whole
+       input, and the fallback when the fast path disagrees or raises.
    * - ``tests/test_deep_lift_shap_engine_cuda.py``
-     - The engine on a GPU: compiled passes against eager ones and the
-       GPU against the CPU, both against float64; one synchronization per
-       step; recovery from running out of memory.
+     - The engine on a GPU: its CUDA passes against the CPU path and its
+       compiled passes against eager ones, both against float64; a run
+       at the default model's size, for what compiles, the host
+       synchronizations and the memory; recovery from running out of
+       memory.
    * - ``tests/test_utils.py``
      - JSON merge and default-handling helpers.
    * - ``tests/commands/test_fit.py``
@@ -228,9 +226,9 @@ the ``cherimoya`` CLI:
      - The seam between the two: the coordinate ``seqlets`` reports
        is the genome position of the base ``attribute`` scored.
    * - ``tests/commands/test_attribute_fast.py``
-     - ``cherimoya attribute``'s ``fast`` key: the files the fast path
-       writes against ``"fast": false``'s, what takes tangermeme's path,
-       and the values refused before the model is loaded.
+     - ``cherimoya attribute``'s ``fast`` key: its default, the files the
+       fast path writes against ``"fast": false``'s, and the values
+       refused before the model is loaded.
    * - ``tests/commands/test_attribute.py``,
        ``test_seqlets.py``, ``test_evaluate.py``,
        ``test_marginalize.py``, ``test_negatives.py``,

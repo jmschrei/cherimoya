@@ -190,13 +190,16 @@ mean over references. What changes is how they are computed:
   one call to tangermeme's ``dinucleotide_shuffle`` while the GPU runs the
   previous step, and the host waits for the GPU once per step.
 
-**When it is used.** The fast path applies to ``"logcounts"`` computed in
-float32, with dinucleotide-shuffled references or references passed in.
-The profile, whose softmax couples every position to every other, other
-dtypes, other reference functions and jobs of four sequences or fewer take
-tangermeme's ``deep_lift_shap``, and saturation mutagenesis is unaffected. Where the fast path applies, the
-first four sequences are attributed with tangermeme's ``deep_lift_shap``
-and the last two of them timed. A job that would take tangermeme's path
+**When it is used.** The fast path applies to the ``"logcounts"`` of a
+Cherimoya model computed in float32, with dinucleotide-shuffled references
+or references passed in. The profile, whose softmax couples every position
+to every other, other dtypes, other reference functions and jobs of four
+sequences or fewer take tangermeme's ``deep_lift_shap``, and saturation
+mutagenesis is unaffected. Where the fast path applies, every sequence is
+checked first as tangermeme checks its input, so an unknown character
+raises the same error with either path; then the first four sequences are
+attributed with tangermeme's ``deep_lift_shap`` and the last two of them
+timed. A job that would take tangermeme's path
 less than thirty seconds at that rate stays on it, because on a GPU the
 fast path warms up the first time a process runs it, compiling its passes,
 which took 23 seconds on an H200 with empty compile caches and 7 to 8
@@ -207,9 +210,10 @@ any of them, or an error in the fast path, gives a ``RuntimeWarning``, and
 tangermeme's ``deep_lift_shap`` attributes the rest.
 
 **How close the two paths are.** On the CPU the tests hold the fast path
-to tangermeme's ``deep_lift_shap`` on small models: the references are
-equal bit for bit, and the multipliers of every sequence-reference pair
-agree to a relative L2 distance of 1e-9 in float64. On a GPU both paths
+to tangermeme's ``deep_lift_shap`` on small models: given the same
+references, the attributions of every sequence agree to a relative L2
+distance of 1e-9 in float64 and 1e-5 in float32, and each path drawing its
+own references, to 1e-5 in float32. On a GPU both paths
 compute float32 matrix products in TF32, which ``import cherimoya`` turns
 on, and neither is bitwise reproducible, since cuDNN and Triton pick their
 kernels by timing in each process. On an H200, over 40 peaks with 20
