@@ -192,10 +192,6 @@ _CHECK_REL_L2_MAX = 1e-2
 when their Pearson correlation is at least `_CHECK_PEARSON_MIN` and their
 relative L2 distance at most `_CHECK_REL_L2_MAX`."""
 
-_SEED_RANGE = 9_999_999
-"""`deep_lift_shap` draws a seed from [0, _SEED_RANGE) when `random_state`
-is None and it may take the fast path."""
-
 
 def _make_wrapper(model, output, group):
 	"""`LogCountWrapper` or `ProfileWrapper` over `ControlWrapper(model)`,
@@ -387,7 +383,7 @@ def deep_lift_shap(model, X, output="logcounts", group=0, batch_size=32,
 	# Both paths draw reference k of every sequence with the seed
 	# random_state + k, so they draw the same references only with a seed.
 	if random_state is None:
-		random_state = int(numpy.random.randint(0, _SEED_RANGE))
+		random_state = int(numpy.random.randint(0, 9_999_999))
 
 	checked = [default_part(0, half)]
 	began = time.perf_counter()

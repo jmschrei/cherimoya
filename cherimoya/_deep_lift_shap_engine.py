@@ -34,6 +34,7 @@ tangermeme's `deep_lift_shap` on every call that uses it.
 """
 
 import collections
+import contextlib
 import gc
 import inspect
 import logging
@@ -108,16 +109,6 @@ class Result(NamedTuple):
 	y_r: torch.Tensor  # (N, K) the attributed output of each reference
 
 
-class _StepOutputs(NamedTuple):
-	"""One step's results: the device tensors a step computes, or the pinned
-	host buffers they are copied into."""
-
-	y_x: torch.Tensor  # (S,)
-	y_r: torch.Tensor  # (S, K)
-	delta: torch.Tensor  # (S, K)
-	attr: torch.Tensor  # (S, 4, L)
-
-
 def dw3(h, cw, d):
 	"""The 3-tap dilated depthwise convolution as a shift-add.
 
@@ -157,20 +148,19 @@ def forward_save(z0, blocks, rs, eps):
 	h = F.gelu(z0, approximate="tanh").transpose(1, 2).contiguous()
 	saved = []
 	for cw, W1, W2, d in blocks:
-		R = h.shape[0]
-		if h.is_cuda:
-			y = dw3(h, cw, d)
-			mu, v = _layer_normalization_stats(y, 2, eps)
-			yhat = (y - mu) * v
-		else:
-			y = _cheri_conv(h, cw, d)
-			mu, v = _layer_normalization_stats(y, 2, eps)
-			yhat = _cheri_conv_norm_cpu(h, cw, d, eps)
+		y = dw3(h, cw, d) if h.is_cuda else _cheri_conv(h, cw, d)
+		mu, v = _layer_normalization_stats(y, 2, eps)
+		yhat = ((y - mu) * v if h.is_cuda
+			else _cheri_conv_norm_cpu(h, cw, d, eps))
 
 		# The block's residual, in the model's operation order.
 		u = F.linear(yhat, W1)
 		h = h + F.linear(F.gelu(u, approximate="tanh"), W2) * rs
-		saved.append(BlockSaved(y, u, mu.view(R), v.view(R)))
+
+		# Saved flat. Saved as (R, 1, 1), they change how Inductor fuses the
+		# rule's reductions, and the attributions of a trained 128-filter
+		# model moved by up to 1.6e-4 (relative L2) with the rounding.
+		saved.append(BlockSaved(y, u, mu.view(-1), v.view(-1)))
 
 	return h, saved
 
@@ -289,17 +279,17 @@ def step_bytes(S, K, L, C, H, n_blocks, itemsize=4):
 	return rows * per_row + pairs * per_pair
 
 
-def _fill(rows, X, references, S):
-	"""Write a step's rows ``[x_0..x_{S-1}, r_00..r_{S-1,K-1}]`` into the
-	int8 buffer `rows`, padded with the last sequence and its references, and
-	return them.
+def _joint_rows(X, references, S, pin_memory):
+	"""A step's rows ``[x_0..x_{S-1}, r_00..r_{S-1,K-1}]`` as one int8
+	one-hot (S + S*K, 4, L), padded with the last sequence and its
+	references, in pinned memory if `pin_memory`.
 
-	X (n, 4, L) and references (n, K, 4, L), n <= S, are int8 one-hots; the
-	buffer holds at least S + S*K rows.
+	X (n, 4, L) and references (n, K, 4, L), n <= S, are int8 one-hots.
 	"""
 
 	n, K = references.shape[:2]
-	rows = rows[:S + S * K]
+	rows = torch.empty(S + S * K, *X.shape[1:], dtype=torch.int8,
+		pin_memory=pin_memory)
 	rows[:n] = X
 	rows[n:S] = X[-1]
 	refs = rows[S:].view(S, K, *X.shape[1:])
@@ -334,11 +324,12 @@ class Engine:
 	  compiled code apart from other engines'. Compiling leaves the traced
 	  step's tensors in reference cycles, so a gc.collect() follows every
 	  step that compiled.
-	* Steps are pipelined. The host draws a step's references and fills its
-	  pinned buffers while the device runs the previous step. The inputs are
-	  copied to the device on a copy stream, and the results are copied
-	  back, non-blocking, into pinned buffers. The host waits once per step,
-	  on the previous step's event.
+	* Steps are pipelined. A step's inputs are copied from pinned memory,
+	  the step is queued, and its results are copied back into pinned
+	  memory, all without waiting; the host then waits for the previous step,
+	  once, on its event, and draws the next step's references while the
+	  device runs this one. PyTorch's pinned-memory allocator hands a buffer
+	  out again only after the copies queued on it have finished.
 	* An out-of-memory error in a step empties the allocator's cache, halves
 	  S and runs the step's sequences again. At S = 1 the error propagates.
 
@@ -399,18 +390,15 @@ class Engine:
 
 		passes = (forward_save, backward_pass, epilogue)
 		if self.device.type == "cuda":
-			passes = tuple(self._compiled(fn) for fn in passes)
+			kwargs = {"fullgraph": True, "dynamic": False, "mode": "default"}
+			parameters = inspect.signature(torch.compile).parameters
+			if {"recompile_limit", "isolate_recompiles"} <= set(parameters):
+				kwargs.update(recompile_limit=RECOMPILE_LIMIT,
+					isolate_recompiles=True)
+
+			passes = tuple(torch.compile(fn, **kwargs) for fn in passes)
 
 		self.forward, self.backward, self.epilogue = passes
-
-	def _compiled(self, fn):
-		kwargs = {"fullgraph": True, "dynamic": False, "mode": "default"}
-		parameters = inspect.signature(torch.compile).parameters
-		if {"recompile_limit", "isolate_recompiles"} <= set(parameters):
-			kwargs.update(recompile_limit=RECOMPILE_LIMIT,
-				isolate_recompiles=True)
-
-		return torch.compile(fn, **kwargs)
 
 	def run(self, X, references=None, verbose=False):
 		"""The hypothetical attributions of X averaged over each sequence's
@@ -457,10 +445,10 @@ class Engine:
 		progress = tqdm(total=N, unit="seq", disable=not verbose)
 
 		def consume(a, b, out):
-			n = b - a
-			attr[a:b], deltas[a:b] = out.attr[:n], out.delta[:n]
-			y_x[a:b], y_r[a:b] = out.y_x[:n], out.y_r[:n]
-			progress.update(n)
+			for kept, values in zip((y_x, y_r, deltas, attr), out):
+				kept[a:b] = values[:b - a]
+
+			progress.update(b - a)
 
 		# The gradient of the attributed count at the final residual stream,
 		# which every pair shares: the head averages positions [T, L - T)
@@ -470,12 +458,11 @@ class Engine:
 		G0[self.T:L - self.T] = self.Wl[self.group, :self.C] / (L - 2 * self.T)
 
 		began = time.perf_counter()
+		device = (torch.cuda.device(self.device) if self.device.type == "cuda"
+			else contextlib.nullcontext())
 		try:
-			if self.device.type == "cuda":
-				with torch.cuda.device(self.device):
-					self._steps_cuda(X, references, K, G0, consume)
-			else:
-				self._steps_cpu(X, references, K, G0, consume)
+			with device:
+				self._steps(X, references, K, G0, consume)
 		finally:
 			progress.close()
 
@@ -578,81 +565,43 @@ class Engine:
 		del Gz
 		y_x, y_r = y[:S], y[S:].view(S, K)
 		attr, delta = self.epilogue(m, X1h, y_x, y_r, S, K)
-		return _StepOutputs(y_x, y_r, delta, attr)
+		return y_x, y_r, delta, attr
 
-	def _steps_cpu(self, X, references, K, G0, consume):
-		"""The steps on the CPU, one after the other."""
-
-		N, _, L = X.shape
-		S = self._step_size(N, K, L)
-		buffer = torch.empty(S + S * K, 4, L, dtype=torch.int8)
-		for a in range(0, N, S):
-			b = min(a + S, N)
-			rows = _fill(buffer, X[a:b], self._references(X, references, a, b,
-				K), S)
-			consume(a, b, self._step(rows.to(self.device), S, K, G0))
-
-	def _steps_cuda(self, X, references, K, G0, consume):
-		"""The steps on CUDA, pipelined: step i is queued before the host waits
-		for step i - 1.
-
-		Two slots of buffers alternate: pinned host inputs, device inputs and
-		pinned host outputs, sized for the first S; after an out-of-memory
-		halving, steps use leading slices. A slot is refilled only after the
-		host has waited for the step that last used it, so no buffer is
-		written while a copy may still read it.
-		"""
+	def _steps(self, X, references, K, G0, consume):
+		"""Every step, in order; consume(a, b, out) receives the results of the
+		sequences [a, b) of each, (y_x, y_r, delta, attr), once they are on
+		the host. On CUDA a step is queued before the host waits for the one
+		before it (the class docstring)."""
 
 		N, _, L = X.shape
+		cuda = self.device.type == "cuda"
 		S = self._step_size(N, K, L)
-		dtype, n_rows = self.W0.dtype, S + S * K
-		host_inputs = [torch.empty(n_rows, 4, L, dtype=torch.int8,
-			pin_memory=True) for _ in range(2)]
-		device_inputs = [torch.empty(n_rows, 4, L, dtype=torch.int8,
-			device=self.device) for _ in range(2)]
-		host_outputs = [_StepOutputs(*(torch.empty(shape, dtype=dtype,
-			pin_memory=True) for shape in ((S,), (S, K), (S, K), (S, 4, L))))
-			for _ in range(2)]
 
-		copy_stream = torch.cuda.Stream(self.device)
-		compute = torch.cuda.current_stream()
+		def finish(a, b, out, done):
+			if done is not None:
+				done.synchronize()
 
-		def launch(slot, S):
-			rows = S + S * K
-			inputs = device_inputs[slot][:rows]
-			with torch.cuda.stream(copy_stream):
-				inputs.copy_(host_inputs[slot][:rows], non_blocking=True)
-				copied = torch.cuda.Event()
-				copied.record()
-
-			compute.wait_event(copied)
-			out = self._step(inputs, S, K, G0)
-			host = _StepOutputs(*(buffer[:S] for buffer in host_outputs[slot]))
-			for dst, src in zip(host, out):
-				dst.copy_(src, non_blocking=True)
-
-			done = torch.cuda.Event(blocking=True)
-			done.record(compute)
-			return host, done
-
-		def finish(a, b, host, done):
-			done.synchronize()
-			consume(a, b, host)
+			consume(a, b, out)
 
 		starts = collections.deque(range(0, N, S))
-		pending, slot, compiles = None, 0, True
+		pending, compiles = None, cuda
 		while starts:
 			a = starts.popleft()
 			b = min(a + S, N)
-			_fill(host_inputs[slot], X[a:b], self._references(X, references, a,
-				b, K), S)
+			rows = _joint_rows(X[a:b], self._references(X, references, a, b, K),
+				S, pin_memory=cuda)
 
 			# The error is handled outside the except clause: its traceback
 			# holds the failed step's tensors, which must be freed before the
 			# cache is emptied.
-			failed = None
+			failed, done = None, None
 			try:
-				launched = launch(slot, S)
+				out = self._step(rows.to(self.device, non_blocking=True), S, K,
+					G0)
+				if cuda:
+					out = [t.to("cpu", non_blocking=True) for t in out]
+					done = torch.cuda.Event(blocking=True)
+					done.record()
 			except torch.cuda.OutOfMemoryError as exc:
 				if S == 1:
 					raise
@@ -684,8 +633,7 @@ class Engine:
 			if pending is not None:
 				finish(*pending)
 
-			pending = (a, b, *launched)
-			slot ^= 1
+			pending = (a, b, out, done)
 
 		if pending is not None:
 			finish(*pending)
