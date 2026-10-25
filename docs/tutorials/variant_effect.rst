@@ -32,7 +32,7 @@ Example JSON:
        "loci": "peaks.narrowPeak",
        "chroms": ["chr2", "chr4", "chr5"],
        "algorithm": "saturation_mutagenesis",
-       "output": "counts",
+       "output": "logcounts",
        "batch_size": 512,
        "device": "cuda",
        "ohe_filename": "attributions.ohe.npz",
@@ -40,7 +40,7 @@ Example JSON:
        "idx_filename": "attributions.idx.npy"
    }
 
-``output`` can be ``"counts"`` (recommended for most analyses) or
+``output`` can be ``"logcounts"`` (recommended for most analyses) or
 ``"profile"``. The output array has shape ``(n_examples, 4, 400)`` and
 contains hypothetical importance scores per base per channel —
 equivalent to the predicted delta when substituting that nucleotide at

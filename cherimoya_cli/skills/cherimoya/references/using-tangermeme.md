@@ -57,7 +57,23 @@ wrapper = LogCountWrapper(ControlWrapper(model))
 # variant effect, ledidi design, ...).
 ```
 
-## DeepLIFT/SHAP needs `attribution_ops()` registered
+## DeepLIFT/SHAP: use `cherimoya.deep_lift_shap.deep_lift_shap`
+
+For DeepLIFT/SHAP of a Cherimoya model, call Cherimoya's own function. It takes
+the model itself, wraps it as above, registers `attribution_ops()`, and takes a
+fast path for the log-counts where it applies:
+
+```python
+from cherimoya.deep_lift_shap import deep_lift_shap
+
+X_attr = deep_lift_shap(model, X, output="logcounts", group=0,
+    hypothetical=True, random_state=0)   # output="profile" for shape
+```
+
+Calling tangermeme's functions directly is still right for the rest (ISM,
+`pisa`, variant effects, design). Those that run DeepLIFT need the rule below.
+
+## tangermeme's DeepLIFT needs `attribution_ops()` registered
 
 ISM needs nothing. `deep_lift_shap` does: it corrects the module types it knows
 and silently treats the rest as linear, and `FusedDilatedConvNorm` is neither
@@ -75,7 +91,7 @@ X_attr = deep_lift_shap(wrapper, X, references=references,
 Two more things it needs. Load the model with `compile=False` — DeepLIFT's
 backward hooks replace gradients, which Inductor cannot trace, so a compiled
 model graph-breaks and runs slightly slower for the same answer. And
-`attribution_ops()` requires `tangermeme >= 1.5.0`.
+`attribution_ops()` requires `tangermeme >= 1.6.0`.
 
 Do not add `_ProfileLogitScaling: _nonlinear` to the dictionary, as bpnet-lite
 code does for its own profile wrapper. The profile head's softmax and product

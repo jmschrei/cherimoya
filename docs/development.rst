@@ -20,6 +20,8 @@ Repository layout
    │   ├── io.py                   # PeakGenerator + PeakNegativeSampler + ShardedEpochSampler
    │   ├── losses.py               # Profile MNLL + log1pMSE mixture loss
    │   ├── wrappers.py             # Control / profile / count output wrappers
+   │   ├── deep_lift_shap.py       # deep_lift_shap and the DeepLIFT rules
+   │   ├── _deep_lift_shap_engine.py  # The fast DeepLIFT/SHAP path for the log-counts
    │   └── performance.py          # Evaluation metrics
    ├── cherimoya_cli/              # The CLI entry-point package
    │   ├── __main__.py             # Argparse driver and subcommand registry
@@ -70,7 +72,8 @@ Explicitly:
   :class:`~cherimoya.cheri.FusedDilatedConvNorm`,
   :class:`~cherimoya.cheri.FusedDilatedConvNormFunc`,
   :func:`~cherimoya.performance.calculate_performance_measures` and
-  its component metrics, :func:`~cherimoya.deep_lift_shap.attribution_ops`,
+  its component metrics, :func:`~cherimoya.deep_lift_shap.deep_lift_shap`,
+  :func:`~cherimoya.deep_lift_shap.attribution_ops`,
   :func:`~cherimoya.losses._mixture_loss`
   (despite the underscore — it is the trainer's loss function and
   the API is stable).
@@ -182,6 +185,23 @@ the ``cherimoya`` CLI:
    * - ``tests/test_wrappers.py``
      - The output wrappers on their own and composed over
        ``ControlWrapper``.
+   * - ``tests/test_deep_lift_shap_engine.py``
+     - The fast DeepLIFT/SHAP engine against tangermeme's
+       ``deep_lift_shap`` on small models, with four kinds of
+       references: hypothetical attributions, outputs, convergence
+       deltas, step-size invariance, and its two convergence warnings.
+   * - ``tests/test_deep_lift_shap_paths.py``
+     - :func:`~cherimoya.deep_lift_shap.deep_lift_shap`'s choice between
+       tangermeme's ``deep_lift_shap`` and the fast path: ``fast=False``
+       against tangermeme bit for bit, the fast path against it within
+       rounding, what takes tangermeme's path, the check of the whole
+       input, and the fallback when the fast path disagrees or raises.
+   * - ``tests/test_deep_lift_shap_engine_cuda.py``
+     - The engine on a GPU: its CUDA passes against the CPU path and its
+       compiled passes against eager ones, both against float64; a run
+       at the default model's size, for what compiles, the host
+       synchronizations and the memory; recovery from running out of
+       memory.
    * - ``tests/test_utils.py``
      - JSON merge and default-handling helpers.
    * - ``tests/commands/test_fit.py``
@@ -205,6 +225,10 @@ the ``cherimoya`` CLI:
    * - ``tests/commands/test_attribute_to_seqlets.py``
      - The seam between the two: the coordinate ``seqlets`` reports
        is the genome position of the base ``attribute`` scored.
+   * - ``tests/commands/test_attribute_fast.py``
+     - ``cherimoya attribute``'s ``fast`` key: its default, the files the
+       fast path writes against ``"fast": false``'s, and the values
+       refused before the model is loaded.
    * - ``tests/commands/test_attribute.py``,
        ``test_seqlets.py``, ``test_evaluate.py``,
        ``test_marginalize.py``, ``test_negatives.py``,

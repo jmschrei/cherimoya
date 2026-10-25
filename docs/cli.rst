@@ -478,13 +478,15 @@ attribute_parameters
      - training + validation chroms
      - Chromosomes to attribute.
    * - ``output``
-     - ``"counts"``
-     - Attribute to counts or profile (``"profile"``).
+     - ``"logcounts"``
+     - Attribute to the log-counts or the profile (``"profile"``).
+       ``"counts"``, the former name of ``"logcounts"``, is deprecated:
+       it warns and will be removed in cherimoya 0.7.0.
    * - ``group``
      - 0
      - Index into the model's ``signal_groups`` of the one group to
        attribute. ``null`` attributes every group at once; DeepLIFT/SHAP
-       rejects that for ``"counts"`` on a model with more than one group,
+       rejects that for ``"logcounts"`` on a model with more than one group,
        since it attributes a single output.
    * - ``n_shuffles``
      - 20
@@ -521,7 +523,17 @@ attribute_parameters
    * - ``dtype`` / ``device``
      - ``"float32"`` / ``"cuda"``
      - Inference dtype and device.
-
+   * - ``fast``
+     - ``true``
+     - DeepLIFT/SHAP of the log-counts: whether
+       :func:`cherimoya.deep_lift_shap.deep_lift_shap` may take its fast
+       path, which runs several times faster on a GPU, is checked against
+       tangermeme's ``deep_lift_shap`` on the first sequences of every
+       job that uses it, and falls back to it with a warning when the two
+       disagree (see :doc:`tutorials/attribution`). ``false`` always uses
+       tangermeme's ``deep_lift_shap``. The profile, a ``dtype`` other than
+       ``"float32"`` and saturation mutagenesis use tangermeme's functions
+       either way.
 
 seqlet_parameters
 ~~~~~~~~~~~~~~~~~

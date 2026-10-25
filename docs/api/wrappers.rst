@@ -78,7 +78,7 @@ LogCountWrapper
    .. automethod:: __init__
 
 Returns the model's per-group log-count predictions. This is the wrapper
-used by ``cherimoya attribute`` when ``output`` is ``"counts"`` (see
+used by ``cherimoya attribute`` when ``output`` is ``"logcounts"`` (see
 :doc:`../tutorials/attribution`). Pair it with :class:`ControlWrapper` when
 attributing a model that was trained with control tracks, so that zero
 controls are supplied automatically.

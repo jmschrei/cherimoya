@@ -44,7 +44,7 @@ Example JSON:
        "loci": "peaks.narrowPeak",
        "chroms": ["chr2", "chr4", "chr5"],
        "algorithm": "deep_lift_shap",
-       "output": "counts",
+       "output": "logcounts",
        "group": 0,
        "batch_size": 64,
        "device": "cuda",
@@ -55,7 +55,7 @@ Example JSON:
 
 ``output`` controls what is being attributed to:
 
-* ``"counts"`` — attribute to total predicted log-counts (recommended
+* ``"logcounts"`` — attribute to total predicted log-counts (recommended
   for most analyses; uses :class:`cherimoya.LogCountWrapper`).
 * ``"profile"`` — attribute to the predicted profile shape (uses
   :class:`cherimoya.ProfileWrapper`).
@@ -66,10 +66,13 @@ default, ``0``, is the whole output.
 
 ``algorithm`` chooses the method:
 
-* ``"deep_lift_shap"`` (default) — ``tangermeme.deep_lift_shap`` with
-  ``n_shuffles`` dinucleotide-shuffled references per sequence and
-  Cherimoya's DeepLIFT rules registered. ``batch_size`` counts
-  sequence-reference pairs, each run forward and backward.
+* ``"deep_lift_shap"`` (default) —
+  :func:`cherimoya.deep_lift_shap.deep_lift_shap`, with ``n_shuffles``
+  dinucleotide-shuffled references per sequence and Cherimoya's DeepLIFT
+  rules registered. It runs ``tangermeme.deep_lift_shap``, or, for the
+  log-counts, a fast path (below). ``batch_size`` counts
+  sequence-reference pairs, each run forward and backward, on
+  tangermeme's path.
 * ``"saturation_mutagenesis"`` — ``tangermeme.saturation_mutagenesis``,
   forward passes only, three per attributed position.
 
@@ -78,6 +81,12 @@ it for saturation mutagenesis only; DeepLIFT/SHAP never compiles, since
 its backward hooks cause graph breaks and recompiles. Neither algorithm ran
 faster compiled in our measurements, and compiling lengthened the first
 call.
+
+``fast``, true by default, lets DeepLIFT/SHAP of the log-counts take the
+fast path, which runs several times faster on a GPU and is checked against
+tangermeme's ``deep_lift_shap`` on every job that uses it (see `The fast
+path for the log-counts`_). ``"fast": false`` always uses tangermeme's
+``deep_lift_shap``.
 
 The CLI automatically:
 
@@ -110,27 +119,18 @@ sequence, keeping the central 400 bp.
 .. code-block:: python
 
    from cherimoya import Cherimoya
-   from cherimoya import ControlWrapper
-   from cherimoya import LogCountWrapper
-   from cherimoya import ProfileWrapper
-   from cherimoya.deep_lift_shap import attribution_ops
-   from tangermeme.deep_lift_shap import deep_lift_shap
+   from cherimoya.deep_lift_shap import deep_lift_shap
 
    # DeepLIFT's backward hooks cannot be traced by torch.compile.
    model = Cherimoya.load("my_model.torch", device="cuda", compile=False)
 
-   # ControlWrapper wraps the model so that .forward(X) returns just the
-   # profile/counts tuple, supplying zero controls if the model has none.
-   model = ControlWrapper(model)
-   wrapper = LogCountWrapper(model, group=0)   # or ProfileWrapper(model, group=0) for profile shape
-
    X_attr = deep_lift_shap(
-       wrapper, X,
+       model, X,
+       output="logcounts",   # or "profile" for profile shape
+       group=0,
        n_shuffles=20,
        batch_size=64,
        hypothetical=True,
-       additional_nonlinear_ops=attribution_ops(),
-       device="cuda",
        random_state=0,
    )
 
@@ -146,16 +146,92 @@ across the channel axis:
 
    importance = (X_attr * X[:, :, mid - 200:mid + 200]).sum(dim=1)
 
-``additional_nonlinear_ops=attribution_ops()`` is required, not an
-optimization. ``FusedDilatedConvNorm`` is neither linear nor in
-tangermeme's table, so without its rule the attributions carry no
-guarantee that they sum to the change in the prediction. See
+:func:`~cherimoya.deep_lift_shap.deep_lift_shap` wraps the model in
+:class:`cherimoya.ControlWrapper`, which supplies zero control tracks, and
+in :class:`cherimoya.LogCountWrapper` or :class:`cherimoya.ProfileWrapper`
+for ``group``, and registers Cherimoya's DeepLIFT rule. A tangermeme
+function called directly, such as ``tangermeme.deep_lift_shap`` or
+``tangermeme.pisa``, needs the same: the wrappers, and
+``additional_nonlinear_ops=attribution_ops()``. The rule is required, not
+an optimization. ``FusedDilatedConvNorm`` is neither linear nor in
+tangermeme's table, so without it the attributions carry no guarantee
+that they sum to the change in the prediction. See
 :doc:`../api/deep_lift_shap` for what the rule does and why.
 
 tangermeme's ``deep_lift_shap`` attributes output ``target=0`` of the
 model it is given. ``LogCountWrapper`` without ``group`` returns one
 count per signal group, so on a multi-group model it would silently
 attribute group 0 only; pass ``group`` to say which one you mean.
+:func:`~cherimoya.deep_lift_shap.deep_lift_shap` raises instead.
+
+
+The fast path for the log-counts
+--------------------------------
+
+:func:`~cherimoya.deep_lift_shap.deep_lift_shap` computes the log-counts'
+attributions on a fast path where it can, and so does ``cherimoya
+attribute`` with ``"fast": true``, its default. The method is
+tangermeme's: the same rules (tangermeme's rescale rule at every GELU and
+the normalization rule of ``conv_norm_op``), the same dinucleotide-shuffled
+references with the same seeds, and the same hypothetical projection and
+mean over references. What changes is how they are computed:
+
+* Each sequence is forwarded once per step together with its references,
+  rather than once per reference: every operation acts on each row alone,
+  so the copies of a sequence that ``deep_lift_shap`` forwards are the
+  same row.
+* The backward runs over the sequence half of each sequence-reference pair
+  only. DeepLIFT's rule for a sequence reads the reference's activations
+  but never the reference's gradient, so the reference half is never
+  needed.
+* The forward and backward passes are written out by hand, applying
+  tangermeme's rule functions and hypothetical projection, and, on a GPU,
+  compiled with ``torch.compile``. Each step's references are drawn with
+  one call to tangermeme's ``dinucleotide_shuffle`` while the GPU runs the
+  previous step, and the host waits for the GPU once per step.
+
+**When it is used.** The fast path applies to the ``"logcounts"`` of a
+Cherimoya model computed in float32, with dinucleotide-shuffled references
+or references passed in. The profile, whose softmax couples every position
+to every other, other dtypes, other reference functions and jobs of four
+sequences or fewer take tangermeme's ``deep_lift_shap``, and saturation
+mutagenesis is unaffected. Where the fast path applies, every sequence is
+checked first as tangermeme checks its input, so an unknown character
+raises the same error with either path; then the first four sequences are
+attributed with tangermeme's ``deep_lift_shap`` and the last two of them
+timed. A job that would take tangermeme's path
+less than thirty seconds at that rate stays on it, because on a GPU the
+fast path warms up the first time a process runs it, compiling its passes,
+which took 23 seconds on an H200 with empty compile caches and from 7 to
+23 seconds with warm ones in our measurements. Otherwise the fast path
+attributes every sequence and is checked against those first four: a
+Pearson correlation below 0.9999 or a relative L2 distance above 1e-2 on
+any of them, or an error in the fast path, gives a ``RuntimeWarning``, and
+tangermeme's ``deep_lift_shap`` attributes the rest.
+
+**How close the two paths are.** On the CPU the tests hold the fast path
+to tangermeme's ``deep_lift_shap`` on small models: given the same
+references, the attributions of every sequence agree to a relative L2
+distance of 1e-9 in float64 and 1e-5 in float32, and each path drawing its
+own references, to 1e-5 in float32. On a GPU both paths
+compute float32 matrix products in TF32, which ``import cherimoya`` turns
+on, and neither is bitwise reproducible, since cuDNN and Triton pick their
+kernels by timing in each process. On an H200, over 40 peaks with 20
+references each, the per-sequence attributions of the two paths were a
+median relative L2 distance of 6.2e-4, 1.2e-4 and 2.5e-4 apart on trained
+models with 64, 128 and 256 filters.
+
+**Speed.** On an H200, with 1,000 peaks of 2,114 bp and 20 shuffles each,
+the fast path attributed 7,753 sequence-reference pairs per second at
+steady state with a 128-filter, 9-layer model, against 986 to 999 for
+tangermeme's ``deep_lift_shap`` at a ``batch_size`` of 64 after its first
+call. On the CPU with 8 threads, with the same model, it attributed 12.6
+pairs per second against 4.6.
+
+**Warnings.** The fast path warns once per call when deltas exceed
+``warning_threshold``, and once when the mean delta exceeds 1% of the mean
+difference between the outputs of the sequences and their references,
+where tangermeme's ``deep_lift_shap`` makes both checks once per batch.
 
 
 Saturation mutagenesis instead of DeepLIFT/SHAP

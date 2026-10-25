@@ -4,6 +4,43 @@ Changelog
 v0.3.1 (unreleased)
 -------------------
 
+Attribution
+~~~~~~~~~~~
+
+* :func:`cherimoya.deep_lift_shap.deep_lift_shap` computes DeepLIFT/SHAP
+  attributions of a Cherimoya model's log-counts or profile from the model
+  itself, and ``cherimoya attribute`` calls it. It wraps the model and
+  registers Cherimoya's DeepLIFT rule, which a call to tangermeme's
+  ``deep_lift_shap`` needs by hand, and for the log-counts in float32 it
+  takes a fast path by default (``fast=True``, ``"fast": true`` in
+  ``cherimoya attribute``). The fast path computes what tangermeme's
+  ``deep_lift_shap`` computes, up to floating-point rounding: the same
+  rules, the same dinucleotide-shuffled references with the same seeds,
+  and the same hypothetical projection, each called from tangermeme
+  (``tangermeme >= 1.6.0``). It forwards each sequence once rather than
+  once per reference, runs the backward over the sequence half of each
+  pair only, and compiles its passes on a GPU. On an H200, with 1,000
+  peaks of 2,114 bp and 20 shuffles each, it attributed 7,753
+  sequence-reference pairs per second at steady state with a 128-filter,
+  9-layer model, against 986 to 999 for tangermeme's ``deep_lift_shap``
+  at a ``batch_size`` of 64 after its first call, and 1,458 against 197
+  with a 512-filter model. A job that tangermeme's path would finish in
+  under thirty seconds stays on it, and a job that takes the fast path is
+  checked against tangermeme's on its first four sequences and falls back
+  to it, with a ``RuntimeWarning``, when the two disagree. Log-count
+  attributions from jobs that take the fast path therefore differ from
+  before by floating-point rounding; ``"fast": false`` gives tangermeme's.
+  The profile and saturation mutagenesis are unchanged. Thanks @emattei!
+
+* The ``output`` of ``cherimoya attribute`` that attributes the
+  log-counts, through :class:`cherimoya.LogCountWrapper`, is
+  ``"logcounts"`` rather than ``"counts"``, the value
+  :func:`cherimoya.deep_lift_shap.deep_lift_shap` takes. The wrapper
+  returns log-counts, which ``"counts"`` did not say and which
+  :class:`cherimoya.ExpectedCountsWrapper`, the wrapper that does return
+  counts, made easy to confuse. ``"counts"`` still works, with a
+  ``FutureWarning``, and will be removed in cherimoya 0.7.0.
+
 CLI and pipeline
 ~~~~~~~~~~~~~~~~
 

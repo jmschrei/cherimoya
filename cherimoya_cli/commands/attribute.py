@@ -1,12 +1,13 @@
 # cherimoya_cli attribute command
 # Author: Jacob Schreiber <jmschreiber91@gmail.com>
 
+import warnings
+
 
 def run(args):
 
 	import numpy
 
-	from tangermeme.deep_lift_shap import deep_lift_shap
 	from tangermeme.io import extract_loci
 	from tangermeme.saturation_mutagenesis import saturation_mutagenesis
 
@@ -14,7 +15,7 @@ def run(args):
 	from cherimoya import ControlWrapper
 	from cherimoya import LogCountWrapper
 	from cherimoya import ProfileWrapper
-	from cherimoya.deep_lift_shap import attribution_ops
+	from cherimoya.deep_lift_shap import deep_lift_shap
 	from ..defaults import default_attribute_parameters
 	from ..utils import merge_parameters
 
@@ -27,11 +28,25 @@ def run(args):
 		raise ValueError("algorithm must be either `deep_lift_shap` or "
 			"`saturation_mutagenesis`, got {!r}".format(algorithm))
 
+	if parameters["output"] == "counts":
+		warnings.warn("`output` \"counts\" is deprecated and will be removed "
+			"in cherimoya 0.7.0; use \"logcounts\".", FutureWarning,
+			stacklevel=2)
+		parameters["output"] = "logcounts"
+
+	if parameters["output"] not in ("logcounts", "profile"):
+		raise ValueError("output must be either `logcounts` or `profile`.")
+
+	if not isinstance(parameters["fast"], bool):
+		raise ValueError("`fast` must be true or false, got {!r}".format(
+			parameters["fast"]))
+
 	###
 
 	# `compile` defaults to false here: neither algorithm ran faster
 	# compiled, and compiling added 6-70 s to the first call. DeepLIFT is
 	# never compiled: its backward hooks cause graph breaks and recompiles.
+	# The fast path of deep_lift_shap compiles its own passes on a GPU.
 	compiled = parameters["compile"] and algorithm == "saturation_mutagenesis"
 	model = Cherimoya.load(parameters["model"], device=parameters["device"],
 		compile=compiled,
@@ -40,7 +55,7 @@ def run(args):
 	# DeepLIFT attributes one output, so a count head with several groups
 	# has to be narrowed to one of them first.
 	group = parameters["group"]
-	if (algorithm == "deep_lift_shap" and parameters["output"] == "counts"
+	if (algorithm == "deep_lift_shap" and parameters["output"] == "logcounts"
 			and group is None and len(model.signal_groups) > 1):
 		raise ValueError("deep_lift_shap attributes one output; set `group` "
 			"to one of the model's {} signal groups"
@@ -62,14 +77,6 @@ def run(args):
 	X = X[n_idxs]
 	idxs[idxs.clone()] = n_idxs
 
-	model = ControlWrapper(model)
-	if parameters["output"] == "counts":
-		wrapper = LogCountWrapper(model, group=group)
-	elif parameters["output"] == "profile":
-		wrapper = ProfileWrapper(model, group=group)
-	else:
-		raise ValueError("output must be either `counts` or `profile`.")
-
 	# Only the centred `attr_window` slice is saved. Saturation mutagenesis
 	# is one forward pass per alternate base per position, so for it this
 	# width sets the cost of the step; DeepLIFT attributes the whole input
@@ -87,19 +94,27 @@ def run(args):
 
 	if algorithm == "deep_lift_shap":
 		X_attr = deep_lift_shap(
-			wrapper,
+			model,
 			X,
+			output=parameters["output"],
+			group=group,
 			hypothetical=True,
 			n_shuffles=parameters["n_shuffles"],
 			batch_size=parameters["batch_size"],
 			warning_threshold=parameters["warning_threshold"],
-			additional_nonlinear_ops=attribution_ops(),
 			dtype=parameters["dtype"],
 			device=parameters["device"],
 			random_state=parameters["random_state"],
 			verbose=parameters["verbose"],
+			fast=parameters["fast"],
 		)[:, :, start:end].float()
 	else:
+		model = ControlWrapper(model)
+		if parameters["output"] == "logcounts":
+			wrapper = LogCountWrapper(model, group=group)
+		else:
+			wrapper = ProfileWrapper(model, group=group)
+
 		X_attr = saturation_mutagenesis(
 			wrapper,
 			X,

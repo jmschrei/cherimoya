@@ -135,7 +135,7 @@ default_attribute_parameters = {
 	'compile': False,
 	'compile_mode': 'max-autotune',
 	'algorithm': 'deep_lift_shap',
-	'output': 'counts',
+	'output': 'logcounts',
 	'group': 0,
 	'attr_window': 400,
 	'n_shuffles': 20,
@@ -146,6 +146,7 @@ default_attribute_parameters = {
 	'idx_filename': 'attributions.idx.npy',
 	'dtype': 'float32',
 	'device': 'cuda',
+	'fast': True,
 	'skip': False,
 }
 
@@ -295,7 +296,8 @@ default_pipeline_parameters = {
 		'compile': False,
 		'chroms': training_chroms + validation_chroms,
 		'algorithm': 'deep_lift_shap',
-		'output': 'counts',
+		'fast': True,
+		'output': 'logcounts',
 		'group': 0,
 		'attr_window': None,
 		'n_shuffles': 20,
