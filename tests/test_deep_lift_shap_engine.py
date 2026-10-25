@@ -30,6 +30,7 @@ import pytest
 import torch
 
 from cherimoya import _deep_lift_shap_engine as fdls
+from cherimoya.deep_lift_shap import _make_wrapper
 
 from . import deep_lift_shap_engine_helpers as tiny
 
@@ -88,14 +89,7 @@ def _ours(config, dtype, kind, step=None):
 
 def _wrapped(config, dtype):
 	model = tiny.tiny_model(config, dtype=dtype)
-	return tiny.wrapper(model, "logcounts", tiny.CONFIGS[config].group)
-
-
-def _rows_rel_l2(a, b):
-	"""||a - b|| / ||b|| for each row, in float64."""
-
-	a, b = a.double().flatten(1), b.double().flatten(1)
-	return (a - b).norm(dim=1) / b.norm(dim=1).clamp_min(1e-30)
+	return _make_wrapper(model, "logcounts", tiny.CONFIGS[config].group)
 
 
 def _dy(result):
@@ -115,7 +109,7 @@ def test_attributions_match_tangermeme(config, dtype, kind):
 	assert ours.attr.shape == theirs.shape == X.shape
 	assert ours.attr.dtype == ours.deltas.dtype == ours.y_x.dtype == dtype
 	assert ours.deltas.shape == ours.y_r.shape == (N_SEQUENCES, K)
-	assert float(_rows_rel_l2(ours.attr, theirs).max()) <= HYP_TOL[dtype]
+	assert float(tiny.rows_rel_l2(ours.attr, theirs).max()) <= HYP_TOL[dtype]
 
 
 @pytest.mark.parametrize("config", ["A", "B"])
@@ -149,7 +143,7 @@ def test_outputs_and_deltas_match_tangermeme(config):
 		leaf = x.clone().requires_grad_()
 		gradient, = torch.autograd.grad(wrapped(leaf)[:, 0].sum(), leaf)
 
-	rel = _rows_rel_l2(m.flatten(0, 1), gradient.repeat_interleave(K, dim=0))
+	rel = tiny.rows_rel_l2(m.flatten(0, 1), gradient.repeat_interleave(K, 0))
 	assert float(rel.min()) >= RULES_MIN
 
 
@@ -165,7 +159,7 @@ def test_results_do_not_depend_on_the_step_size(config):
 		y_ref = torch.cat([base.y_x[:, None], base.y_r], dim=1).double()
 		y = torch.cat([ours.y_x[:, None], ours.y_r], dim=1).double()
 		errs = {
-			"attr": float(_rows_rel_l2(ours.attr, base.attr).max()),
+			"attr": float(tiny.rows_rel_l2(ours.attr, base.attr).max()),
 			"deltas": float(((ours.deltas - base.deltas).abs()
 				/ _dy(base).clamp_min(1)).max()),
 			"y": float(((y - y_ref).abs() / y_ref.abs().clamp_min(1)).max()),

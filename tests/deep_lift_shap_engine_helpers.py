@@ -48,9 +48,6 @@ import torch
 from tangermeme.ersatz import dinucleotide_shuffle
 
 from cherimoya import Cherimoya
-from cherimoya import ControlWrapper
-from cherimoya import LogCountWrapper
-from cherimoya import ProfileWrapper
 from cherimoya.deep_lift_shap import attribution_ops
 
 
@@ -80,10 +77,6 @@ CONFIGS = {
 }
 
 N_RANDOM, N_AT_RICH = 12, 1
-
-
-def _config(config):
-	return CONFIGS[config] if isinstance(config, str) else config
 
 
 def redraw_weights(model, seed):
@@ -117,7 +110,7 @@ def tiny_model(config="A", seed=0, dtype=torch.float32):
 	"""A tiny Cherimoya with redrawn weights: float32, or float64 with
 	`enable_float64` applied."""
 
-	cfg = _config(config)
+	cfg = CONFIGS[config]
 	model = Cherimoya(n_filters=cfg.n_filters, n_layers=cfg.n_layers,
 		signal_groups=list(cfg.signal_groups),
 		n_control_tracks=cfg.n_control_tracks, expansion=cfg.expansion,
@@ -179,7 +172,7 @@ def sequences(config, seed=0):
 	"""12 random sequences, then 1 AT-rich one, int8 (13, 4, L), at the
 	config's length."""
 
-	length = _config(config).length
+	length = CONFIGS[config].length
 	return torch.cat([random_onehot(N_RANDOM, length, seed=seed),
 		at_rich_onehot(N_AT_RICH, length, seed=seed + 1)])
 
@@ -238,18 +231,11 @@ def random_references(X, k, seed=0):
 		length).float()
 
 
-def wrapper(model, output="logcounts", group=0):
-	"""The module `cherimoya attribute` attributes."""
+def rows_rel_l2(a, b):
+	"""||a - b|| / ||b|| for each row, in float64."""
 
-	inner = ControlWrapper(model)
-	if output == "logcounts":
-		return LogCountWrapper(inner, group=group)
-
-	if output == "profile":
-		return ProfileWrapper(inner, group=group)
-
-	raise ValueError("output must be logcounts or profile, got {!r}".format(
-		output))
+	a, b = a.double().flatten(1), b.double().flatten(1)
+	return (a - b).norm(dim=1) / b.norm(dim=1).clamp_min(1e-30)
 
 
 def oracle(model, X, references, dtype, raw_outputs=False, batch_size=7):

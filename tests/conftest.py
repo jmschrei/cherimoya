@@ -46,3 +46,28 @@ def pytest_collection_modifyitems(config, items):
 			item.add_marker(skip_cuda)
 		if "triton" in item.keywords and not _has_triton():
 			item.add_marker(skip_triton)
+
+
+@pytest.fixture
+def forced(monkeypatch):
+	"""`cherimoya.deep_lift_shap.deep_lift_shap` takes the fast path for any
+	job, however quick, where it applies."""
+
+	monkeypatch.setattr("cherimoya.deep_lift_shap._FAST_MIN_SECONDS", 0.0)
+
+
+@pytest.fixture
+def engines(monkeypatch):
+	"""The fast-path engines `cherimoya.deep_lift_shap.deep_lift_shap`
+	builds, in order."""
+
+	from cherimoya._deep_lift_shap_engine import Engine
+
+	built = []
+
+	def counting(*args, **kwargs):
+		built.append(Engine(*args, **kwargs))
+		return built[-1]
+
+	monkeypatch.setattr("cherimoya.deep_lift_shap.Engine", counting)
+	return built

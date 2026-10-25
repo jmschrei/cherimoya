@@ -18,6 +18,7 @@ from tangermeme.ersatz import dinucleotide_shuffle
 
 from cherimoya._deep_lift_shap_engine import Engine
 from cherimoya.deep_lift_shap import _agreement
+from cherimoya.deep_lift_shap import _make_wrapper
 from cherimoya.deep_lift_shap import attribution_ops
 from cherimoya.deep_lift_shap import deep_lift_shap
 
@@ -26,23 +27,6 @@ from . import deep_lift_shap_engine_helpers as tiny
 
 K = 3
 REL_L2_MAX = 1e-5
-
-
-@pytest.fixture
-def forced(monkeypatch):
-	monkeypatch.setattr("cherimoya.deep_lift_shap._FAST_MIN_SECONDS", 0.0)
-
-
-@pytest.fixture
-def engines(monkeypatch):
-	built = []
-
-	def counting(*args, **kwargs):
-		built.append(Engine(*args, **kwargs))
-		return built[-1]
-
-	monkeypatch.setattr("cherimoya.deep_lift_shap.Engine", counting)
-	return built
 
 
 @pytest.fixture(scope="module")
@@ -65,14 +49,10 @@ def _ours(model, X, **kwargs):
 def _stock(model, X, output="logcounts", group=0, hypothetical=False,
 	references=dinucleotide_shuffle):
 	return tangermeme.deep_lift_shap.deep_lift_shap(
-		tiny.wrapper(model, output, group), X, n_shuffles=K,
+		_make_wrapper(model, output, group), X, n_shuffles=K,
 		references=references, random_state=0, hypothetical=hypothetical,
 		warning_threshold=float("inf"),
 		additional_nonlinear_ops=attribution_ops(), device="cpu")
-
-
-def _rows_rel_l2(a, b):
-	return _agreement(a, b)[1]
 
 
 class _NotCherimoya(torch.nn.Module):
@@ -112,7 +92,7 @@ def test_the_fast_path_agrees_with_the_default_path(model, X, forced, engines,
 		fast=False)
 	assert ours.shape == theirs.shape == X.shape
 	assert ours.dtype == theirs.dtype == torch.float32
-	assert _rows_rel_l2(ours, theirs) <= REL_L2_MAX
+	assert _agreement(ours, theirs)[1] <= REL_L2_MAX
 	if not hypothetical:
 		assert bool((ours[X == 0] == 0).all())
 
@@ -160,8 +140,8 @@ def test_given_references_reach_both_paths(model, X, forced, engines):
 	ours = _ours(model, X, references=references)
 	assert len(engines) == 1
 	theirs = _ours(model, X, references=references, fast=False)
-	assert _rows_rel_l2(ours, theirs) <= REL_L2_MAX
-	assert _rows_rel_l2(ours, _ours(model, X, fast=False)) > 1e-3
+	assert _agreement(ours, theirs)[1] <= REL_L2_MAX
+	assert _agreement(ours, _ours(model, X, fast=False))[1] > 1e-3
 
 
 def test_random_state_none_draws_one_seed(model, X, forced, engines):

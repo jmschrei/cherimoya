@@ -19,10 +19,10 @@ import json
 
 import numpy
 import pytest
+import torch
 
 from pathlib import Path
 
-from cherimoya._deep_lift_shap_engine import Engine
 from cherimoya_cli.commands import attribute
 from cherimoya_cli.defaults import default_attribute_parameters
 from cherimoya_cli.defaults import default_pipeline_parameters
@@ -76,23 +76,6 @@ def inputs(tmp_path_factory):
 	return {"fasta": str(fasta), "loci": str(loci), "model": str(model)}
 
 
-@pytest.fixture
-def forced(monkeypatch):
-	monkeypatch.setattr("cherimoya.deep_lift_shap._FAST_MIN_SECONDS", 0.0)
-
-
-@pytest.fixture
-def engines(monkeypatch):
-	built = []
-
-	def counting(*args, **kwargs):
-		built.append(Engine(*args, **kwargs))
-		return built[-1]
-
-	monkeypatch.setattr("cherimoya.deep_lift_shap.Engine", counting)
-	return built
-
-
 def write_params(inputs, out_dir, name, **overrides):
 	"""An attribute JSON for the synthetic inputs, writing
 	<out_dir>/<name>.{ohe.npz,attr.npz,idx.npy}."""
@@ -136,13 +119,6 @@ def run(path):
 	return out
 
 
-def per_locus_rel_l2(a, b):
-	a = a.astype(numpy.float64).reshape(len(a), -1)
-	b = b.astype(numpy.float64).reshape(len(b), -1)
-	return numpy.linalg.norm(a - b, axis=1) / numpy.maximum(
-		numpy.linalg.norm(b, axis=1), 1e-30)
-
-
 ##
 
 
@@ -166,7 +142,8 @@ def test_the_fast_path_writes_the_default_paths_files(inputs, tmp_path, forced,
 	assert numpy.array_equal(ours["idx"], KEPT)
 	assert ours["attr"].dtype == default["attr"].dtype == numpy.float32
 	assert ours["attr"].shape == default["attr"].shape
-	assert per_locus_rel_l2(ours["attr"], default["attr"]).max() <= REL_L2_MAX
+	assert float(tiny.rows_rel_l2(torch.from_numpy(ours["attr"]),
+		torch.from_numpy(default["attr"])).max()) <= REL_L2_MAX
 
 
 @pytest.mark.parametrize("value", ["yes", 1])

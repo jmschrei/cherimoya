@@ -83,17 +83,12 @@ def _engine(config, dtype=torch.float32, eager=False, **kwargs):
 	return engine
 
 
-def _rows_rel_l2(a, b):
-	a, b = a.double().flatten(1), b.double().flatten(1)
-	return (a - b).norm(dim=1) / b.norm(dim=1).clamp_min(1e-30)
-
-
 def _inaccurate(name, attr, truth):
 	"""The violations of the accuracy bounds, each sequence's relative L2
 	distance from the truth at most `ACCURACY_MEDIAN` at the median and
 	`ACCURACY_MAX` at the max."""
 
-	r = _rows_rel_l2(attr, truth)
+	r = tiny.rows_rel_l2(attr, truth)
 	median, largest = float(r.median()), float(r.max())
 	if median <= ACCURACY_MEDIAN and largest <= ACCURACY_MAX:
 		return []
@@ -194,7 +189,7 @@ def test_a_run_at_the_default_size(dynamo_enabled):
 	for name in ("y_x", "y_r"):
 		assert torch.equal(getattr(first, name), getattr(second, name))
 
-	assert float(_rows_rel_l2(second.attr, first.attr).max()) <= RERUN_MAX
+	assert float(tiny.rows_rel_l2(second.attr, first.attr).max()) <= RERUN_MAX
 	assert bool(torch.isfinite(first.attr).all())
 
 
