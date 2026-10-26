@@ -1,77 +1,46 @@
 Changelog
 =========
 
-v0.3.1 (unreleased)
--------------------
+v0.3.1
+------
 
 Attribution
 ~~~~~~~~~~~
 
 * :func:`cherimoya.deep_lift_shap.deep_lift_shap` computes DeepLIFT/SHAP
-  attributions of a Cherimoya model's log-counts or profile from the model
-  itself, and ``cherimoya attribute`` calls it. It wraps the model and
-  registers Cherimoya's DeepLIFT rule, which a call to tangermeme's
-  ``deep_lift_shap`` needs by hand, and for the log-counts in float32 it
-  takes a fast path by default (``fast=True``, ``"fast": true`` in
-  ``cherimoya attribute``). The fast path computes what tangermeme's
-  ``deep_lift_shap`` computes, up to floating-point rounding: the same
-  rules, the same dinucleotide-shuffled references with the same seeds,
-  and the same hypothetical projection, each called from tangermeme
-  (``tangermeme >= 1.6.0``). It forwards each sequence once rather than
-  once per reference, runs the backward over the sequence half of each
-  pair only, and compiles its passes on a GPU. On an H200, with 1,000
-  peaks of 2,114 bp and 20 shuffles each, it attributed 7,753
-  sequence-reference pairs per second at steady state with a 128-filter,
-  9-layer model, against 986 to 999 for tangermeme's ``deep_lift_shap``
-  at a ``batch_size`` of 64 after its first call, and 1,458 against 197
-  with a 512-filter model. A job that tangermeme's path would finish in
-  under thirty seconds stays on it, and a job that takes the fast path is
-  checked against tangermeme's on its first four sequences and falls back
-  to it, with a ``RuntimeWarning``, when the two disagree. Log-count
-  attributions from jobs that take the fast path therefore differ from
-  before by floating-point rounding; ``"fast": false`` gives tangermeme's.
-  The profile and saturation mutagenesis are unchanged. Thanks @emattei!
+  attributions of a Cherimoya model with Cherimoya's DeepLIFT rule
+  registered, and ``cherimoya attribute`` calls it. For the log-counts in
+  float32 it takes a fast path by default, 7 to 8 times faster than
+  tangermeme's ``deep_lift_shap`` on an H200. Its attributions differ
+  from tangermeme's by floating-point rounding; ``fast=False``
+  (``"fast": false`` in ``cherimoya attribute``) gives tangermeme's.
+  cherimoya now requires ``tangermeme >= 1.6.0``. Thanks @emattei!
 
-* The ``output`` of ``cherimoya attribute`` that attributes the
-  log-counts, through :class:`cherimoya.LogCountWrapper`, is
-  ``"logcounts"`` rather than ``"counts"``, the value
-  :func:`cherimoya.deep_lift_shap.deep_lift_shap` takes. The wrapper
-  returns log-counts, which ``"counts"`` did not say and which
-  :class:`cherimoya.ExpectedCountsWrapper`, the wrapper that does return
-  counts, made easy to confuse. ``"counts"`` still works, with a
-  ``FutureWarning``, and will be removed in cherimoya 0.7.0.
+* The log-counts ``output`` of ``cherimoya attribute`` is
+  ``"logcounts"`` rather than ``"counts"``, since
+  :class:`cherimoya.LogCountWrapper` returns log-counts. ``"counts"``
+  still works, with a ``FutureWarning``, and will be removed in
+  cherimoya 0.7.0.
 
 CLI and pipeline
 ~~~~~~~~~~~~~~~~
 
 * The pipeline converts SAM/BAM and fragment files to bigWigs with
-  ``figwig bam2bw`` instead of ``bam2bw``, and the dependency is
-  ``figwig[bam2bw]>=0.1.0`` in place of ``bam2bw>=0.4.1``. ``figwig
-  bam2bw`` takes bam2bw's arguments and writes the same bigWig entries,
-  and reads local BAM and BED/tsv files faster: figwig's benchmarks give
-  4.65 s against bam2bw 0.5.1's 58.48 s on a 2.4 GB ATAC-seq BAM at
-  ``-p 2``.
+  ``figwig bam2bw``, which takes bam2bw's arguments and writes the same
+  bigWig entries, and the dependency ``bam2bw>=0.4.1`` is replaced by
+  ``figwig[bam2bw]>=0.1.0``. figwig's benchmarks convert a 2.4 GB
+  ATAC-seq BAM in 4.65 s against bam2bw's 58.48 s at ``-p 2``.
 
 * ``preprocessing_parameters.n_jobs``, 8 by default, is the number of
-  cores the conversion runs on. The pipeline passed ``-p -1`` to bam2bw,
-  where it meant one process per input file. figwig's ``-p`` is a
-  number of cores, so ``-1`` would take every CPU of the machine, and
-  figwig's benchmarks show no gain past 8 threads on that BAM (1.74 s at
-  8, 1.82 s at 32).
+  cores the conversion runs on. It replaces the ``-p -1`` passed to
+  bam2bw, which figwig would read as every CPU of the machine.
 
 * ``fit_parameters.num_threads``, 4 by default, is the number of threads
-  PyTorch gives CPU operations in each process ``cherimoya fit`` runs,
-  set before any data is loaded; ``null`` keeps PyTorch's default of one
-  per physical core. A GPU fit does little CPU work in that process,
-  loading the data and computing the validation measures each epoch, and
-  at the default that work ran on every core. On a 256-CPU machine (128
-  threads) the validation measures for 23,139 loci took 0.87 s and 104
-  CPU s per epoch, against 0.12 s and 0.43 CPU s at 4 threads. Two
-  3-epoch fits of the default model at the default used 1,070 and 2,861
-  CPU s, and two at 4 threads used 571 and 496, and every epoch after
-  the first took 35 s in all four. The DataLoader workers were not the cause: PyTorch runs each
-  of them on one thread. Training on the CPU needs more than 4 threads;
-  raise ``num_threads`` or set it to ``null``.
+  PyTorch uses for CPU operations in each process ``cherimoya fit`` runs.
+  At PyTorch's default of one per physical core, a GPU fit's validation
+  measures took 104 CPU s per epoch on a 256-CPU machine, against 0.43 at
+  4 threads. Training on the CPU needs more than 4 threads; raise
+  ``num_threads`` or set it to ``null``.
 
 Documentation
 ~~~~~~~~~~~~~
