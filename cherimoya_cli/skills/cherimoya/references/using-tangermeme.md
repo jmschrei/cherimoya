@@ -70,8 +70,20 @@ X_attr = deep_lift_shap(model, X, output="logcounts", group=0,
     hypothetical=True, random_state=0)   # output="profile" for shape
 ```
 
+For PISA, the DeepLIFT/SHAP attributions of every profile position, call
+`cherimoya.pisa.pisa` the same way. It attributes one profile channel's logits
+(`channel`, an index into the `sum(signal_groups)` channels) and also has a fast
+path. The result is `(n, out_length, 4, length)`, 34 MB per 2,114 bp sequence
+with a 9-layer model:
+
+```python
+from cherimoya.pisa import pisa
+
+X_pisa = pisa(model, X, channel=0, random_state=0)
+```
+
 Calling tangermeme's functions directly is still right for the rest (ISM,
-`pisa`, variant effects, design). Those that run DeepLIFT need the rule below.
+variant effects, design). Those that run DeepLIFT need the rule below.
 
 ## tangermeme's DeepLIFT needs `attribution_ops()` registered
 

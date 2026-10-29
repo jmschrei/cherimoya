@@ -22,6 +22,8 @@ Repository layout
    │   ├── wrappers.py             # Control / profile / count output wrappers
    │   ├── deep_lift_shap.py       # deep_lift_shap and the DeepLIFT rules
    │   ├── _deep_lift_shap_engine.py  # The fast DeepLIFT/SHAP path for the log-counts
+   │   ├── pisa.py                 # pisa, PISA of the profile logits
+   │   ├── _pisa_engine.py         # The fast PISA path
    │   └── performance.py          # Evaluation metrics
    ├── cherimoya_cli/              # The CLI entry-point package
    │   ├── __main__.py             # Argparse driver and subcommand registry
@@ -74,6 +76,7 @@ Explicitly:
   :func:`~cherimoya.performance.calculate_performance_measures` and
   its component metrics, :func:`~cherimoya.deep_lift_shap.deep_lift_shap`,
   :func:`~cherimoya.deep_lift_shap.attribution_ops`,
+  :func:`~cherimoya.pisa.pisa`,
   :func:`~cherimoya.losses._mixture_loss`
   (despite the underscore — it is the trainer's loss function and
   the API is stable).
@@ -200,6 +203,25 @@ the ``cherimoya`` CLI:
      - The engine on a GPU: its CUDA passes against the CPU path and its
        compiled passes against eager ones, both against float64; a run
        at the default model's size, for what compiles, the host
+       synchronizations and the memory; recovery from running out of
+       memory.
+   * - ``tests/test_pisa_engine.py``
+     - The fast PISA engine against tangermeme's ``pisa`` on small
+       models, with five kinds of references, one of them drawn by each
+       side: hypothetical attributions at every output position, the
+       references, outputs, convergence deltas, chunk-size invariance,
+       and its convergence warning.
+   * - ``tests/test_pisa_paths.py``
+     - :func:`~cherimoya.pisa.pisa`'s choice between tangermeme's
+       ``pisa`` and the fast path: ``fast=False`` against tangermeme bit
+       for bit, the fast path against it within rounding, a stranded
+       channel with a control track, what takes tangermeme's path, the
+       check of the whole input and of ``channel``, and the fallback when
+       the fast path disagrees or raises.
+   * - ``tests/test_pisa_engine_cuda.py``
+     - The PISA engine on a GPU: its CUDA passes against the CPU path and
+       its compiled passes against eager ones, both against float64; a
+       run at the default model's size, for what compiles, the host
        synchronizations and the memory; recovery from running out of
        memory.
    * - ``tests/test_utils.py``

@@ -142,6 +142,7 @@ measured numbers.
    api/cheri
    api/wrappers
    api/deep_lift_shap
+   api/pisa
    api/io
    api/losses
    api/performance

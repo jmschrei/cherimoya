@@ -20,6 +20,9 @@ list is in the docs' development page):
 - `deep_lift_shap`, imported from `cherimoya.deep_lift_shap`: DeepLIFT/SHAP
   attributions of a Cherimoya model's log-counts or profile (see
   `references/using-tangermeme.md`).
+- `pisa`, imported from `cherimoya.pisa`: PISA attributions of one profile
+  channel's logits at every output position (see
+  `references/using-tangermeme.md`).
 - `attribution_ops`, imported from `cherimoya.deep_lift_shap`, which a
   tangermeme DeepLIFT call on a Cherimoya model passes as
   `additional_nonlinear_ops`.
