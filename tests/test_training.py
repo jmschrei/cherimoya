@@ -558,25 +558,27 @@ def test_validation_shards_cover_every_row_once(n, world_size):
 
 
 @pytest.mark.parametrize("world_size,expected", [(1, True), (2, False)])
-def test_setup_turns_off_dynamo_ddp_graph_splitting_under_ddp(monkeypatch,
-	world_size, expected):
+def test_setup_turns_off_dynamo_ddp_graph_splitting_under_ddp(world_size,
+	expected):
 	"""Under DDP, torch.compile splits the graph at DDP's gradient buckets
 	(`torch._dynamo.config.optimize_ddp`). With the model's CUDA-graph
 	compile mode, that path failed when one rank recompiled for a
 	validation batch of its own size, and the other ranks waited on it until
 	the NCCL timeout. Training on several devices turns it off; one device
-	leaves the setting alone."""
+	leaves the setting alone.
+
+	The setting is patched with torch's own `config.patch`: since pytest
+	9.2.0, `monkeypatch.undo()` deletes a setting that the config module
+	serves from `__getattr__` rather than restoring it."""
 
 	import torch._dynamo
-
-	monkeypatch.setattr(torch._dynamo.config, "optimize_ddp", True)
 
 	training_data, X_valid, y_valid, _ = _data([1], 4)
 	module = CherimoyaModule(_model([1]), training_data, X_valid, y_valid)
 	module._trainer = _fake_trainer(world_size)
-	module.setup("fit")
-
-	assert torch._dynamo.config.optimize_ddp is expected
+	with torch._dynamo.config.patch(optimize_ddp=True):
+		module.setup("fit")
+		assert torch._dynamo.config.optimize_ddp is expected
 
 
 def _fake_trainer(world_size, rank_zero_value=None):
