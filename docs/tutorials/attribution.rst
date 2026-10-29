@@ -234,6 +234,124 @@ difference between the outputs of the sequences and their references,
 where tangermeme's ``deep_lift_shap`` makes both checks once per batch.
 
 
+PISA: attributions of every profile position
+--------------------------------------------
+
+PISA (pairwise influence by sequence attribution) runs DeepLIFT/SHAP once
+for every output position, which gives the attributions of the prediction
+at each position to every input nucleotide.
+:func:`~cherimoya.pisa.pisa` attributes the profile logits of one
+channel, as the model returns them before any softmax, with zero control
+tracks and Cherimoya's DeepLIFT rule registered:
+
+.. code-block:: python
+
+   from cherimoya.pisa import pisa
+
+   model = Cherimoya.load("my_model.torch", device="cuda", compile=False)
+   X_attr = pisa(model, X, channel=0, random_state=0)
+
+``X_attr`` has shape ``(n_examples, out_length, 4, window)``, where
+``out_length`` is ``window - 2 * model.trimming``, the length of the
+predicted profile, and ``X_attr[i, j]`` holds the attributions of the
+logit at input position ``j + model.trimming``. That is 34 MB per
+sequence in float32 for a 2,114 bp window and a 9-layer model. ``channel``
+indexes the ``sum(signal_groups)`` profile channels, so the two strands of
+a stranded group take two calls.
+
+Like :func:`~cherimoya.deep_lift_shap.deep_lift_shap`, it takes a fast path
+where it can, with tangermeme's rules and references and the forward and
+rules of the log-counts' fast path. For every reference of a sequence,
+tangermeme's ``pisa`` forwards ``batch_size`` copies of the sequence and of
+the reference, and runs a backward over both halves of that batch for
+every ``batch_size`` output positions. The fast path:
+
+* forwards each sequence once, together with its references;
+* computes the terms of each rule that depend only on the activations, the
+  rescale rule's multiplier at each GELU and the normalization rule's
+  terms, once per sequence-reference pair, and shares them between all
+  output positions;
+* runs the backward over the sequence half of each pair only, for a chunk
+  of output positions at once, sized from the memory free on the GPU.
+
+**When it is used.** The fast path applies to a Cherimoya model with
+float32 parameters, with dinucleotide-shuffled references or references
+passed in. Other reference functions and jobs of two sequences or fewer
+take tangermeme's ``pisa``. Where the fast path applies, every sequence is
+checked first as tangermeme checks its input. Then the first two
+sequences are attributed with tangermeme's ``pisa``, and the second of them
+is timed. A job that would take tangermeme's path less than thirty seconds
+at that rate stays on it. Otherwise the fast path attributes every
+sequence and is checked against those first two with the bounds of the
+log-counts' fast path, and falls back to tangermeme's ``pisa`` with a
+``RuntimeWarning`` when they disagree or the fast path raises. On a GPU,
+the fast path's first call in a process compiles its passes: in our
+measurements on an H200, a first call took 8 to 15 seconds longer than a
+second one with warm compile caches, and 41 to 48 seconds longer the
+first time a model's width was compiled.
+
+**How close the two paths are.** On the CPU the tests hold the fast path
+to tangermeme's ``pisa`` on small models, with the same references: the
+attributions of every sequence at every output position agree to a
+relative L2 distance of 1e-9 in float64 and 1e-5 in float32. On a GPU both
+paths compute float32 matrix products in TF32. On an H200, with a trained
+128-filter model, the attributions of two peaks by the two paths were a
+relative L2 distance of 6.2e-5 and 6.4e-5 apart. Over 3 peaks with 20
+references each, the two paths were as far from float64 as each other
+(median relative L2 distance per sequence):
+
+.. list-table::
+   :header-rows: 1
+
+   * - model
+     - fast path
+     - tangermeme's ``pisa``
+   * - 64 filters
+     - 1.5e-4
+     - 1.7e-4
+   * - 128 filters
+     - 2.2e-4
+     - 2.2e-4
+   * - 128 filters, stranded, 2 control tracks
+     - 6.1e-4
+     - 6.1e-4
+   * - 256 filters
+     - 1.4e-4
+     - 1.4e-4
+
+**Speed.** On an H200, with 2,114 bp peaks, 20 shuffles each and 1,000
+output positions, in seconds per peak at steady state:
+
+.. list-table::
+   :header-rows: 1
+
+   * - model
+     - fast path
+     - tangermeme's ``pisa``
+   * - 64 filters
+     - 0.56
+     - 9.33
+   * - 128 filters
+     - 1.06
+     - 16.8
+   * - 128 filters, stranded, 2 control tracks
+     - 1.07
+     - 17.1
+   * - 256 filters
+     - 2.42
+     - 32.7
+   * - 512 filters, untrained
+     - 6.06
+     - 81.5
+
+**Warnings.** The fast path warns once per call when deltas exceed
+``warning_threshold``, where tangermeme's ``pisa`` warns once per chunk of
+output positions. In TF32, on one peak with 20 references, the deltas of
+both paths exceeded the default of 1e-3 for some output positions: 19
+and 20 of 20,000 with a trained 128-filter model, and 1,885 and 1,938 with
+a trained 64-filter model.
+
+
 Saturation mutagenesis instead of DeepLIFT/SHAP
 -----------------------------------------------
 

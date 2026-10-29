@@ -255,3 +255,12 @@ def oracle(model, X, references, dtype, raw_outputs=False, batch_size=7):
 			batch_size=batch_size, hypothetical=True, raw_outputs=raw_outputs,
 			additional_nonlinear_ops=attribution_ops(), dtype=dtype,
 			device="cpu")
+
+
+def pisa_references(X, k=5, random_state=0):
+	"""The references tangermeme's `pisa` draws itself, float32 (N, k, 4, L):
+	those of every sequence are ``dinucleotide_shuffle(X[e:e+1].float(),
+	n=k, random_state=random_state)``."""
+
+	return torch.stack([dinucleotide_shuffle(X[e:e + 1].float(), n=k,
+		random_state=random_state)[0] for e in range(len(X))])
