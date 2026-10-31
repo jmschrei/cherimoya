@@ -272,7 +272,31 @@ every ``batch_size`` output positions. The fast path:
   terms, once per sequence-reference pair, and shares them between all
   output positions;
 * runs the backward over the sequence half of each pair only, for a chunk
-  of output positions at once, sized from the memory free on the GPU.
+  of output positions at once, sized from the memory free on the GPU;
+* runs each output position's backward only over the input positions it
+  reaches. The normalization rule's mean and dot product reach every
+  position, but the rule is linear in the gradient, so those parts run
+  through the blocks once per sequence, and each output position adds
+  them, times its own coefficients;
+* computes the gradient at the first convolution's input once, on the
+  gradient summed over the references, when every position of every
+  reference holds at most one base: the averaged hypothetical attributions
+  are linear in each reference's multipliers except at the reference's
+  own base, which one kernel computes for each reference.
+
+On a GPU with Triton, the blocks below the top one run in Triton kernels.
+With at most 128 filters, one kernel runs each block and keeps its hidden
+gradient on chip. With 32 to 256 filters, when a chunk holds enough output
+positions, each block forms one matrix per input position, shared by every
+output position whose window covers it. Each kernel's tile sizes come from
+the GPU's shared memory per block, and a part whose kernel does not fit the
+GPU, or that Triton cannot compile, runs in PyTorch instead, with a log
+message. The blocks' kernels run only when
+``torch.backends.cuda.matmul.allow_tf32`` is on and the GPU's compute
+capability is 8.0 or above (importing ``cherimoya`` turns the flag on), and
+their matrix products then run in TF32. Otherwise the blocks run in
+PyTorch: with TF32 off, PyTorch's float32 matrix products were faster than
+the kernels' from 128 filters up.
 
 **When it is used.** The fast path applies to a Cherimoya model with
 float32 parameters, with dinucleotide-shuffled references or references
@@ -285,10 +309,10 @@ at that rate stays on it. Otherwise the fast path attributes every
 sequence and is checked against those first two with the bounds of the
 log-counts' fast path, and falls back to tangermeme's ``pisa`` with a
 ``RuntimeWarning`` when they disagree or the fast path raises. On a GPU,
-the fast path's first call in a process compiles its passes: in our
-measurements on an H200, a first call took 8 to 15 seconds longer than a
-second one with warm compile caches, and 41 to 48 seconds longer the
-first time a model's width was compiled.
+the fast path's first call in a process compiles its passes and kernels:
+in our measurements on an H200, a first call took 5 to 7 seconds longer
+than a second one with warm compile caches, and 32 to 40 seconds longer
+the first time a model's width was compiled.
 
 **How close the two paths are.** On the CPU the tests hold the fast path
 to tangermeme's ``pisa`` on small models, with the same references: the
@@ -296,9 +320,9 @@ attributions of every sequence at every output position agree to a
 relative L2 distance of 1e-9 in float64 and 1e-5 in float32. On a GPU both
 paths compute float32 matrix products in TF32. On an H200, with a trained
 128-filter model, the attributions of two peaks by the two paths were a
-relative L2 distance of 6.2e-5 and 6.4e-5 apart. Over 3 peaks with 20
-references each, the two paths were as far from float64 as each other
-(median relative L2 distance per sequence):
+relative L2 distance of 9.3e-5 and 9.4e-5 apart. Over those 2 peaks with 20
+references each, the fast path was as close to float64 as tangermeme's
+``pisa`` or closer (median relative L2 distance per sequence):
 
 .. list-table::
    :header-rows: 1
@@ -307,16 +331,16 @@ references each, the two paths were as far from float64 as each other
      - fast path
      - tangermeme's ``pisa``
    * - 64 filters
-     - 1.5e-4
+     - 1.4e-4
      - 1.7e-4
    * - 128 filters
      - 2.2e-4
      - 2.2e-4
    * - 128 filters, stranded, 2 control tracks
-     - 6.1e-4
+     - 6.0e-4
      - 6.1e-4
    * - 256 filters
-     - 1.4e-4
+     - 1.1e-4
      - 1.4e-4
 
 **Speed.** On an H200, with 2,114 bp peaks, 20 shuffles each and 1,000
@@ -329,27 +353,31 @@ output positions, in seconds per peak at steady state:
      - fast path
      - tangermeme's ``pisa``
    * - 64 filters
-     - 0.56
-     - 9.33
+     - 0.10
+     - 9.40
    * - 128 filters
-     - 1.06
-     - 16.8
+     - 0.21
+     - 17.0
    * - 128 filters, stranded, 2 control tracks
-     - 1.07
-     - 17.1
+     - 0.21
+     - 17.2
    * - 256 filters
-     - 2.42
-     - 32.7
+     - 0.55
+     - 33.0
    * - 512 filters, untrained
-     - 6.06
-     - 81.5
+     - 2.50
+     - 81.4
+
+With TF32 off, ``torch.set_float32_matmul_precision("highest")``, the fast
+path took 0.29, 0.81 and 2.39 seconds per peak with 64, 128 and 256
+filters.
 
 **Warnings.** The fast path warns once per call when deltas exceed
 ``warning_threshold``, where tangermeme's ``pisa`` warns once per chunk of
 output positions. In TF32, on one peak with 20 references, the deltas of
-both paths exceeded the default of 1e-3 for some output positions: 19
-and 20 of 20,000 with a trained 128-filter model, and 1,885 and 1,938 with
-a trained 64-filter model.
+both paths exceeded the default of 1e-3 for some output positions: the fast
+path's for 43 of 20,000 and tangermeme's for 20 with a trained 128-filter
+model, and 2,325 and 2,019 with a trained 64-filter model.
 
 
 Saturation mutagenesis instead of DeepLIFT/SHAP

@@ -13,11 +13,14 @@ Attribution
   nucleotide. It registers Cherimoya's DeepLIFT rule and feeds zero
   control tracks, which a call to tangermeme's ``pisa`` needed a
   hand-written wrapper for. For float32 models it takes a fast path by
-  default, 13 to 17 times faster than tangermeme's ``pisa`` on an H200,
-  built like the log-counts' fast path of
-  :func:`cherimoya.deep_lift_shap.deep_lift_shap`. Its attributions
-  differ from tangermeme's by floating-point rounding; ``fast=False``
-  gives tangermeme's.
+  default, 60 to 93 times faster than tangermeme's ``pisa`` on an H200
+  with 64 to 256 filters, built like the log-counts' fast path of
+  :func:`cherimoya.deep_lift_shap.deep_lift_shap`. It runs each output
+  position's backward only over the positions that output depends on,
+  and on a GPU runs the blocks in Triton kernels whose tile sizes come
+  from the GPU's shared memory, falling back to PyTorch where they do not
+  fit. Its attributions differ from tangermeme's by floating-point
+  rounding; ``fast=False`` gives tangermeme's.
 
 
 v0.3.1
