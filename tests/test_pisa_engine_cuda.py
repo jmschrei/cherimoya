@@ -124,10 +124,17 @@ def test_a_run_at_the_default_size(dynamo_enabled):
 	"""Two runs of one engine on the default architecture, 2 sequences with
 	20 references each, in chunks of 50 output positions.
 
-	* The forward, the rule terms, the backward and the epilogue compile
-	  once each, with no graph break, and not again on the second run. The 9
-	  blocks unroll into one graph each way, each with 2 cuBLAS matrix
-	  products per block, and no Triton matrix product or convolution.
+	* The forward, the rule terms, the backward, the epilogue and the dense
+	  parts' fields compile once each, with no graph break, and not again on
+	  the second run. The 9 blocks unroll into one graph each way, with no
+	  convolution: the forward with 2 cuBLAS matrix products per block, the
+	  backward with the top block's 2 cuBLAS products and one
+	  `_block_backward_kernel` launch for each block below it, and the
+	  fields with 2 cuBLAS products for each block below the top one. The
+	  only Triton matrix products are that
+	  kernel's, in TF32 when ``torch.backends.cuda.matmul.allow_tf32`` is
+	  on and in IEEE float32 when it is off (checked again on a tiny model
+	  with it off).
 	* The second run raises on any implicit host synchronization
 	  (torch.cuda.set_sync_debug_mode("error")): the host waits only on each
 	  sequence's event.
@@ -154,7 +161,7 @@ def test_a_run_at_the_default_size(dynamo_enabled):
 	with mock.patch.object(GraphLowering, "save_output_code", codes.append):
 		first = engine.run(X, R)
 
-	assert counters["stats"]["unique_graphs"] == 4
+	assert counters["stats"]["unique_graphs"] == 5
 	assert dict(counters["graph_break"]) == {}
 
 	torch.cuda.empty_cache()
@@ -168,14 +175,26 @@ def test_a_run_at_the_default_size(dynamo_enabled):
 		torch.cuda.set_sync_debug_mode(0)
 
 	peak = torch.cuda.max_memory_allocated() - before
-	assert counters["stats"]["unique_graphs"] == 4
+	assert counters["stats"]["unique_graphs"] == 5
 
-	assert len(codes) == 4
+	def launches(code):
+		return len(re.findall(r"_block_backward_kernel_\d+\.run\(", code))
+
+	def precisions(code):
+		return set(re.findall(r"'PRECISION': '(\w+)'", code)) - {"constexpr"}
+
+	assert len(codes) == 5
 	mm = [len(re.findall(r"extern_kernels\.(?:mm|bmm|addmm)\(", code))
 		for code in codes]
-	assert sorted(mm) == [0, 0, 18, 18]
+	assert sorted(zip(mm, map(launches, codes))) == [(0, 0), (0, 0), (2, 8),
+		(16, 0), (18, 0)]
+	tf32 = torch.backends.cuda.matmul.allow_tf32
 	for code in codes:
-		assert "tl.dot" not in code and "triton_tem" not in code
+		assert "triton_tem" not in code
+		assert code.count("tl.dot") == 2 * code.count(
+			"async_compile.triton('_block_backward_kernel'")
+		assert precisions(code) == ({"tf32" if tf32 else "ieee"}
+			if launches(code) else set())
 		assert not re.search(r"convolution|conv1d|cudnn", code,
 			flags=re.IGNORECASE)
 
@@ -190,6 +209,20 @@ def test_a_run_at_the_default_size(dynamo_enabled):
 	err = tiny.rows_rel_l2(second.attr.flatten(0, 1), first.attr.flatten(0, 1))
 	assert float(err.max()) <= RERUN_MAX
 	assert bool(torch.isfinite(first.attr).all())
+
+	off = []
+	previous = torch.get_float32_matmul_precision()
+	torch.set_float32_matmul_precision("highest")
+	try:
+		assert not torch.backends.cuda.matmul.allow_tf32
+		with mock.patch.object(GraphLowering, "save_output_code", off.append):
+			_engine("A").run(tiny.sequences("A")[:1])
+	finally:
+		torch.set_float32_matmul_precision(previous)
+
+	assert sorted(map(launches, off))[-1] == tiny.CONFIGS["A"].n_layers - 1
+	for code in off:
+		assert precisions(code) == ({"ieee"} if launches(code) else set())
 
 
 @pytest.mark.parametrize("at_call, calls", [(1, [8, 4, 4, 4]),
