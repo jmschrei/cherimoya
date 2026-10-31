@@ -220,8 +220,11 @@ the ``cherimoya`` CLI:
        the fast path disagrees or raises.
    * - ``tests/test_pisa_engine_cuda.py``
      - The PISA engine on a GPU: its CUDA passes against the CPU path and
-       its compiled passes against eager ones, both against float64; a
-       run at the default model's size, for what compiles, the host
+       its compiled passes against eager ones, both against float64, with
+       the blocks in PyTorch and in the Triton kernels; each kernel path
+       at the filter counts the tiny models miss; the fallback to PyTorch
+       where a kernel does not fit the GPU; when the kernels run in TF32;
+       a run at the default model's size, for what compiles, the host
        synchronizations and the memory; recovery from running out of
        memory.
    * - ``tests/test_utils.py``
