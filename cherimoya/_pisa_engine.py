@@ -121,6 +121,13 @@ in its kernel for, from the block above's terms. At 128 the kernel already
 sits at 255 registers, and the folded loads took as long as the separate
 shift kernel they replace."""
 
+IEEE_KERNELS = False
+"""Whether the blocks' kernels, `block_backward` and `position_backward`,
+also run where `use_tf32` does not hold, in IEEE float32. Off, the blocks
+run in torch there: with TF32 off the kernels ran slower than the cuBLAS
+products they replace from 128 filters up. The tests turn it on to check
+the kernels against float64."""
+
 
 class BlockTerms(NamedTuple):
 	"""What one block's backward reads for each of a sequence's K pairs,
@@ -1055,7 +1062,8 @@ def backward_pass(taps, lo, B, terms, stem, blocks, rs, tf32=None,
 	give what each one adds. Where `fused` holds and the GPU runs its kernel,
 	the blocks below the top one run in `block_backward`, which also builds
 	the gradient at each one's output from the block above's terms, in TF32
-	when `tf32` is true (None: `use_tf32`). Given tables, one
+	when `tf32` is true (None: `use_tf32`) and otherwise only where
+	`IEEE_KERNELS` is set. Given tables, one
 	`position_table` for each block below the top one, top first, those
 	blocks run in `position_backward` instead. config is the kernels'
 	settings, (`block_settings`, `position_settings`), a None for a kernel
@@ -1080,7 +1088,8 @@ def backward_pass(taps, lo, B, terms, stem, blocks, rs, tf32=None,
 		tf32 = use_tf32(taps.device)
 	if config is None:
 		config = ((block_settings(C, blocks[0].W2.shape[1], taps.device, tf32)
-			if fused(taps) and blocks else None), (position_settings(C,
+			if fused(taps) and blocks and (tf32 or IEEE_KERNELS) else None),
+			(position_settings(C,
 			blocks[0].W2.shape[1], taps.device, tf32) if tables is not None
 			else None))
 
@@ -1357,8 +1366,10 @@ class Engine:
 	  `position_settings`, `stem_settings`), so that one GPU type always
 	  sums in one order. Where none fits, or Triton compiles none, that part
 	  runs in torch: the blocks as without `block_backward` or by position,
-	  and iconv's input gradient in cuDNN for every pair. The products run
-	  in TF32 where `use_tf32` holds.
+	  and iconv's input gradient in cuDNN for every pair. The blocks'
+	  kernels run where `use_tf32` holds, with their products in TF32, and
+	  elsewhere only where `IEEE_KERNELS` is set; otherwise the blocks run
+	  in torch.
 
 
 	Parameters
@@ -1588,12 +1599,16 @@ class Engine:
 		"""The kernels' settings for the blocks on the engine's device at the
 		precision `use_tf32` gives, (`block_settings`, `position_settings`),
 		None for a kernel that does not run there or that the engine does
-		not use."""
+		not use, and both None where `use_tf32` does not hold and
+		`IEEE_KERNELS` is not set."""
 
 		if self.device.type != "cuda" or not HAS_TRITON:
 			return None, None
 
 		tf32 = use_tf32(self.device)
+		if not (tf32 or IEEE_KERNELS):
+			return None, None
+
 		return ((block_settings(self.C, self.H, self.device, tf32)
 			if fused(self.taps) else None), (position_settings(self.C, self.H,
 			self.device, tf32) if self._position else None))

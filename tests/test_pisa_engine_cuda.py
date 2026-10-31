@@ -1,6 +1,7 @@
-"""Tests of the fast PISA engine on a GPU: the accuracy of its CUDA passes,
-a run at the default model's size, and the recovery from running out of
-memory.
+"""Tests of the fast PISA engine on a GPU: the accuracy of its CUDA passes
+and of each path of the blocks' Triton kernels, the fallback to torch where
+a kernel does not fit the GPU, when the kernels run in TF32, a run at the
+default model's size, and the recovery from running out of memory.
 
 As in `test_deep_lift_shap_engine_cuda`, every fp32 path is held to the
 float64 engine on the GPU, run eagerly, within bounds on the relative L2
@@ -12,6 +13,7 @@ distance of each sequence's attributions, over all its output positions:
 it back on for this module (`dynamo_enabled`) and check that they did.
 """
 
+import logging
 import re
 
 import pytest
@@ -31,10 +33,18 @@ K = 3
 N = 4
 CHANNEL = {"A": 0, "B": 2, "C": 0}
 ACCURACY_MEDIAN, ACCURACY_MAX = 1e-4, 2e-4
+# The kernels in IEEE float32 sit within 1e-5 of float64 at the median and
+# 5e-5 at the max; a block's product off by 0.1% read 9.7e-5 at the median.
+PATH_MEDIAN, PATH_MAX = 2e-5, 1e-4
 MEMORY_FACTOR = 1.3
 RERUN_MAX = 1e-6
 REAL_K, REAL_B, REAL_PEAKS, REAL_LENGTH = 20, 50, 2, 2114
 RETAINED_MAX = 100e6
+# Tiny models that take each kernel path at a filter count configs A to C do
+# not reach: (filters, length, outputs_per_chunk, path). By position needs
+# at least `position_min_outputs` outputs per chunk.
+PATHS = [(32, 1024, None, "position"), (64, 512, None, "position"),
+	(256, 1024, None, "position"), (128, 512, 8, "block")]
 
 
 @pytest.fixture(scope="module")
@@ -79,14 +89,37 @@ def _engine(config, dtype=torch.float32, eager=False, **kwargs):
 	return engine
 
 
-def _inaccurate(name, attr, truth):
+def _path_engine(C, length, dtype=torch.float32, **kwargs):
+	"""An eager engine on a 2-layer model of C filters with redrawn weights,
+	float32 or float64, for `PATHS`."""
+
+	model = tiny.redraw_weights(Cherimoya(n_filters=C, n_layers=2,
+		compile=False, random_state=0, verbose=False), 0)
+	if dtype == torch.float64:
+		model = tiny.enable_float64(model.double())
+
+	engine = fpisa.Engine(model, device="cuda", n_shuffles=K, **kwargs)
+	engine.forward, engine.rule_terms, engine.backward, engine.epilogue = (
+		fpisa.forward_save, fpisa.rule_terms, fpisa.backward_pass,
+		fpisa.epilogue)
+	return engine
+
+
+def _spies():
+	"""Mocks that count the calls of the three kernels' wrappers."""
+
+	return {name: mock.patch.object(fpisa, name, wraps=getattr(fpisa, name))
+		for name in ("block_backward", "position_backward", "stem_backward")}
+
+
+def _inaccurate(name, attr, truth, bounds=(ACCURACY_MEDIAN, ACCURACY_MAX)):
 	"""The violations of the accuracy bounds, each sequence's relative L2
-	distance from the truth at most `ACCURACY_MEDIAN` at the median and
-	`ACCURACY_MAX` at the max."""
+	distance from the truth at most bounds[0], `ACCURACY_MEDIAN` by default,
+	at the median and bounds[1], `ACCURACY_MAX`, at the max."""
 
 	r = tiny.rows_rel_l2(attr, truth)
 	median, largest = float(r.median()), float(r.max())
-	if median <= ACCURACY_MEDIAN and largest <= ACCURACY_MAX:
+	if median <= bounds[0] and largest <= bounds[1]:
 		return []
 
 	return ["{}: median {:.3g}, max {:.3g}".format(name, median, largest)]
@@ -96,14 +129,19 @@ def _inaccurate(name, attr, truth):
 
 
 @pytest.mark.triton
+@pytest.mark.parametrize("ieee_kernels", [False, True])
 @pytest.mark.parametrize("config", list(tiny.CONFIGS))
-def test_the_cuda_passes_are_as_accurate_as_the_cpu(config, dynamo_enabled,
-	strict_fp32):
+def test_the_cuda_passes_are_as_accurate_as_the_cpu(config, ieee_kernels,
+	dynamo_enabled, strict_fp32, monkeypatch):
 	"""In strict fp32 the eager CUDA passes, the shift-add convolution and the
 	rule's statistics, and the compiled ones are within the bounds the CPU
-	path, the model's own, meets."""
+	path, the model's own, meets: with the blocks in torch, as the engine
+	runs them with TF32 off, and in the blocks' kernels in IEEE float32
+	(`IEEE_KERNELS`)."""
 
 	from torch._dynamo.utils import counters
+
+	monkeypatch.setattr(fpisa, "IEEE_KERNELS", ieee_kernels)
 
 	X = tiny.sequences(config)[:N]
 	R = tiny.pisa_references(X, K)
@@ -133,8 +171,8 @@ def test_a_run_at_the_default_size(dynamo_enabled):
 	  fields with 2 cuBLAS products for each block below the top one. The
 	  only Triton matrix products are that
 	  kernel's, in TF32 when ``torch.backends.cuda.matmul.allow_tf32`` is
-	  on and in IEEE float32 when it is off (checked again on a tiny model
-	  with it off).
+	  on. On a tiny model with it off, the blocks run in torch, and in the
+	  kernel in IEEE float32 with `IEEE_KERNELS` set.
 	* The second run raises on any implicit host synchronization
 	  (torch.cuda.set_sync_debug_mode("error")): the host waits only on each
 	  sequence's event.
@@ -210,19 +248,117 @@ def test_a_run_at_the_default_size(dynamo_enabled):
 	assert float(err.max()) <= RERUN_MAX
 	assert bool(torch.isfinite(first.attr).all())
 
-	off = []
-	previous = torch.get_float32_matmul_precision()
-	torch.set_float32_matmul_precision("highest")
-	try:
-		assert not torch.backends.cuda.matmul.allow_tf32
-		with mock.patch.object(GraphLowering, "save_output_code", off.append):
-			_engine("A").run(tiny.sequences("A")[:1])
-	finally:
-		torch.set_float32_matmul_precision(previous)
+	def tf32_off(ieee_kernels):
+		codes = []
+		previous = torch.get_float32_matmul_precision()
+		torch.set_float32_matmul_precision("highest")
+		try:
+			assert not torch.backends.cuda.matmul.allow_tf32
+			with mock.patch.object(GraphLowering, "save_output_code",
+					codes.append), mock.patch.object(fpisa, "IEEE_KERNELS",
+					ieee_kernels):
+				_engine("A").run(tiny.sequences("A")[:1])
+		finally:
+			torch.set_float32_matmul_precision(previous)
 
-	assert sorted(map(launches, off))[-1] == tiny.CONFIGS["A"].n_layers - 1
-	for code in off:
+		return codes
+
+	off = tf32_off(False)
+	assert off and sum(map(launches, off)) == 0
+	assert all(precisions(code) == set() for code in off)
+
+	ieee = tf32_off(True)
+	assert sorted(map(launches, ieee))[-1] == tiny.CONFIGS["A"].n_layers - 1
+	for code in ieee:
 		assert precisions(code) == ({"ieee"} if launches(code) else set())
+
+
+@pytest.mark.triton
+@pytest.mark.parametrize("C, length, B, path", PATHS)
+def test_each_kernel_path_is_as_accurate_as_float64(C, length, B, path,
+	strict_fp32, monkeypatch):
+	"""The blocks' kernels in IEEE float32 (`IEEE_KERNELS`), eager, at the
+	filter counts configs A to C do not reach: by position at 32, 64 and 256
+	filters, and `block_backward` at 128 filters, where it does not build
+	the gradient at a block's output itself. Each path runs and is within
+	`PATH_MEDIAN` and `PATH_MAX` of the float64 engine."""
+
+	monkeypatch.setattr(fpisa, "IEEE_KERNELS", True)
+	X = tiny.random_onehot(2, length, seed=5)
+	R = tiny.pisa_references(X, K)
+	truth = _path_engine(C, length, torch.float64).run(X, R).attr
+
+	spies = _spies()
+	with spies["block_backward"] as block, spies["position_backward"] as \
+			position, spies["stem_backward"] as stem:
+		attr = _path_engine(C, length, outputs_per_chunk=B).run(X, R).attr
+
+	assert stem.call_count > 0
+	assert (position if path == "position" else block).call_count > 0
+	assert (block if path == "position" else position).call_count == 0
+	failures = _inaccurate(path, attr, truth, (PATH_MEDIAN, PATH_MAX))
+	assert not failures, failures
+
+
+@pytest.mark.triton
+@pytest.mark.parametrize("cause", ["shared memory", "compile"])
+def test_kernels_that_do_not_fit_run_in_torch(cause, strict_fp32,
+	monkeypatch, caplog):
+	"""Where no setting of a kernel fits the GPU's 1,024 B of shared memory
+	per block, or Triton compiles none, the engine logs a warning and runs
+	that part in torch: the blocks' kernels with either cause, and the stem's
+	when Triton compiles nothing (its smallest tile needs no shared memory).
+	The attributions stay within the accuracy bounds."""
+
+	monkeypatch.setattr(fpisa, "IEEE_KERNELS", True)
+	monkeypatch.setattr(fpisa, "_SETTINGS", {})
+	if cause == "shared memory":
+		real = fpisa.device_properties
+		monkeypatch.setattr(fpisa, "device_properties",
+			lambda device: (1024, real(device)[1]))
+	else:
+		def fails(*args, **kwargs):
+			raise RuntimeError("injected by the test")
+
+		monkeypatch.setattr(fpisa, "_resources", fails)
+
+	X = tiny.sequences("C")[:N]
+	R = tiny.pisa_references(X, K)
+	truth = _engine("C", torch.float64, eager=True).run(X, R).attr
+
+	spies = _spies()
+	with caplog.at_level(logging.WARNING, logger=fpisa.__name__), \
+			spies["block_backward"] as block, spies["position_backward"] as \
+			position, spies["stem_backward"] as stem:
+		attr = _engine("C", eager=True).run(X, R).attr
+
+	assert block.call_count == 0 and position.call_count == 0
+	assert (stem.call_count == 0) == (cause == "compile")
+	assert "no setting runs on this GPU" in caplog.text
+	failures = _inaccurate("fallback", attr, truth)
+	assert not failures, failures
+
+
+@pytest.mark.triton
+def test_the_kernels_run_in_tf32_only_where_the_gpu_has_it(monkeypatch):
+	"""`use_tf32` holds only with ``torch.backends.cuda.matmul.allow_tf32``
+	on and a GPU of compute capability 8.0 or more, and where it does not,
+	the engine gives the blocks no kernel settings: they run in torch."""
+
+	monkeypatch.setattr(fpisa, "_SETTINGS", {})
+	real = fpisa.device_properties
+	previous = torch.backends.cuda.matmul.allow_tf32
+	try:
+		for allow, capability, expected in ((True, (8, 0), True), (True,
+				(9, 0), True), (True, (7, 5), False), (False, (9, 0), False)):
+			torch.backends.cuda.matmul.allow_tf32 = allow
+			monkeypatch.setattr(fpisa, "device_properties",
+				lambda device, c=capability: (real(device)[0], c))
+			assert fpisa.use_tf32("cuda") is expected
+			settings = _engine("A")._settings()
+			assert (settings[0] is not None) is expected
+	finally:
+		torch.backends.cuda.matmul.allow_tf32 = previous
 
 
 @pytest.mark.parametrize("at_call, calls", [(1, [8, 4, 4, 4]),
