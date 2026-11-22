@@ -17,6 +17,8 @@ def _validate_inputs(parameters):
 
 	import os
 
+	from cherimoya.io import _figwig_track
+
 	def _is_local(path):
 		return not path.startswith(("http://", "https://", "gs://", "s3://"))
 
@@ -29,6 +31,10 @@ def _validate_inputs(parameters):
 			for p in path:
 				_check(p, label)
 			return
+		# A track of a figwig file, "<file>.fw#<track>", needs its file.
+		track = _figwig_track(path)
+		if track is not None:
+			path = track[0]
 		if _is_local(path) and not os.path.exists(path):
 			missing.append("{}: {}".format(label, path))
 

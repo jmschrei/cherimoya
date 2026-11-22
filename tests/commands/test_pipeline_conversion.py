@@ -147,3 +147,22 @@ def test_conversion_writes_the_bigwigs_the_fit_json_names(unstranded,
 		values = read_bigwig([str(tmp_path / name) for name in signals[0]],
 			"chr1", [0], 1000)[0]
 		numpy.testing.assert_array_equal(values, expected)
+
+
+def test_figwig_tracks_pass_the_check_and_skip_conversion(tmp_path,
+		run_pipeline):
+	"""A signal named as a track of a figwig file is checked by its file, and
+	is read as it is, like a bigWig."""
+
+	(tmp_path / "tracks.fw").write_text("")
+	signals = [[str(tmp_path / "tracks.fw") + "#plus", str(tmp_path /
+		"tracks.fw") + "#minus"]]
+	assert _conversions(_run(run_pipeline, signals=signals)) == []
+	with open(tmp_path / "demo.fit.json") as handle:
+		assert json.load(handle)["signals"] == signals
+
+
+def test_a_missing_figwig_file_is_named(tmp_path, run_pipeline):
+	missing = str(tmp_path / "absent.fw")
+	with pytest.raises(FileNotFoundError, match="signals: " + missing + "$"):
+		run_pipeline(signals=[missing + "#atac"])

@@ -188,15 +188,21 @@ JSON schema (top-level keys, with defaults from
        validation and evaluation (see `cherimoya fit`_).
    * - ``signals``
      - ``null``
-     - Signal-track specification (BAM or bigWig files). Required.
+     - Signal-track specification (BAM or bigWig files, or tracks of a
+       figwig file named ``"<file>.fw#<track>"``). Required.
        Accepts either a flat list — in which case each entry is its
        own one-channel (unstranded) group — or a structured list whose
        entries are each a ``str`` (one-channel group) or a
        ``list[str]`` (multi-channel group, e.g. a stranded
        ``(+, -)`` pair). Example: ``["atac.bw",
        ["ctcf.+.bw", "ctcf.-.bw"]]`` declares one unstranded ATAC group
-       and one stranded CTCF group. See the note in
-       ``cherimoya_cli/defaults.py`` for full semantics.
+       and one stranded CTCF group. Tracks of figwig files are read
+       at the windows a bigWig of the same track is read at, and give
+       the same values: ``["atac.fw#atac_1", ["chip.fw#ctcf.+",
+       "chip.fw#ctcf.-"]]``. They cannot be mixed with bigWigs, they
+       are not converted, so ``loci`` must be given, and ``fit``'s
+       ``min_counts``/``max_counts`` are not taken with them. See the
+       note in ``cherimoya_cli/defaults.py`` for full semantics.
    * - ``controls``
      - ``null``
      - Optional list of control files. Same grouping rule as ``signals``.
@@ -419,6 +425,13 @@ Unspecified keys fall back to the fit-level defaults.
    * - ``summits``
      - ``false``
      - Center loci on narrowPeak summit column.
+   * - ``signal_dtype``
+     - ``"float32"``
+     - The dtype the training signals and controls are held in, taken
+       only when they are tracks of figwig files. ``"int16"`` holds
+       counts up to 32,767 in half the memory of float32; each batch is
+       cast to float32 on the device, and the validation set stays
+       float32.
    * - ``dtype``
      - ``"float32"``
      - Training precision, mapped to Lightning's ``"32-true"``,
@@ -837,12 +850,13 @@ JSON schema:
        columns that use negatives. The key may be left out.
    * - ``controls``
      - ``null``
-     - Optional list of control bigWigs (must match training). Same
-       grouping rule as ``signals`` below.
+     - Optional list of control bigWigs, or tracks of figwig files
+       (must match training). Same grouping rule as ``signals`` below.
    * - ``signals``
      - ``null``
-     - Signal bigWigs to score against (must match training). Accepts
-       the same flat-or-grouped form as ``fit``'s ``signals``. The
+     - Signal bigWigs, or tracks of figwig files, to score against
+       (must match training). Accepts the same flat-or-grouped form as
+       ``fit``'s ``signals``. The
        per-group count pooling used to compute count metrics is
        recovered from the loaded model's checkpoint, so passing the
        structured form is recommended but not required.

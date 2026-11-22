@@ -4,6 +4,23 @@ Changelog
 Unreleased
 ----------
 
+Data
+~~~~
+
+* ``signals`` and ``controls`` take tracks of a figwig file, named
+  ``"<file>.fw#<track>"``, in ``fit``, ``evaluate``, ``pipeline`` and
+  :func:`cherimoya.io.PeakGenerator`, in the same flat or grouped forms as
+  bigWigs. :func:`cherimoya.io.extract_loci` is tangermeme's function and
+  reads such tracks at the windows tangermeme reads a bigWig at: the
+  arrays ``fit`` builds for an organoid ATAC-seq model from a track that
+  ``figwig bam2fw`` wrote, and the ``performance.tsv`` ``evaluate`` writes,
+  are identical to those from the sample's bigWig. A figwig file holds a
+  batch's tracks in one file, 1.05 GB for 16 samples against 1.6 GB of
+  bigWigs. ``fit``'s ``signal_dtype`` (default ``"float32"``) and
+  ``PeakGenerator``'s hold the tracks' counts as ``"int16"`` in half the
+  memory, cast to float32 a batch at a time. cherimoya now requires
+  ``figwig >= 0.3.1``.
+
 Attribution
 ~~~~~~~~~~~
 

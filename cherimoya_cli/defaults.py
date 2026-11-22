@@ -23,6 +23,17 @@
 # groups. BPNet-style callers that previously passed ``["plus.bw",
 # "minus.bw"]`` as a stranded pair must update to the nested form
 # ``[["plus.bw", "minus.bw"]]`` to keep the +/- swap on RC.
+#
+# Any of these names may instead be a track of a figwig file,
+# ``"<file>.fw#<track>"``, such as those `figwig bam2fw` or `figwig bw2fw`
+# write, in the same flat or grouped forms::
+#
+#     "signals": [["ctcf.fw#ctcf.+", "ctcf.fw#ctcf.-"]]
+#
+# A track reads as a bigWig of it would, at the same windows. Signals and
+# controls must then all be figwig tracks, `fit`'s `min_counts` and
+# `max_counts` are not taken, and `fit`'s `signal_dtype` may hold counts as
+# "int16", half the memory of float32.
 
 # A note on `random_state`:
 #
@@ -92,6 +103,7 @@ default_fit_parameters = {
 	'num_workers': 1,
 	'num_threads': 4,
 	'dtype': 'float32',
+	'signal_dtype': 'float32',
 	'device': 'cuda',
 	'devices': 1,
 	'progress_bar': None,

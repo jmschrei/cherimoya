@@ -40,6 +40,11 @@ The measured coverage the model learns to predict. Two forms:
   (10x-style) need the `-f`/`fragments` flag.
 - **Coverage tracks: `.bw`, `.bigwig`** — already processed; used directly,
   conversion skipped.
+- **Tracks of a figwig file: `"<file>.fw#<track>"`** — many tracks in one
+  file, from `figwig bam2fw` or `figwig bw2fw`; read at the same windows and
+  to the same values as a bigWig of the track. Every signal and control must
+  then be a figwig track, `loci` must be given (MACS3 cannot read them), and
+  `fit` takes `"signal_dtype": "int16"` to hold counts in half the memory.
 
 Confirm with the user:
 - **Reads or fragments?** A `.bam` almost always holds **aligned reads**; a

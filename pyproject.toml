@@ -31,7 +31,7 @@ dependencies = [
     "modisco>=2.0.0",
     "tangermeme>=1.6.0",
     "macs3",
-    "figwig[bam2bw]>=0.1.0",
+    "figwig[bam2bw]>=0.3.1",
     "bpnet-lite>=1.0.0",
     "triton>=3.5.1; sys_platform == 'linux'",
     "lightning>=2.6.1",

@@ -9,7 +9,7 @@ def run(args):
 	from sklearn.metrics import average_precision_score
 	from sklearn.metrics import roc_auc_score
 	from tangermeme.io import _interleave_loci
-	from tangermeme.io import extract_loci
+	from cherimoya.io import extract_loci
 	from tangermeme.predict import predict
 
 	from cherimoya import Cherimoya

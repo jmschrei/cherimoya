@@ -443,7 +443,12 @@ class CherimoyaModule(lightning.LightningModule):
 
 	def training_step(self, batch, batch_idx):
 		X, y = batch[0].float(), batch[-2]
+		# Signals held as integer counts are cast here, on the device.
+		if not y.is_floating_point():
+			y = y.float()
 		X_ctl = batch[1] if len(batch) == 4 else None
+		if X_ctl is not None and not X_ctl.is_floating_point():
+			X_ctl = X_ctl.float()
 
 		muon, adam, lw = self.optimizers()
 		for optimizer in (muon, adam, lw):

@@ -5,7 +5,132 @@
 import numpy
 import torch
 
-from tangermeme.io import extract_loci
+from tangermeme import io as tangermeme_io
+
+
+def _figwig_track(signal):
+	"""(path, track) for a signal named as a track of a figwig file,
+	``"<file>.fw#<track>"``, or None for any other signal."""
+
+	if not isinstance(signal, str) or '#' not in signal:
+		return None
+	path, track = signal.rsplit('#', 1)
+	if not path.endswith('.fw') or len(track) == 0:
+		return None
+	return path, track
+
+
+def _read_tracks(signals, chroms, starts, width, dtype, n_jobs):
+	"""(n, len(signals), width) of the figwig tracks `signals` at the
+	windows, read file by file, as a torch tensor of `dtype`. NaN reads as
+	0, as tangermeme reads a bigWig's NaN; a figwig file holds no infinity."""
+
+	from figwig import FigWigReader
+
+	files = {}
+	for j, signal in enumerate(signals):
+		path, track = _figwig_track(signal)
+		files.setdefault(path, []).append((j, track))
+
+	out = None
+	for path, members in files.items():
+		columns = [j for j, _ in members]
+		values = FigWigReader(path).read(chroms, starts, width, tracks=[track
+			for _, track in members], dtype=dtype, n_jobs=n_jobs)
+		if values.dtype.kind == 'f':
+			numpy.nan_to_num(values, copy=False, nan=0.0)
+		if len(files) == 1 and columns == list(range(len(signals))):
+			out = values
+			break
+		if out is None:
+			out = numpy.empty((len(starts), len(signals), width), dtype=dtype)
+		out[:, columns] = values
+	return torch.from_numpy(out)
+
+
+def extract_loci(loci, sequences, signals=None, in_signals=None,
+	signal_dtype='float32', **kwargs):
+	"""`tangermeme.io.extract_loci`, which also takes signals and controls
+	named as tracks of figwig files, ``"<file>.fw#<track>"``.
+
+	Without such a signal, this is tangermeme's function. With one, every
+	signal and control must be one: tangermeme extracts the sequences and
+	keeps or drops each locus, and the tracks are then read at the windows
+	tangermeme would have read a bigWig at, so the values are those of a
+	bigWig of the same track. `min_counts`, `max_counts` and `n_loci`, which
+	choose loci by their signal, are not taken with figwig tracks, nor is an
+	output window wider than the input window, since tangermeme keeps loci
+	by the input window alone when it reads no signal.
+
+
+	Parameters
+	----------
+	loci, sequences, signals, in_signals, **kwargs
+		As `tangermeme.io.extract_loci` takes them.
+
+	signal_dtype: str or numpy.dtype, optional
+		The dtype of the figwig tracks' values, such as 'int16' to hold
+		counts in half the memory. A bigWig's values are always float32.
+		Default is 'float32'.
+
+
+	Returns
+	-------
+	As `tangermeme.io.extract_loci`.
+	"""
+
+	given = list(signals or []) + list(in_signals or [])
+	tracks = [_figwig_track(signal) for signal in given]
+	if not any(tracks):
+		if numpy.dtype(signal_dtype) != numpy.float32:
+			raise ValueError("signal_dtype is taken only with figwig tracks; "
+				"a bigWig's values are float32.")
+		return tangermeme_io.extract_loci(loci=loci, sequences=sequences,
+			signals=signals,
+			in_signals=in_signals, **kwargs)
+
+	if not all(tracks):
+		raise ValueError("Signals and controls must all be figwig tracks, "
+			"'<file>.fw#<track>', or all be something else: {}".format(given))
+	for key in ('min_counts', 'max_counts', 'n_loci'):
+		if kwargs.get(key) is not None:
+			raise ValueError("{} is not taken with figwig tracks.".format(key))
+	if kwargs.get('return_packed', False):
+		raise ValueError("return_packed is not taken with figwig tracks.")
+
+	in_window = kwargs.get('in_window', 2114)
+	out_window = kwargs.get('out_window', 1000)
+	max_jitter = kwargs.get('max_jitter', 0)
+	in_width, out_width = in_window // 2, out_window // 2
+	if signals and (out_width > in_width or out_width + out_window % 2 >
+			in_width + in_window % 2):
+		raise ValueError("An output window wider than the input window is not "
+			"taken with figwig tracks.")
+
+	return_mask = kwargs.pop('return_mask', False)
+	sequences_, mask = tangermeme_io.extract_loci(loci=loci,
+		sequences=sequences, return_mask=True, **kwargs)
+
+	# The kept loci's middles, as tangermeme's `_kept_loci` takes them.
+	frame = tangermeme_io._interleave_loci(loci, kwargs.get('chroms'),
+		summits=kwargs.get('summits', False))
+	idxs = numpy.flatnonzero(mask.numpy())
+	starts = frame['start'].to_numpy()[idxs].astype(numpy.int64)
+	ends = frame['end'].to_numpy()[idxs].astype(numpy.int64)
+	mids = starts + (ends - starts) // 2
+	chroms = frame['chrom'].to_numpy()[idxs].astype(str)
+	n_jobs = kwargs.get('n_jobs', 4)
+
+	result = [sequences_]
+	if signals:
+		result.append(_read_tracks(signals, chroms, mids - out_width - max_jitter,
+			out_window + 2 * max_jitter, signal_dtype, n_jobs))
+	if in_signals:
+		result.append(_read_tracks(in_signals, chroms, mids - in_width -
+			max_jitter, in_window + 2 * max_jitter, signal_dtype, n_jobs))
+	if return_mask:
+		result.append(mask)
+	return result[0] if len(result) == 1 else result
 
 
 def _validate_signal_groups(groups, label='signal_groups'):
@@ -485,7 +610,7 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 	negative_ratio=0.25, reverse_complement=True, shuffle=True, min_counts=None,
 	max_counts=None, summits=False, exclusion_lists=None, random_state=None,
 	pin_memory=True, num_workers=1, batch_size=64, verbose=False,
-	signal_groups=None, control_groups=None):
+	signal_groups=None, control_groups=None, signal_dtype='float32'):
 	"""This is a constructor function that handles all IO.
 
 	This function will extract signal from all signal and control files,
@@ -630,6 +755,12 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 	control_groups: list of int or None, optional
 		Same as ``signal_groups`` but for ``controls``. Default is None.
 
+	signal_dtype: str or numpy.dtype, optional
+		The dtype the signals and controls are held in, taken only when they
+		are tracks of figwig files, ``"<file>.fw#<track>"``: 'int16' holds
+		counts up to 32,767 in half the memory of float32, and the training
+		loop casts each batch to float32. Default is 'float32'.
+
 
 	Returns
 	-------
@@ -685,11 +816,18 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 	control_perm = (channel_permutation_from_groups(control_groups)
 		if control_groups else None)
 
+	# Passed on only when it is not the default, so that a bigWig's call is
+	# tangermeme's as it always was.
+	dtype_kwargs = {}
+	if numpy.dtype(signal_dtype) != numpy.float32:
+		dtype_kwargs['signal_dtype'] = signal_dtype
+
 	X_peaks = extract_loci(loci=peaks, sequences=sequences,
 		signals=signals, in_signals=controls, chroms=chroms, in_window=in_window,
 		out_window=out_window, max_jitter=max_jitter, min_counts=min_counts,
 		max_counts=max_counts, summits=summits, exclusion_lists=exclusion_lists,
-		ignore=list('QWERYUIOPSDFHJKLZXVBNM'), return_mask=True, verbose=verbose)
+		ignore=list('QWERYUIOPSDFHJKLZXVBNM'), return_mask=True, verbose=verbose,
+		**dtype_kwargs)
 
 	# Per-modality outlier filtering. The legacy code summed across
 	# every channel and the full length to get a single per-locus
@@ -705,7 +843,12 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 	outlier_idxs = torch.zeros(peak_signals.shape[0], dtype=torch.bool)
 	offset = 0
 	for g in (signal_groups if signal_groups else [peak_signals.shape[1]]):
-		group_counts = peak_signals[:, offset:offset+g].sum(dim=(1, 2))
+		# Summed as float32 whatever the signals are held in, so that integer
+		# counts give the threshold their float32 values give.
+		group_signals = peak_signals[:, offset:offset+g]
+		if not group_signals.is_floating_point():
+			group_signals = group_signals.float()
+		group_counts = group_signals.sum(dim=(1, 2))
 		group_threshold = torch.quantile(group_counts, 0.99) * 1.2
 		outlier_idxs |= group_counts > group_threshold
 		offset += g
@@ -727,7 +870,7 @@ def PeakGenerator(peaks, negatives, sequences, signals, controls=None,
 			min_counts=min_counts, max_counts=max_counts, summits=False,
 			exclusion_lists=exclusion_lists,
 			ignore=list('QWERYUIOPSDFHJKLZXVBNM'), return_mask=True,
-			verbose=verbose)
+			verbose=verbose, **dtype_kwargs)
 
 	if verbose:
 		n_filtered_peaks = len(X_peaks[-1]) - X_peaks[-1].sum() + outlier_idxs.sum()

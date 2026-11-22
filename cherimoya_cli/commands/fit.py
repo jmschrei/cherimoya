@@ -107,7 +107,7 @@ def run(args):
 	from cherimoya.training import fit
 
 	from tangermeme.io import _interleave_loci
-	from tangermeme.io import extract_loci
+	from cherimoya.io import extract_loci
 
 	from . import evaluate as evaluate_cmd
 	from ..defaults import default_fit_parameters
@@ -224,6 +224,7 @@ def run(args):
 		verbose=parameters["verbose"],
 		signal_groups=signal_groups,
 		control_groups=control_groups,
+		signal_dtype=parameters["signal_dtype"],
 	).dataset
 
 	# Centered as the training peaks are; negatives have no summit column.
